@@ -8,25 +8,42 @@
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
+  timeoutId?: NodeJS.Timeout;
 }
 
 /**
  * Simple in-memory TTL cache.
  */
-export class Cache<T> {
+export class Cache<T = unknown> {
   private store = new Map<string, CacheEntry<T>>();
+  private defaultTtlMs: number;
 
-  constructor(private defaultTtlMs: number = 60000) {}
+  constructor(defaultTtlMs: number = 60000) {
+    this.defaultTtlMs = defaultTtlMs;
+  }
 
   /**
-   * Sets a cache entry.
+   * Sets a cache entry with optional TTL.
    * @param key Cache key
    * @param value Value to cache
    * @param ttlMs Optional TTL in milliseconds
    */
   set(key: string, value: T, ttlMs?: number): void {
-    const expiresAt = Date.now() + (ttlMs ?? this.defaultTtlMs);
-    this.store.set(key, { value, expiresAt });
+    const ttl = ttlMs ?? this.defaultTtlMs;
+    const expiresAt = Date.now() + ttl;
+    
+    // Clear existing timeout if key already exists
+    const existing = this.store.get(key);
+    if (existing?.timeoutId) {
+      clearTimeout(existing.timeoutId);
+    }
+    
+    // Set auto-expiry timeout
+    const timeoutId = setTimeout(() => {
+      this.store.delete(key);
+    }, ttl);
+    
+    this.store.set(key, { value, expiresAt, timeoutId });
   }
 
   /**
@@ -34,19 +51,44 @@ export class Cache<T> {
    * @param key Cache key
    * @returns Cached value or undefined
    */
-  get(key: string): T | undefined {
-    const entry = this.store.get(key);
+  get<U = T>(key: string): U | undefined {
+    const entry = this.store.get(key) as CacheEntry<U> | undefined;
     
     if (!entry) {
       return undefined;
     }
 
     if (Date.now() > entry.expiresAt) {
-      this.store.delete(key);
+      this.invalidate(key);
       return undefined;
     }
 
     return entry.value;
+  }
+
+  /**
+   * Invalidates (removes) a cache entry.
+   * @param key Cache key
+   */
+  invalidate(key: string): void {
+    const entry = this.store.get(key);
+    if (entry?.timeoutId) {
+      clearTimeout(entry.timeoutId);
+    }
+    this.store.delete(key);
+  }
+
+  /**
+   * Clears all cache entries.
+   */
+  clear(): void {
+    // Clear all timeouts
+    for (const entry of this.store.values()) {
+      if (entry.timeoutId) {
+        clearTimeout(entry.timeoutId);
+      }
+    }
+    this.store.clear();
   }
 
   /**
@@ -59,28 +101,13 @@ export class Cache<T> {
   }
 
   /**
-   * Deletes a cache entry.
-   * @param key Cache key
-   */
-  delete(key: string): void {
-    this.store.delete(key);
-  }
-
-  /**
-   * Clears all cache entries.
-   */
-  clear(): void {
-    this.store.clear();
-  }
-
-  /**
    * Removes expired entries.
    */
   prune(): void {
     const now = Date.now();
     for (const [key, entry] of this.store.entries()) {
       if (now > entry.expiresAt) {
-        this.store.delete(key);
+        this.invalidate(key);
       }
     }
   }

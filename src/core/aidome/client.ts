@@ -2,22 +2,61 @@
  * HTTP client for AIdome API.
  */
 
-import { AIDOME_ENDPOINTS } from './endpoints';
-import { AIdomeCapabilities, HealthResponse, AIdomeModel } from './types';
+import { EndpointProfile } from '../profiles/profileTypes';
+import { Logger } from '../../util/log';
+import { AIdomeCapabilities, AIdomeProvider, AIdomeModel, AIdomeWhoAmI } from './types';
+import * as endpoints from './endpoints';
+import { Cache } from './cache';
 
 /**
  * AIdome API client for communicating with the endpoint gateway.
  */
 export class AIdomeClient {
-  constructor(private baseUrl: string, private apiKey?: string) {}
+  private baseUrl: string;
+  private authToken?: string;
+  private profileName: string;
+  private cache: Cache;
+  private logger: Logger;
+
+  constructor(profile: EndpointProfile, authToken?: string) {
+    this.baseUrl = profile.baseUrl;
+    this.authToken = authToken;
+    this.profileName = profile.name;
+    this.cache = new Cache(60000); // 60s default TTL
+    this.logger = Logger.getInstance();
+  }
 
   /**
    * Fetches capabilities from the AIdome gateway.
    * @returns Promise resolving to capabilities
    */
   async getCapabilities(): Promise<AIdomeCapabilities> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+    const cacheKey = `${this.profileName}:${endpoints.AIDOME_ENDPOINTS.CAPABILITIES}`;
+    
+    // Check cache first
+    const cached = this.cache.get<AIdomeCapabilities>(cacheKey);
+    if (cached) {
+      this.logger.debug(`Using cached capabilities for ${this.profileName}`);
+      return cached;
+    }
+    
+    // Fetch from API
+    this.logger.debug(`Fetching capabilities for ${this.profileName}`);
+    const result = await endpoints.getCapabilities(this.baseUrl, this.authToken);
+    
+    // Cache the result
+    this.cache.set(cacheKey, result);
+    
+    return result;
+  }
+
+  /**
+   * Fetches available providers from the AIdome gateway.
+   * @returns Promise resolving to array of providers
+   */
+  async getProviders(): Promise<AIdomeProvider[]> {
+    this.logger.debug(`Fetching providers for ${this.profileName}`);
+    return endpoints.getProviders(this.baseUrl, this.authToken);
   }
 
   /**
@@ -25,55 +64,34 @@ export class AIdomeClient {
    * @returns Promise resolving to array of models
    */
   async getModels(): Promise<AIdomeModel[]> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+    this.logger.debug(`Fetching models for ${this.profileName}`);
+    return endpoints.getModels(this.baseUrl, this.authToken);
   }
 
   /**
-   * Performs a health check on the AIdome gateway.
-   * @returns Promise resolving to health status
+   * Fetches WhoAmI information from the AIdome gateway.
+   * @returns Promise resolving to WhoAmI info
    */
-  async checkHealth(): Promise<HealthResponse> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+  async whoAmI(): Promise<AIdomeWhoAmI> {
+    this.logger.debug(`Fetching WhoAmI for ${this.profileName}`);
+    return endpoints.getWhoAmI(this.baseUrl, this.authToken);
   }
 
   /**
-   * Validates a configuration against the AIdome gateway.
-   * @param config Configuration to validate
-   * @returns Promise resolving to validation result
+   * Clears the cache for this client.
    */
-  async validateConfig(config: unknown): Promise<boolean> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+  clearCache(): void {
+    this.cache.clear();
+    this.logger.debug(`Cache cleared for ${this.profileName}`);
   }
 
   /**
-   * Makes an HTTP request to the AIdome gateway.
-   * @param path API path
-   * @param options Request options
-   * @returns Promise resolving to response data
+   * Invalidates a specific cache entry.
+   * @param endpointPath The endpoint path to invalidate
    */
-  private async request<T>(path: string, options?: RequestInit): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(options?.headers as Record<string, string>)
-    };
-
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
-
-    const response = await fetch(url.toString(), {
-      ...options,
-      headers
-    });
-
-    if (!response.ok) {
-      throw new Error(`AIdome API error: ${response.status} ${response.statusText}`);
-    }
-
-    return await response.json() as T;
+  invalidateCache(endpointPath: string): void {
+    const cacheKey = `${this.profileName}:${endpointPath}`;
+    this.cache.invalidate(cacheKey);
+    this.logger.debug(`Cache invalidated for ${cacheKey}`);
   }
 }
