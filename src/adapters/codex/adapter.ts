@@ -6,7 +6,7 @@ import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { detectCli } from '../../core/detection/detectCLIs';
-import { expandTilde } from '../../util/paths';
+import { getCodexConfigPath } from './codexConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { Logger } from '../../util/log';
 
@@ -26,7 +26,7 @@ export class CodexAdapter implements AssistantAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    const configPath = expandTilde('~/.codex/config.toml');
+    const configPath = getCodexConfigPath();
     let plan = createPlan(profile.id, ['openai-codex']);
 
     // Check if config file exists and back it up if it does
@@ -95,7 +95,7 @@ export class CodexAdapter implements AssistantAdapter {
 
   async verify(): Promise<VerificationResult> {
     try {
-      const configPath = expandTilde('~/.codex/config.toml');
+      const configPath = getCodexConfigPath();
       const content = await readFileSafe(configPath);
 
       if (!content) {
