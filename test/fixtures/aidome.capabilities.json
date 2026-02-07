@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "supportedDialects": [
+    "openai.chat_completions",
+    "anthropic.messages"
+  ],
+  "supportedModels": [
+    "gpt-4",
+    "gpt-3.5-turbo",
+    "claude-3-opus",
+    "claude-3-sonnet"
+  ],
+  "features": [
+    "endpoint-routing",
+    "model-translation",
+    "api-key-management"
+  ],
+  "endpoints": {
+    "chat": "/v1/chat/completions",
+    "models": "/v1/models",
+    "health": "/v1/health"
+  }
+}

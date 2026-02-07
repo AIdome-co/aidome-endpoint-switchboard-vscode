@@ -76,11 +76,19 @@ web_modules/
 
 # Next.js build output
 .next
-out
 
 # Nuxt.js build / generate output
 .nuxt
 dist
+
+# VS Code extension build output
+out/
+
+# VS Code extension package
+*.vsix
+
+# VS Code test directory
+.vscode-test/
 
 # Gatsby files
 .cache/
