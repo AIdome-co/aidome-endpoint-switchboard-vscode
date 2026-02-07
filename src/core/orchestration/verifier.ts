@@ -194,7 +194,7 @@ export class Verifier {
    */
   private supportsModelsList(dialect: string): boolean {
     // Most OpenAI-compatible dialects support /v1/models
-    const supportedDialects = ['openai', 'openai-compatible', 'azure-openai', 'anthropic-messages'];
+    const supportedDialects = ['openai.chat_completions', 'openai.responses', 'anthropic.messages'];
     return supportedDialects.includes(dialect.toLowerCase());
   }
 
