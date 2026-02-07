@@ -15,6 +15,7 @@ export function getContinueConfigDir(): string {
 
 /**
  * Gets the Continue.dev config file path.
+ * Note: Continue.dev uses JSON format for configuration.
  * @returns Config file path
  */
 export function getContinueConfigPath(): string {
