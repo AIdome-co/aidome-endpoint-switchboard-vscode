@@ -43,6 +43,8 @@ export class CodexAdapter implements AssistantAdapter {
     }
 
     // Add step to edit config file
+    // Note: wireApi 'responses' refers to OpenAI's /v1/responses API (Codex's primary dialect)
+    // as opposed to 'chat' which would use /v1/chat/completions
     plan = addStep(plan, {
       action: 'edit-config-file',
       description: `Set Codex provider to ${profile.baseUrl}`,
@@ -55,7 +57,7 @@ export class CodexAdapter implements AssistantAdapter {
         baseUrl: profile.baseUrl,
         format: 'toml',
         providerName: 'aidome',
-        wireApi: 'responses'
+        wireApi: 'responses' // OpenAI Responses API (Codex's preferred wire format)
       },
       reversible: true
     });
