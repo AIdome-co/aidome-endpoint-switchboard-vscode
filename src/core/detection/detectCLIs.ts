@@ -1,11 +1,75 @@
 /**
- * CLI tool detection by probing PATH.
+ * CLI detection using PATH probing.
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { AssistantRegistry } from '../registry/registryTypes';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * Detected CLI information.
+ */
+export interface DetectedCLI {
+  assistantKey: string;
+  command: string;
+  version?: string;
+  path?: string;
+}
+
+/**
+ * Detects installed CLI tools from registry.
+ * @param registry The assistant registry
+ * @returns Promise resolving to array of detected CLIs
+ */
+export async function detectCLIs(registry: AssistantRegistry): Promise<DetectedCLI[]> {
+  const detected: DetectedCLI[] = [];
+  const isWindows = process.platform === 'win32';
+  const whichCommand = isWindows ? 'where' : 'which';
+  
+  for (const entry of registry.assistants) {
+    const cliCommands = entry.detection.cliCommands || [];
+    
+    for (const command of cliCommands) {
+      try {
+        // Check if command exists with timeout
+        const { stdout } = await execFileAsync(whichCommand, [command], {
+          timeout: 2000,
+          encoding: 'utf8'
+        });
+        
+        const path = stdout.trim().split('\n')[0]; // Get first path on Windows
+        
+        // Try to get version
+        let version: string | undefined;
+        try {
+          const { stdout: versionOutput } = await execFileAsync(command, ['--version'], {
+            timeout: 2000,
+            encoding: 'utf8'
+          });
+          version = versionOutput.trim().split('\n')[0];
+        } catch {
+          // Version command not supported, continue without it
+        }
+        
+        detected.push({
+          assistantKey: entry.key,
+          command,
+          version,
+          path
+        });
+        
+        // Only detect once per assistant (use first matching command)
+        break;
+      } catch {
+        // Command not found, continue to next
+      }
+    }
+  }
+  
+  return detected;
+}
 
 /**
  * Checks if a CLI command exists in PATH.
@@ -15,40 +79,10 @@ const execAsync = promisify(exec);
 export async function detectCli(command: string): Promise<boolean> {
   try {
     const checkCmd = process.platform === 'win32' ? 'where' : 'which';
-    await execAsync(`${checkCmd} ${command}`);
+    const execAsync = promisify(execFile);
+    await execAsync(checkCmd, [command], { timeout: 2000 });
     return true;
   } catch {
     return false;
   }
-}
-
-/**
- * Gets CLI version if available.
- * @param command The command name
- * @param versionFlag The version flag (default: --version)
- * @returns Promise resolving to version string or undefined
- */
-export async function getCliVersion(command: string, versionFlag = '--version'): Promise<string | undefined> {
-  try {
-    const { stdout } = await execAsync(`${command} ${versionFlag}`);
-    return stdout.trim();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Detects multiple CLI tools.
- * @param commands Array of command names
- * @returns Promise resolving to array of detected commands
- */
-export async function detectClis(commands: string[]): Promise<string[]> {
-  const results = await Promise.all(
-    commands.map(async cmd => ({
-      cmd,
-      exists: await detectCli(cmd)
-    }))
-  );
-  
-  return results.filter(r => r.exists).map(r => r.cmd);
 }
