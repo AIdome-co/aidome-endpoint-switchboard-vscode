@@ -2,7 +2,7 @@
  * Rules and validation for dialect compatibility.
  */
 
-import { Dialect, DialectCompatibility } from './dialectTypes';
+import { Dialect, DialectCompatibility, DialectRule } from './dialectTypes';
 
 /**
  * Checks if two dialects are compatible.
@@ -55,4 +55,82 @@ export function getRecommendedGatewayDialect(assistantDialect: Dialect): Dialect
   
   // Otherwise return the assistant's primary dialect
   return assistantDialect;
+}
+
+/**
+ * Dialect rules mapping.
+ */
+const DIALECT_RULES: Record<Dialect, DialectRule> = {
+  'openai.chat_completions': {
+    dialect: 'openai.chat_completions',
+    requiredEndpoints: ['/v1/chat/completions'],
+    authScheme: 'bearer',
+    supportsStreaming: true,
+    requiredHeaders: {
+      'Content-Type': 'application/json'
+    }
+  },
+  'openai.responses': {
+    dialect: 'openai.responses',
+    requiredEndpoints: ['/v1/responses'],
+    authScheme: 'bearer',
+    supportsStreaming: false,
+    requiredHeaders: {
+      'Content-Type': 'application/json'
+    }
+  },
+  'anthropic.messages': {
+    dialect: 'anthropic.messages',
+    requiredEndpoints: ['/v1/messages'],
+    authScheme: 'api-key-header',
+    supportsStreaming: true,
+    requiredHeaders: {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01'
+    }
+  },
+  'google.gemini.generate_content': {
+    dialect: 'google.gemini.generate_content',
+    requiredEndpoints: ['generateContent'],
+    authScheme: 'query-param',
+    supportsStreaming: true,
+    requiredHeaders: {
+      'Content-Type': 'application/json'
+    }
+  },
+  'github.copilot': {
+    dialect: 'github.copilot',
+    requiredEndpoints: ['/v1/completions'],
+    authScheme: 'proprietary',
+    supportsStreaming: true
+  },
+  'tabnine.proprietary': {
+    dialect: 'tabnine.proprietary',
+    requiredEndpoints: ['/completions'],
+    authScheme: 'proprietary',
+    supportsStreaming: false
+  },
+  'unknown': {
+    dialect: 'unknown',
+    requiredEndpoints: [],
+    authScheme: 'bearer',
+    supportsStreaming: false
+  }
+};
+
+/**
+ * Gets the dialect rule for a specific dialect.
+ * @param dialect The dialect
+ * @returns The dialect rule
+ */
+export function getDialectRule(dialect: Dialect): DialectRule {
+  return DIALECT_RULES[dialect] || DIALECT_RULES['unknown'];
+}
+
+/**
+ * Gets all defined dialect rules.
+ * @returns Array of all dialect rules
+ */
+export function getAllDialectRules(): DialectRule[] {
+  return Object.values(DIALECT_RULES);
 }

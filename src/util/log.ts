@@ -3,6 +3,7 @@
  */
 
 import * as vscode from 'vscode';
+import { redactString } from './redact';
 
 /**
  * Log level enumeration.
@@ -67,10 +68,16 @@ export class Logger {
 
   private log(level: string, message: string, ...args: unknown[]): void {
     const timestamp = new Date().toISOString();
-    const formattedMessage = `[${timestamp}] [${level}] ${message}`;
+    let formattedMessage = `[${timestamp}] [${level}] ${message}`;
+    
+    // Redact sensitive information from message
+    formattedMessage = redactString(formattedMessage);
     
     if (args.length > 0) {
-      this.outputChannel.appendLine(`${formattedMessage} ${JSON.stringify(args)}`);
+      const argsStr = JSON.stringify(args, null, 2);
+      // Redact sensitive information from args
+      const redactedArgs = redactString(argsStr);
+      this.outputChannel.appendLine(`${formattedMessage} ${redactedArgs}`);
     } else {
       this.outputChannel.appendLine(formattedMessage);
     }
