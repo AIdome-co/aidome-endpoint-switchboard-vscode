@@ -18,7 +18,7 @@ export function getContinueConfigDir(): string {
  * @returns Config file path
  */
 export function getContinueConfigPath(): string {
-  return path.join(getContinueConfigDir(), 'config.yaml');
+  return path.join(getContinueConfigDir(), 'config.json');
 }
 
 /**
