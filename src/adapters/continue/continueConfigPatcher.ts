@@ -1,41 +1,74 @@
 /**
  * Configuration file patcher for Continue.dev.
- * Handles YAML config file modification with backup.
+ * Handles JSON config file modification with backup.
  */
+
+import { readFileSafe, writeFileAtomic, createBackup } from '../../util/fsSafe';
+import { getContinueConfigPath } from './paths';
+import { EndpointProfile } from '../../core/profiles/profileTypes';
+
+interface ContinueModel {
+  provider?: string;
+  apiBase?: string;
+  apiKey?: string;
+  model?: string;
+  [key: string]: unknown;
+}
+
+interface ContinueConfig {
+  models?: ContinueModel[];
+  [key: string]: unknown;
+}
+
+/**
+ * Gets the Continue.dev config path.
+ * @returns Config file path
+ */
+export { getContinueConfigPath };
 
 /**
  * Patches Continue.dev config file with new endpoint.
+ * @param profile Endpoint profile to configure
  * @param configPath Path to config file
- * @param endpointUrl New endpoint URL
- * @param apiKey Optional API key
  * @returns Promise resolving when complete
  */
 export async function patchContinueConfig(
-  configPath: string,
-  endpointUrl: string,
-  apiKey?: string
+  profile: EndpointProfile,
+  configPath: string
 ): Promise<void> {
-  // Skeleton implementation
-  throw new Error('Not implemented');
-}
+  const content = await readFileSafe(configPath);
+  let config: ContinueConfig;
 
-/**
- * Backs up Continue.dev config file.
- * @param configPath Path to config file
- * @returns Promise resolving to backup path
- */
-export async function backupContinueConfig(configPath: string): Promise<string> {
-  // Skeleton implementation
-  throw new Error('Not implemented');
-}
+  if (content) {
+    try {
+      config = JSON.parse(content);
+    } catch {
+      config = {};
+    }
+  } else {
+    config = {};
+  }
 
-/**
- * Restores Continue.dev config from backup.
- * @param backupPath Path to backup file
- * @param configPath Path to config file
- * @returns Promise resolving when complete
- */
-export async function restoreContinueConfig(backupPath: string, configPath: string): Promise<void> {
-  // Skeleton implementation
-  throw new Error('Not implemented');
+  if (!config.models) {
+    config.models = [];
+  }
+
+  let modelEntry = config.models.find((m) => m.apiBase === profile.baseUrl);
+  if (!modelEntry) {
+    modelEntry = config.models.find((m) => m.provider === 'openai');
+  }
+
+  if (modelEntry) {
+    modelEntry.apiBase = profile.baseUrl;
+    modelEntry.provider = 'openai';
+  } else {
+    config.models.push({
+      provider: 'openai',
+      apiBase: profile.baseUrl,
+      model: 'gpt-4'
+    });
+  }
+
+  const updated = JSON.stringify(config, null, 2);
+  await writeFileAtomic(configPath, updated);
 }
