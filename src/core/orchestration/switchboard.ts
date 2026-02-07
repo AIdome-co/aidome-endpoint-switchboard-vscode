@@ -6,63 +6,213 @@
 import * as vscode from 'vscode';
 import { AssistantRegistry } from '../registry/registryTypes';
 import { EndpointProfile } from '../profiles/profileTypes';
-import { Plan } from './planBuilder';
+import { ProfileStore } from '../profiles/profileStore';
+import { ProfileSecrets } from '../profiles/profileSecrets';
+import { Plan, createPlan, addStep, generateStepId } from './planBuilder';
+import { PlanApplier, ApplierResult } from './applier';
+import { Verifier, VerificationResult } from './verifier';
+import { detectExtensions, DetectedAssistant } from '../detection/detectExtensions';
+import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
+import { getAdapter } from '../../adapters/adapters.index';
+import { Logger } from '../../util/log';
+
+/**
+ * Combined detection results.
+ */
+export interface DetectionResults {
+  assistants: DetectedAssistant[];
+  clis: DetectedCLI[];
+}
 
 /**
  * Switchboard orchestrator for managing endpoint routing configuration.
  */
 export class Switchboard {
+  private logger: Logger;
+  private applier: PlanApplier;
+  private verifier: Verifier;
+
   constructor(
     private context: vscode.ExtensionContext,
-    private registry: AssistantRegistry
-  ) {}
-
-  /**
-   * Detects installed assistants.
-   * @returns Promise resolving to array of detected assistant keys
-   */
-  async detectInstalledAssistants(): Promise<string[]> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+    private registry: AssistantRegistry,
+    private profileStore: ProfileStore,
+    private profileSecrets: ProfileSecrets
+  ) {
+    this.logger = Logger.getInstance();
+    this.applier = new PlanApplier(context);
+    this.verifier = new Verifier();
   }
 
   /**
-   * Builds a configuration plan for a profile.
+   * Detects all installed assistants (extensions and CLIs).
+   * @returns Promise resolving to detection results
+   */
+  async detectAll(): Promise<DetectionResults> {
+    this.logger.info('Detecting installed assistants...');
+
+    // Detect extensions
+    const assistants = detectExtensions(this.registry);
+    this.logger.info(`Detected ${assistants.length} extension(s)`);
+
+    // Detect CLIs
+    const clis = await detectCLIs(this.registry);
+    this.logger.info(`Detected ${clis.length} CLI tool(s)`);
+
+    return {
+      assistants,
+      clis
+    };
+  }
+
+  /**
+   * Builds a configuration plan for a profile and specific assistants.
    * @param profile The profile to apply
    * @param assistantKeys Assistant keys to configure
    * @returns Promise resolving to the plan
    */
   async buildPlan(profile: EndpointProfile, assistantKeys: string[]): Promise<Plan> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+    this.logger.info(`Building plan for profile ${profile.name} with assistants: ${assistantKeys.join(', ')}`);
+
+    let plan = createPlan(profile.id, assistantKeys);
+
+    for (const assistantKey of assistantKeys) {
+      // Get adapter for this assistant
+      const adapter = getAdapter(assistantKey);
+      
+      if (!adapter) {
+        this.logger.warning(`No adapter found for assistant: ${assistantKey}`);
+        continue;
+      }
+
+      try {
+        // Build plan for this assistant
+        const assistantPlan = await adapter.buildPlan(profile);
+        
+        // Merge steps into main plan
+        for (const step of assistantPlan.steps) {
+          plan = addStep(plan, step);
+        }
+        
+        this.logger.info(`Added ${assistantPlan.steps.length} step(s) for ${assistantKey}`);
+      } catch (error) {
+        this.logger.error(`Failed to build plan for ${assistantKey}`, error instanceof Error ? error : undefined);
+        
+        // Add a fallback guided step
+        plan = addStep(plan, {
+          action: 'show-guided-steps',
+          description: `Manual configuration required for ${assistantKey}`,
+          assistantKey,
+          data: {
+            steps: [
+              `Adapter for ${assistantKey} encountered an error`,
+              `Please configure manually or check logs for details`
+            ]
+          },
+          reversible: false
+        });
+      }
+    }
+
+    this.logger.info(`Plan created with ${plan.steps.length} total steps`);
+    return plan;
   }
 
   /**
    * Applies a configuration plan.
    * @param plan The plan to apply
-   * @returns Promise resolving when complete
+   * @returns Promise resolving to applier result
    */
-  async applyPlan(plan: Plan): Promise<void> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+  async applyPlan(plan: Plan): Promise<ApplierResult> {
+    this.logger.info(`Applying plan ${plan.id}`);
+    
+    const result = await this.applier.applyPlan(plan);
+    
+    if (result.success) {
+      this.logger.info('Plan applied successfully');
+      
+      // Update mappings in profile store
+      for (const step of result.appliedSteps) {
+        try {
+          await this.profileStore.saveAssistantMapping({
+            assistantKey: step.assistantKey,
+            profileName: plan.profileId,
+            appliedMode: this.getAppliedMode(step.action),
+            appliedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          this.logger.error(`Failed to save mapping for ${step.assistantKey}`, error instanceof Error ? error : undefined);
+        }
+      }
+    } else {
+      this.logger.error(`Plan failed: ${result.failedSteps.length} step(s) failed`);
+    }
+    
+    return result;
   }
 
   /**
-   * Verifies current routing configuration.
-   * @returns Promise resolving to verification results
+   * Verifies all configured endpoints.
+   * @returns Promise resolving to verification results by profile ID
    */
-  async verifyRouting(): Promise<Record<string, boolean>> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+  async verifyAll(): Promise<Record<string, VerificationResult>> {
+    this.logger.info('Verifying all configured endpoints');
+
+    const profiles = await this.profileStore.getProfiles();
+    const results: Record<string, VerificationResult> = {};
+
+    for (const profile of profiles) {
+      try {
+        const result = await this.verifier.verifyEndpoint(profile, false);
+        results[profile.id] = result;
+        
+        // Update last verified timestamp
+        if (result.status === 'success') {
+          profile.lastVerified = new Date().toISOString();
+          await this.profileStore.saveProfile(profile);
+        }
+      } catch (error) {
+        this.logger.error(`Verification failed for profile ${profile.name}`, error instanceof Error ? error : undefined);
+        
+        results[profile.id] = {
+          status: 'failed',
+          checks: [{
+            name: 'verification',
+            status: 'fail',
+            message: error instanceof Error ? error.message : String(error)
+          }],
+          actionableMessage: `Verification error: ${error instanceof Error ? error.message : String(error)}`
+        };
+      }
+    }
+
+    return results;
   }
 
   /**
    * Rolls back a configuration plan.
    * @param plan The plan to roll back
-   * @returns Promise resolving when complete
    */
   async rollbackPlan(plan: Plan): Promise<void> {
-    // Skeleton implementation
-    throw new Error('Not implemented');
+    this.logger.info(`Rolling back plan ${plan.id}`);
+    await this.applier.rollbackPlan(plan);
+    this.logger.info('Rollback complete');
+  }
+
+  /**
+   * Determines applied mode from action type.
+   */
+  private getAppliedMode(action: string): 'settings' | 'configFile' | 'env' | 'guided' {
+    switch (action) {
+      case 'set-vscode-setting':
+        return 'settings';
+      case 'edit-config-file':
+        return 'configFile';
+      case 'set-env-var':
+        return 'env';
+      case 'show-guided-steps':
+        return 'guided';
+      default:
+        return 'settings';
+    }
   }
 }
