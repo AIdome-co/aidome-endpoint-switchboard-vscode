@@ -3,6 +3,16 @@
  */
 
 import { Plan } from '../core/orchestration/planBuilder';
+import { EndpointProfile } from '../core/profiles/profileTypes';
+
+/**
+ * Verification result from an assistant adapter.
+ */
+export interface VerificationResult {
+  success: boolean;
+  message: string;
+  details?: Record<string, unknown>;
+}
 
 /**
  * Assistant adapter interface.
@@ -17,11 +27,10 @@ export interface AssistantAdapter {
 
   /**
    * Builds a configuration plan for this assistant.
-   * @param endpointUrl The endpoint URL to configure
-   * @param apiKey Optional API key
+   * @param profile The endpoint profile to configure
    * @returns Promise resolving to the plan
    */
-  buildPlan(endpointUrl: string, apiKey?: string): Promise<Plan>;
+  buildPlan(profile: EndpointProfile): Promise<Plan>;
 
   /**
    * Applies configuration changes for this assistant.
@@ -32,9 +41,9 @@ export interface AssistantAdapter {
 
   /**
    * Verifies the assistant configuration.
-   * @returns Promise resolving to true if verified
+   * @returns Promise resolving to verification result
    */
-  verify(): Promise<boolean>;
+  verify(): Promise<VerificationResult>;
 
   /**
    * Gets the display name of the assistant.

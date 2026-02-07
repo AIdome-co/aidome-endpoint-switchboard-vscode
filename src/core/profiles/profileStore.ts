@@ -4,10 +4,11 @@
  */
 
 import * as vscode from 'vscode';
-import { EndpointProfile, ProfileMetadata } from './profileTypes';
+import { EndpointProfile, ProfileMetadata, AssistantMapping } from './profileTypes';
 
 const PROFILES_KEY = 'aidome.switchboard.profiles';
 const METADATA_KEY = 'aidome.switchboard.metadata';
+const MAPPINGS_KEY = 'aidome.switchboard.mappings';
 
 /**
  * Profile store for managing endpoint profiles.
@@ -21,6 +22,16 @@ export class ProfileStore {
    */
   async getProfiles(): Promise<EndpointProfile[]> {
     return this.context.globalState.get<EndpointProfile[]>(PROFILES_KEY, []);
+  }
+
+  /**
+   * Gets a profile by name.
+   * @param name The profile name
+   * @returns Promise resolving to profile or undefined
+   */
+  async getProfileByName(name: string): Promise<EndpointProfile | undefined> {
+    const profiles = await this.getProfiles();
+    return profiles.find(p => p.name === name);
   }
 
   /**
@@ -53,12 +64,25 @@ export class ProfileStore {
   }
 
   /**
+   * Gets the active profile ID.
+   * @returns Promise resolving to active profile ID or undefined
+   */
+  async getActiveProfileId(): Promise<string | undefined> {
+    const metadata = await this.getMetadata();
+    return metadata?.activeProfileId;
+  }
+
+  /**
    * Gets the active profile.
    * @returns Promise resolving to active profile or undefined
    */
   async getActiveProfile(): Promise<EndpointProfile | undefined> {
+    const profileId = await this.getActiveProfileId();
+    if (!profileId) {
+      return undefined;
+    }
     const profiles = await this.getProfiles();
-    return profiles.find(p => p.isActive);
+    return profiles.find(p => p.id === profileId);
   }
 
   /**
@@ -66,34 +90,61 @@ export class ProfileStore {
    * @param profileId The profile ID to activate
    */
   async setActiveProfile(profileId: string): Promise<void> {
-    const profiles = await this.getProfiles();
+    await this.updateMetadata(profileId);
+  }
+
+  /**
+   * Gets all assistant mappings.
+   * @returns Promise resolving to array of mappings
+   */
+  async getAssistantMappings(): Promise<AssistantMapping[]> {
+    return this.context.globalState.get<AssistantMapping[]>(MAPPINGS_KEY, []);
+  }
+
+  /**
+   * Saves an assistant mapping.
+   * @param mapping The mapping to save
+   */
+  async saveAssistantMapping(mapping: AssistantMapping): Promise<void> {
+    const mappings = await this.getAssistantMappings();
+    const index = mappings.findIndex(m => m.assistantKey === mapping.assistantKey);
     
-    for (const profile of profiles) {
-      profile.isActive = profile.id === profileId;
+    if (index >= 0) {
+      mappings[index] = mapping;
+    } else {
+      mappings.push(mapping);
     }
     
-    await this.context.globalState.update(PROFILES_KEY, profiles);
-    await this.updateMetadata();
+    await this.context.globalState.update(MAPPINGS_KEY, mappings);
+  }
+
+  /**
+   * Gets storage metadata.
+   */
+  private async getMetadata(): Promise<ProfileMetadata | undefined> {
+    return this.context.globalState.get<ProfileMetadata>(METADATA_KEY);
   }
 
   /**
    * Updates storage metadata.
    */
-  private async updateMetadata(): Promise<void> {
+  private async updateMetadata(activeProfileId?: string): Promise<void> {
+    const currentMetadata = await this.getMetadata();
     const metadata: ProfileMetadata = {
       version: '1.0.0',
       lastSync: new Date().toISOString(),
-      activeProfileId: (await this.getActiveProfile())?.id
+      activeProfileId: activeProfileId ?? currentMetadata?.activeProfileId
     };
     
     await this.context.globalState.update(METADATA_KEY, metadata);
   }
 
   /**
-   * Clears all profiles.
+   * Clears all profiles and mappings.
    */
   async clearAll(): Promise<void> {
     await this.context.globalState.update(PROFILES_KEY, undefined);
     await this.context.globalState.update(METADATA_KEY, undefined);
+    await this.context.globalState.update(MAPPINGS_KEY, undefined);
   }
 }
