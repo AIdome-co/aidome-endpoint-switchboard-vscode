@@ -1,0 +1,30 @@
+{
+  "$schemaVersion": "0.1.0",
+  "updatedAt": "2026-02-07",
+  "dialectCatalog": {
+    "openai.chat_completions": "OpenAI-style /v1/chat/completions"
+  },
+  "assistants": [
+    {
+      "key": "test-assistant",
+      "displayName": "Test Assistant",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["test.extension"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": []
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["vscode-settings"],
+        "settingKeyHints": ["test.baseUrl"],
+        "notes": ["Test assistant for fixtures"]
+      },
+      "sources": ["https://example.com"]
+    }
+  ]
+}

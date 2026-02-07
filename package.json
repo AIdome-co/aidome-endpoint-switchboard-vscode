@@ -1,0 +1,91 @@
+{
+  "name": "aidome-endpoint-switchboard",
+  "displayName": "LLM Endpoint Switchboard (by AIdome)",
+  "description": "Enterprise-grade LLM endpoint routing for VS Code AI assistants",
+  "version": "0.1.0",
+  "publisher": "aidome",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:aidome-switchboard.setupSwitchboard",
+    "onCommand:aidome-switchboard.verifyRouting",
+    "onCommand:aidome-switchboard.showModelsProviders",
+    "onCommand:aidome-switchboard.manageProfiles",
+    "onCommand:aidome-switchboard.resetSwitchboard",
+    "onCommand:aidome-switchboard.exportDiagnostics",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aidome-switchboard.setupSwitchboard",
+        "title": "Setup Endpoint Switchboard",
+        "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.verifyRouting",
+        "title": "Verify Endpoint Routing",
+        "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.showModelsProviders",
+        "title": "Show Models & Providers",
+        "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.manageProfiles",
+        "title": "Manage Profiles",
+        "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.resetSwitchboard",
+        "title": "Reset Switchboard",
+        "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.exportDiagnostics",
+        "title": "Export Diagnostics",
+        "category": "AIdome"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "test": "vitest",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.3.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidome/aidome-endpoint-switchboard-vscode"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "llm",
+    "ai",
+    "endpoint",
+    "gateway",
+    "copilot",
+    "cline",
+    "continue"
+  ]
+}

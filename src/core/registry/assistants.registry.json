@@ -1,0 +1,353 @@
+{
+  "$schemaVersion": "0.1.0",
+  "updatedAt": "2026-02-07",
+  "dialectCatalog": {
+    "openai.chat_completions": "OpenAI-style /v1/chat/completions",
+    "openai.responses": "OpenAI-style /v1/responses",
+    "anthropic.messages": "Anthropic-style /v1/messages",
+    "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
+    "github.copilot": "GitHub Copilot proprietary service APIs (not endpoint-switchable)",
+    "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server"
+  },
+  "assistants": [
+    {
+      "key": "github-copilot",
+      "displayName": "GitHub Copilot",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["GitHub.copilot", "GitHub.copilot-chat"]
+      },
+      "dialect": {
+        "primary": "github.copilot",
+        "alsoPossible": []
+      },
+      "endpointSwitching": {
+        "supported": false,
+        "tier": "C",
+        "configurationModes": ["guided-only"],
+        "notes": [
+          "Copilot does not expose a supported 'base_url' override in VS Code settings.",
+          "Support means: detect presence, explain limitation, and guide to enterprise-approved alternatives that do support custom endpoints."
+        ]
+      },
+      "sources": [
+        "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot",
+        "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat"
+      ]
+    },
+    {
+      "key": "cline",
+      "displayName": "Cline",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["saoudrizwan.claude-dev"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["in-extension-ui", "vscode-settings-scan"],
+        "settingKeyHints": [
+          "cline.*baseUrl*",
+          "cline.*openai*base*",
+          "cline.*openaiCompatible*"
+        ],
+        "notes": [
+          "Cline supports 'OpenAI Compatible' and also supports a Base URL for OpenAI provider.",
+          "Implementation should treat exact setting keys as discoverable by scanning contributes.configuration at runtime."
+        ]
+      },
+      "sources": [
+        "https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev",
+        "https://docs.cline.bot/configuration/api-providers/openai"
+      ]
+    },
+    {
+      "key": "roo-code",
+      "displayName": "Roo Code",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["RooVeterinaryInc.roo-cline"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["vscode-settings", "in-extension-ui"],
+        "settingKeyHints": [
+          "roo-cline.apiProvider",
+          "roo-cline.openAiBaseUrl",
+          "roo-cline.openAiModelId",
+          "roo-cline.useOpenRouter",
+          "roo-cline.anthropicApiKey",
+          "roo-cline.geminiApiKey"
+        ],
+        "notes": [
+          "Roo Code is a fork-family of the Cline-style agent and exposes explicit VS Code settings keys.",
+          "Exact keys may evolve; keep a scan-and-verify path."
+        ]
+      },
+      "sources": [
+        "https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline",
+        "https://docs.roocode.com/features/api-configuration",
+        "https://docs.roocode.com/features/llm-apis/openai"
+      ]
+    },
+    {
+      "key": "kilo-code",
+      "displayName": "Kilo Code",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["kilocode.kilo-code"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["vscode-settings", "in-extension-ui"],
+        "settingKeyHints": [
+          "kilocode.apiProvider",
+          "kilocode.openaiApiKey",
+          "kilocode.openaiBaseUrl",
+          "kilocode.openaiModel",
+          "kilocode.useOpenRouter",
+          "kilocode.customProviderEndpoint"
+        ],
+        "notes": [
+          "Kilo Code supports OpenAI Base URL config.",
+          "Treat settings keys as hints; confirm via contributes.configuration in the installed extension."
+        ]
+      },
+      "sources": [
+        "https://docs.naga.ac/kilo-code/extension-settings",
+        "https://docs.naga.ac/kilo-code/using-openai"
+      ]
+    },
+    {
+      "key": "continue",
+      "displayName": "Continue.dev",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["Continue.continue"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["config-file", "guided"],
+        "configFileHints": [
+          {
+            "path": "~/.continue/config.yaml",
+            "format": "yaml",
+            "fields": [
+              "models[].provider",
+              "models[].apiBase",
+              "models[].apiKey",
+              "embeddings.provider",
+              "embeddings.apiBase"
+            ]
+          }
+        ],
+        "notes": [
+          "Continue uses a user config file where OpenAI's base can be set via apiBase.",
+          "Your extension should back up the file and edit via YAML-aware tooling."
+        ]
+      },
+      "sources": [
+        "https://docs.continue.dev/customize/model-providers/more/openai-compatible"
+      ]
+    },
+    {
+      "key": "claude-code",
+      "displayName": "Claude Code",
+      "kind": "vscode-extension+cli",
+      "detection": {
+        "vscodeExtensionIds": ["anthropic.claude-code"],
+        "cliCommands": ["claude"]
+      },
+      "dialect": {
+        "primary": "anthropic.messages",
+        "alsoPossible": ["openai.chat_completions"]
+      },
+      "endpointSwitching": {
+        "supported": "partially",
+        "tier": "C",
+        "preferredGatewayFrontDoor": "anthropic.messages",
+        "configurationModes": ["env-vars", "guided"],
+        "envVarHints": [
+          "ANTHROPIC_API_KEY",
+          "HTTPS_PROXY",
+          "HTTP_PROXY"
+        ],
+        "notes": [
+          "Official docs do NOT clearly document an Anthropic 'BASE_URL' override.",
+          "If AIdome ever offers an explicit forward-proxy mode, HTTPS_PROXY becomes a viable routing lever."
+        ]
+      },
+      "sources": [
+        "https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code",
+        "https://docs.anthropic.com/en/docs/claude-code/settings"
+      ]
+    },
+    {
+      "key": "openai-codex",
+      "displayName": "OpenAI Codex (CLI / IDE)",
+      "kind": "cli",
+      "detection": {
+        "cliCommands": ["codex"]
+      },
+      "dialect": {
+        "primary": "openai.responses",
+        "alsoPossible": ["openai.chat_completions"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.responses",
+        "configurationModes": ["config-file", "env-vars"],
+        "configFileHints": [
+          {
+            "path": "~/.codex/config.toml",
+            "format": "toml",
+            "fields": [
+              "model_provider",
+              "model",
+              "providers.<name>.base_url",
+              "providers.<name>.api_key",
+              "providers.<name>.wire_api"
+            ]
+          }
+        ],
+        "envVarHints": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+        "notes": [
+          "Codex supports provider base_url and 'wire_api' (responses vs chat).",
+          "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
+        ]
+      },
+      "sources": [
+        "https://github.com/openai/codex"
+      ]
+    },
+    {
+      "key": "gemini-cli",
+      "displayName": "Gemini CLI",
+      "kind": "cli",
+      "detection": {
+        "cliCommands": ["gemini"]
+      },
+      "dialect": {
+        "primary": "google.gemini.generate_content",
+        "alsoPossible": ["openai.chat_completions"]
+      },
+      "endpointSwitching": {
+        "supported": false,
+        "tier": "C",
+        "configurationModes": ["guided-only"],
+        "notes": [
+          "Official Gemini CLI does not present a general 'base_url' override.",
+          "Prefer tools that support OpenAI-compatible endpoints and let AIdome talk to Gemini upstream."
+        ]
+      },
+      "sources": [
+        "https://github.com/google-gemini/gemini-cli"
+      ]
+    },
+    {
+      "key": "codegpt",
+      "displayName": "CodeGPT",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["CodeGPT.codegpt"]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "B",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["in-extension-ui", "guided"],
+        "settingKeyHints": [
+          "codegpt.*provider*",
+          "codegpt.*apiUrl*",
+          "codegpt.*baseUrl*"
+        ],
+        "notes": [
+          "CodeGPT supports local providers and entering an API URL for Ollama/other OpenAI-compatible local servers.",
+          "Automation should either deep-link users into CodeGPT model panel steps, or set settings if keys exist and are discoverable."
+        ]
+      },
+      "sources": [
+        "https://www.codegpt.co/docs"
+      ]
+    },
+    {
+      "key": "anythingllm",
+      "displayName": "AnythingLLM",
+      "kind": "desktop-app",
+      "detection": {
+        "notes": [
+          "Not a VS Code assistant extension; treat as external app with setup guidance."
+        ]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": ["openai.responses"]
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "B",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["guided"],
+        "notes": [
+          "AnythingLLM supports a 'Generic OpenAI' provider pattern for OpenAI-compatible gateways via Base URL.",
+          "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
+        ]
+      },
+      "sources": [
+        "https://docs.anythingllm.com/setup/llm-configuration/cloud/openai"
+      ]
+    },
+    {
+      "key": "tabnine",
+      "displayName": "Tabnine",
+      "kind": "vscode-extension",
+      "detection": {
+        "vscodeExtensionIds": ["TabNine.tabnine-vscode"]
+      },
+      "dialect": {
+        "primary": "tabnine.proprietary",
+        "alsoPossible": []
+      },
+      "endpointSwitching": {
+        "supported": "enterprise-server-only",
+        "tier": "C",
+        "configurationModes": ["in-extension-ui", "guided"],
+        "notes": [
+          "Tabnine can be pointed to a Tabnine Enterprise Server URL, not an OpenAI-compatible 'base_url' switch.",
+          "Unless AIdome emulates Tabnine Enterprise protocol, treat as: detect + explain + guide."
+        ]
+      },
+      "sources": [
+        "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode"
+      ]
+    }
+  ]
+}
