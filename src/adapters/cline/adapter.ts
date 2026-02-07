@@ -8,6 +8,10 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
 
+interface ExtensionConfiguration {
+  properties?: Record<string, unknown>;
+}
+
 /**
  * Cline assistant adapter.
  */
@@ -76,7 +80,7 @@ export class ClineAdapter implements AssistantAdapter {
       }
 
       const properties = Array.isArray(configuration) 
-        ? configuration.flatMap((c: { properties?: Record<string, unknown> }) => Object.keys(c.properties || {}))
+        ? configuration.flatMap((c: ExtensionConfiguration) => Object.keys(c.properties || {}))
         : Object.keys(configuration.properties || {});
 
       const baseUrlKeys = properties.filter((key: string) => 
