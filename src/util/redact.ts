@@ -3,6 +3,62 @@
  */
 
 /**
+ * Common secret patterns to detect and redact.
+ */
+const SECRET_PATTERNS = [
+  /Bearer\s+[\w\-._~+/]+=*/gi,                    // Bearer tokens
+  /sk-[a-zA-Z0-9]{32,}/gi,                         // OpenAI API keys (sk-...)
+  /sk-proj-[a-zA-Z0-9_-]{32,}/gi,                  // OpenAI project keys
+  /sk-ant-[a-zA-Z0-9_-]{32,}/gi,                   // Anthropic API keys
+  /\b[A-Za-z0-9]{32,}\b/g,                         // Generic long alphanumeric (potential keys)
+  /api[_-]?key[\s:=]+[\w\-._~+/]+=*/gi,           // API key patterns
+  /x-api-key[\s:]+[\w\-._~+/]+=*/gi,              // x-api-key header values
+  /password[\s:=]+\S+/gi,                          // Password patterns
+  /token[\s:=]+[\w\-._~+/]+=*/gi,                 // Token patterns
+];
+
+/**
+ * Redacts sensitive information from a string.
+ * Scans for common secret patterns and replaces them with asterisks.
+ * @param input The input string
+ * @returns Redacted string
+ */
+export function redactString(input: string): string {
+  let result = input;
+  
+  for (const pattern of SECRET_PATTERNS) {
+    result = result.replace(pattern, (match) => {
+      // Keep the prefix if it's a header or key identifier
+      if (match.toLowerCase().includes('bearer')) {
+        return 'Bearer ***';
+      }
+      if (match.toLowerCase().includes('api-key') || match.toLowerCase().includes('api_key')) {
+        return 'api-key: ***';
+      }
+      if (match.toLowerCase().includes('x-api-key')) {
+        return 'x-api-key: ***';
+      }
+      if (match.toLowerCase().startsWith('sk-')) {
+        return match.substring(0, 7) + '***';
+      }
+      if (match.toLowerCase().includes('password')) {
+        return 'password: ***';
+      }
+      if (match.toLowerCase().includes('token')) {
+        return 'token: ***';
+      }
+      // For long alphanumeric strings, only redact if they look like keys (32+ chars)
+      if (match.length >= 32 && /^[A-Za-z0-9]+$/.test(match)) {
+        return '***';
+      }
+      return match; // Keep non-sensitive matches
+    });
+  }
+  
+  return result;
+}
+
+/**
  * Redacts an API key for display.
  * @param apiKey The API key
  * @param visibleChars Number of visible characters at start

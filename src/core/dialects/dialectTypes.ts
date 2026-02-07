@@ -48,3 +48,23 @@ export interface DialectCompatibility {
   requiresTranslation: boolean;
   notes?: string;
 }
+
+/**
+ * Rule definition for a specific dialect.
+ */
+export interface DialectRule {
+  dialect: Dialect;
+  requiredEndpoints: string[];
+  authScheme: AuthScheme;
+  supportsStreaming: boolean;
+  requiredHeaders?: Record<string, string>;
+}
+
+/**
+ * Dialect inference result with confidence level.
+ */
+export interface DialectInference {
+  dialect: Dialect;
+  confidence: 'high' | 'medium' | 'low';
+  source: 'aidome-capabilities' | 'registry-expected' | 'user-override' | 'url-pattern' | 'default';
+}

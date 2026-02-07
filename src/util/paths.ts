@@ -9,8 +9,16 @@ import * as path from 'path';
  * Gets the user's home directory.
  * @returns Home directory path
  */
-export function getHomeDir(): string {
+export function getHomedir(): string {
   return os.homedir();
+}
+
+/**
+ * Gets the user's home directory (alias for compatibility).
+ * @returns Home directory path
+ */
+export function getHomeDir(): string {
+  return getHomedir();
 }
 
 /**
@@ -18,11 +26,20 @@ export function getHomeDir(): string {
  * @param filePath The file path
  * @returns Expanded path
  */
-export function expandHome(filePath: string): string {
+export function expandTilde(filePath: string): string {
   if (filePath.startsWith('~/') || filePath === '~') {
-    return path.join(getHomeDir(), filePath.slice(2));
+    return path.join(getHomedir(), filePath.slice(1));
   }
   return filePath;
+}
+
+/**
+ * Expands ~ in paths to home directory (alias for compatibility).
+ * @param filePath The file path
+ * @returns Expanded path
+ */
+export function expandHome(filePath: string): string {
+  return expandTilde(filePath);
 }
 
 /**
@@ -49,5 +66,5 @@ export function getConfigDir(appName: string): string {
  * @returns Normalized path
  */
 export function normalizePath(filePath: string): string {
-  return path.normalize(expandHome(filePath));
+  return path.normalize(expandTilde(filePath));
 }
