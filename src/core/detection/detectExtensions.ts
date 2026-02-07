@@ -3,23 +3,51 @@
  */
 
 import * as vscode from 'vscode';
+import { AssistantRegistry, AssistantEntry } from '../registry/registryTypes';
 
 /**
- * Detects installed VS Code extensions.
- * @param extensionIds Array of extension IDs to check
- * @returns Array of installed extension IDs
+ * Detected assistant information.
  */
-export function detectExtensions(extensionIds: string[]): string[] {
-  const installed: string[] = [];
+export interface DetectedAssistant {
+  assistantKey: string;
+  displayName: string;
+  extensionId: string;
+  version: string;
+  isActive: boolean;
+  tier: 'A' | 'B' | 'C';
+  kind: string;
+}
+
+/**
+ * Detects installed VS Code extensions from registry.
+ * @param registry The assistant registry
+ * @returns Array of detected assistants
+ */
+export function detectExtensions(registry: AssistantRegistry): DetectedAssistant[] {
+  const detected: DetectedAssistant[] = [];
   
-  for (const id of extensionIds) {
-    const extension = vscode.extensions.getExtension(id);
-    if (extension) {
-      installed.push(id);
+  for (const entry of registry.assistants) {
+    const extensionIds = entry.detection.vscodeExtensionIds || [];
+    
+    for (const extensionId of extensionIds) {
+      const extension = vscode.extensions.getExtension(normalizeExtensionId(extensionId));
+      if (extension) {
+        detected.push({
+          assistantKey: entry.key,
+          displayName: entry.displayName,
+          extensionId: extensionId,
+          version: extension.packageJSON?.version || 'unknown',
+          isActive: extension.isActive,
+          tier: entry.endpointSwitching.tier,
+          kind: entry.kind
+        });
+        // Only detect once per assistant (use first matching extension ID)
+        break;
+      }
     }
   }
   
-  return installed;
+  return detected;
 }
 
 /**
@@ -28,7 +56,7 @@ export function detectExtensions(extensionIds: string[]): string[] {
  * @returns Extension version or undefined
  */
 export function getExtensionVersion(extensionId: string): string | undefined {
-  const extension = vscode.extensions.getExtension(extensionId);
+  const extension = vscode.extensions.getExtension(normalizeExtensionId(extensionId));
   return extension?.packageJSON?.version;
 }
 
@@ -38,26 +66,15 @@ export function getExtensionVersion(extensionId: string): string | undefined {
  * @returns True if extension is active
  */
 export function isExtensionActive(extensionId: string): boolean {
-  const extension = vscode.extensions.getExtension(extensionId);
+  const extension = vscode.extensions.getExtension(normalizeExtensionId(extensionId));
   return extension?.isActive ?? false;
 }
 
 /**
- * Gets all installed AI coding assistants.
- * @returns Array of installed assistant extension IDs
+ * Normalizes extension ID to lowercase.
+ * @param extensionId The extension ID
+ * @returns Normalized extension ID
  */
-export function getAllInstalledAssistants(): string[] {
-  const knownAssistants = [
-    'GitHub.copilot',
-    'GitHub.copilot-chat',
-    'saoudrizwan.claude-dev',
-    'RooVeterinaryInc.roo-cline',
-    'Continue.continue',
-    'CodeGPT.codegpt',
-    'TabNine.tabnine-vscode',
-    'anthropic.claude-code',
-    'kilocode.kilo-code'
-  ];
-  
-  return detectExtensions(knownAssistants);
+function normalizeExtensionId(extensionId: string): string {
+  return extensionId.toLowerCase().trim();
 }
