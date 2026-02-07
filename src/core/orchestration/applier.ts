@@ -3,8 +3,9 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
-import { createBackup, safeWriteFile, fileExists } from '../../util/fsSafe';
+import { createBackup, safeWriteFile } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { Logger } from '../../util/log';
 
@@ -173,8 +174,9 @@ export class PlanApplier {
       throw new Error('targetPath is required for edit-config-file');
     }
 
-    // Create backup first
-    if (await fileExists(step.targetPath)) {
+    // Create backup first if file exists
+    try {
+      await fs.access(step.targetPath);
       const backupPath = await createBackup(step.targetPath);
       if (backupPath) {
         entry.backupPath = backupPath;
@@ -182,6 +184,8 @@ export class PlanApplier {
       } else {
         this.logger.warning(`Failed to create backup for ${step.targetPath}`);
       }
+    } catch {
+      // File doesn't exist, no backup needed
     }
 
     // Write new content
