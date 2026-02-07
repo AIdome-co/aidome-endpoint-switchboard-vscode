@@ -12,7 +12,8 @@ export type Dialect =
   | 'anthropic.messages'
   | 'google.gemini.generate_content'
   | 'github.copilot'
-  | 'tabnine.proprietary';
+  | 'tabnine.proprietary'
+  | 'unknown';
 
 /**
  * Authentication scheme for an API.

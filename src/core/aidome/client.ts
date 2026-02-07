@@ -3,7 +3,7 @@
  */
 
 import { AIDOME_ENDPOINTS } from './endpoints';
-import { AIdomeCapabilities, HealthResponse, ModelInfo } from './types';
+import { AIdomeCapabilities, HealthResponse, AIdomeModel } from './types';
 
 /**
  * AIdome API client for communicating with the endpoint gateway.
@@ -24,7 +24,7 @@ export class AIdomeClient {
    * Fetches available models from the AIdome gateway.
    * @returns Promise resolving to array of models
    */
-  async getModels(): Promise<ModelInfo[]> {
+  async getModels(): Promise<AIdomeModel[]> {
     // Skeleton implementation
     throw new Error('Not implemented');
   }

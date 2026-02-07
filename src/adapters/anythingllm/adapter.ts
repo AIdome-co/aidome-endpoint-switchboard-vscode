@@ -2,7 +2,8 @@
  * Adapter for AnythingLLM.
  */
 
-import { AssistantAdapter } from '../AssistantAdapter';
+import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
+import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan } from '../../core/orchestration/planBuilder';
 
 /**
@@ -13,7 +14,7 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     throw new Error('Not implemented');
   }
 
-  async buildPlan(endpointUrl: string, apiKey?: string): Promise<Plan> {
+  async buildPlan(profile: EndpointProfile): Promise<Plan> {
     throw new Error('Not implemented');
   }
 
@@ -21,7 +22,7 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     throw new Error('Not implemented');
   }
 
-  async verify(): Promise<boolean> {
+  async verify(): Promise<VerificationResult> {
     throw new Error('Not implemented');
   }
 

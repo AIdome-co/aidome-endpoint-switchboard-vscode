@@ -1,26 +1,24 @@
 /**
  * Type definitions for endpoint profiles.
- * Profiles manage different endpoint configurations (dev, staging, prod).
+ * Profiles manage different endpoint configurations (AIdome vs custom).
  */
 
-/**
- * Profile type enumeration.
- */
-export enum ProfileType {
-  Development = 'development',
-  Staging = 'staging',
-  Production = 'production',
-  Custom = 'custom'
-}
+import { Dialect } from '../dialects/dialectTypes';
+import { AIdomeCapabilities } from '../aidome/types';
 
 /**
- * Mapping of an assistant to an endpoint.
+ * Profile type: AIdome gateway or custom endpoint.
+ */
+export type ProfileType = 'aidome' | 'custom';
+
+/**
+ * Mapping of an assistant to an endpoint profile.
  */
 export interface AssistantMapping {
   assistantKey: string;
-  endpointUrl: string;
-  modelName?: string;
-  apiKeySecret?: string;
+  profileName: string;
+  appliedMode: 'settings' | 'configFile' | 'env' | 'guided';
+  appliedAt: string;
 }
 
 /**
@@ -29,11 +27,13 @@ export interface AssistantMapping {
 export interface EndpointProfile {
   id: string;
   name: string;
-  type: ProfileType;
-  description?: string;
+  profileType: ProfileType;
   baseUrl: string;
-  mappings: AssistantMapping[];
-  isActive: boolean;
+  dialect: Dialect;
+  authRef?: string; // SecretStorage key reference
+  tenant?: string;
+  lastVerified?: string;
+  capabilitiesCache?: AIdomeCapabilities;
   createdAt: string;
   updatedAt: string;
 }

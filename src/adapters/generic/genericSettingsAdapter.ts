@@ -2,8 +2,9 @@
  * Generic settings-based adapter for assistants.
  */
 
-import { AssistantAdapter } from '../AssistantAdapter';
+import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { Plan } from '../../core/orchestration/planBuilder';
+import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { scanExtensionSettings, setSettingValue } from './settingsScanner';
 
 /**
@@ -22,7 +23,7 @@ export class GenericSettingsAdapter implements AssistantAdapter {
     throw new Error('Not implemented');
   }
 
-  async buildPlan(endpointUrl: string, apiKey?: string): Promise<Plan> {
+  async buildPlan(profile: EndpointProfile): Promise<Plan> {
     // Skeleton implementation
     throw new Error('Not implemented');
   }
@@ -32,7 +33,7 @@ export class GenericSettingsAdapter implements AssistantAdapter {
     throw new Error('Not implemented');
   }
 
-  async verify(): Promise<boolean> {
+  async verify(): Promise<VerificationResult> {
     // Skeleton implementation
     throw new Error('Not implemented');
   }

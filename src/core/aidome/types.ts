@@ -14,14 +14,44 @@ export interface AIdomeCapabilities {
 }
 
 /**
- * Model information from AIdome.
+ * AIdome provider information.
  */
-export interface ModelInfo {
+export interface AIdomeProvider {
+  id: string;
+  name: string;
+  type: string;
+  status: 'active' | 'inactive';
+  supportedModels: string[];
+}
+
+/**
+ * Model information from AIdome (renamed from ModelInfo).
+ */
+export interface AIdomeModel {
   id: string;
   name: string;
   provider: string;
   contextWindow: number;
   capabilities: string[];
+}
+
+/**
+ * WhoAmI response from AIdome.
+ */
+export interface AIdomeWhoAmI {
+  tenant: string;
+  user: string;
+  permissions: string[];
+  quotas?: Record<string, number>;
+}
+
+/**
+ * AIdome API error response.
+ */
+export interface AIdomeError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
 }
 
 /**
