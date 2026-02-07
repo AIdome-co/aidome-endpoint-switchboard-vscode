@@ -5,6 +5,16 @@
 import * as vscode from 'vscode';
 
 /**
+ * Shows a success notification (information).
+ * @param message The message to display
+ * @param actions Optional action items
+ * @returns Promise resolving to selected action
+ */
+export async function showSuccess(message: string, ...actions: string[]): Promise<string | undefined> {
+  return await vscode.window.showInformationMessage(message, ...actions);
+}
+
+/**
  * Shows an information notification.
  * @param message The message to display
  * @param items Optional action items
@@ -17,21 +27,21 @@ export async function showInfo(message: string, ...items: string[]): Promise<str
 /**
  * Shows a warning notification.
  * @param message The message to display
- * @param items Optional action items
- * @returns Promise resolving to selected item
+ * @param actions Optional action items
+ * @returns Promise resolving to selected action
  */
-export async function showWarning(message: string, ...items: string[]): Promise<string | undefined> {
-  return await vscode.window.showWarningMessage(message, ...items);
+export async function showWarning(message: string, ...actions: string[]): Promise<string | undefined> {
+  return await vscode.window.showWarningMessage(message, ...actions);
 }
 
 /**
  * Shows an error notification.
  * @param message The message to display
- * @param items Optional action items
- * @returns Promise resolving to selected item
+ * @param actions Optional action items
+ * @returns Promise resolving to selected action
  */
-export async function showError(message: string, ...items: string[]): Promise<string | undefined> {
-  return await vscode.window.showErrorMessage(message, ...items);
+export async function showError(message: string, ...actions: string[]): Promise<string | undefined> {
+  return await vscode.window.showErrorMessage(message, ...actions);
 }
 
 /**

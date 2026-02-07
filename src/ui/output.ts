@@ -3,6 +3,9 @@
  */
 
 import * as vscode from 'vscode';
+import { redactString } from '../util/redact';
+import { Plan } from '../core/orchestration/planBuilder';
+import { VerificationResult } from '../core/orchestration/verifier';
 
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -24,6 +27,73 @@ export function getOutputChannel(): vscode.OutputChannel {
 export function log(message: string): void {
   const channel = getOutputChannel();
   channel.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
+/**
+ * Logs a message with redaction for sensitive data.
+ * @param message The message to log
+ */
+export function logRedacted(message: string): void {
+  const redacted = redactString(message);
+  log(redacted);
+}
+
+/**
+ * Shows a formatted plan in the output channel.
+ * @param plan The plan to display
+ */
+export function showPlan(plan: Plan): void {
+  const channel = getOutputChannel();
+  channel.appendLine('');
+  channel.appendLine('='.repeat(60));
+  channel.appendLine(`Configuration Plan: ${plan.id}`);
+  channel.appendLine(`Profile: ${plan.profileId}`);
+  channel.appendLine(`Assistants: ${plan.assistantKeys.join(', ')}`);
+  channel.appendLine(`Steps: ${plan.steps.length}`);
+  channel.appendLine('='.repeat(60));
+  
+  plan.steps.forEach((step, index) => {
+    channel.appendLine(`\n${index + 1}. ${step.description}`);
+    channel.appendLine(`   Action: ${step.action}`);
+    channel.appendLine(`   Assistant: ${step.assistantKey}`);
+    if (step.targetPath) {
+      channel.appendLine(`   Target: ${step.targetPath}`);
+    }
+    if (step.reversible) {
+      channel.appendLine(`   Reversible: Yes`);
+    }
+  });
+  
+  channel.appendLine('\n' + '='.repeat(60));
+  channel.show();
+}
+
+/**
+ * Shows formatted verification results in the output channel.
+ * @param results Verification results by profile ID
+ */
+export function showResults(results: Record<string, VerificationResult>): void {
+  const channel = getOutputChannel();
+  channel.appendLine('');
+  channel.appendLine('='.repeat(60));
+  channel.appendLine('Verification Results');
+  channel.appendLine('='.repeat(60));
+  
+  for (const [profileId, result] of Object.entries(results)) {
+    channel.appendLine(`\nProfile: ${profileId}`);
+    channel.appendLine(`Status: ${result.status.toUpperCase()}`);
+    channel.appendLine('Checks:');
+    
+    result.checks.forEach(check => {
+      const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '○';
+      channel.appendLine(`  ${icon} ${check.name}: ${check.message}`);
+    });
+    
+    channel.appendLine(`\nMessage: ${result.actionableMessage}`);
+  }
+  
+  channel.appendLine('\n' + '='.repeat(60));
+  channel.show();
 }
 
 /**

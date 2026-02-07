@@ -13,7 +13,7 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 export function createStatusBarItem(): vscode.StatusBarItem {
   if (!statusBarItem) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'aidome-switchboard.showModelsProviders';
+    statusBarItem.command = 'aidome-switchboard.setupSwitchboard';
   }
   return statusBarItem;
 }
@@ -26,11 +26,11 @@ export function updateStatusBar(profileName?: string): void {
   const item = createStatusBarItem();
   
   if (profileName) {
-    item.text = `$(globe) AIdome: ${profileName}`;
-    item.tooltip = `Active profile: ${profileName}\nClick to view models & providers`;
+    item.text = `$(shield) AIdome: ${profileName}`;
+    item.tooltip = `Active profile: ${profileName}\nClick to configure`;
     item.show();
   } else {
-    item.text = '$(globe) AIdome';
+    item.text = '$(warning) AIdome: Not configured';
     item.tooltip = 'No active profile\nClick to configure';
     item.show();
   }
