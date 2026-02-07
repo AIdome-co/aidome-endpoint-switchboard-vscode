@@ -59,7 +59,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "test": "vitest",
     "package": "vsce package"
   },
