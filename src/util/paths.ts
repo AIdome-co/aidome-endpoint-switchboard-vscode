@@ -27,8 +27,11 @@ export function getHomeDir(): string {
  * @returns Expanded path
  */
 export function expandTilde(filePath: string): string {
-  if (filePath.startsWith('~/') || filePath === '~') {
-    return path.join(getHomedir(), filePath.slice(1));
+  if (filePath === '~') {
+    return getHomedir();
+  }
+  if (filePath.startsWith('~/')) {
+    return path.join(getHomedir(), filePath.slice(2));
   }
   return filePath;
 }
