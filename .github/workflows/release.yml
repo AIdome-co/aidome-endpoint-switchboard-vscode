@@ -5,11 +5,12 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     
     steps:
       - name: Checkout code
@@ -27,18 +28,37 @@ jobs:
       - name: Compile
         run: npm run compile
       
+      - name: Run tests
+        run: npm test
+      
       - name: Package extension
-        run: npm run package
-      
-      - name: Publish to VS Code Marketplace
-        if: success()
-        run: npx vsce publish -p ${{ secrets.VSCE_PAT }}
-        continue-on-error: true
-      
+        run: npx @vscode/vsce package --out aidome-endpoint-switchboard.vsix
+        
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: '*.vsix'
+          files: aidome-endpoint-switchboard.vsix
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            ## LLM Endpoint Switchboard ${{ github.ref_name }}
+            
+            ### Installation
+            
+            **VS Code Marketplace**: Search for "LLM Endpoint Switchboard" in VS Code Extensions
+            
+            **Manual Install (air-gapped)**: 
+            1. Download the `.vsix` file below
+            2. `Ctrl+Shift+P` → "Extensions: Install from VSIX..."
+            3. Select the downloaded file
+            
+            ### What's New
+            See [CHANGELOG.md](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/CHANGELOG.md) for details.
+            
+      # Uncomment when ready to publish to VS Code Marketplace:
+      # - name: Publish to VS Code Marketplace
+      #   run: npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
+      
+      # Uncomment when ready to publish to Open VSX (for Cursor/VSCodium):
+      # - name: Publish to Open VSX
+      #   run: npx ovsx publish aidome-endpoint-switchboard.vsix --pat ${{ secrets.OVSX_PAT }}
+

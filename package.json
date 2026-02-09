@@ -1,13 +1,19 @@
 {
   "name": "aidome-endpoint-switchboard",
   "displayName": "LLM Endpoint Switchboard (by AIdome)",
-  "description": "Enterprise-grade LLM endpoint routing for VS Code AI assistants",
+  "description": "Configure AI coding assistants to route through enterprise-approved LLM endpoints. Supports Continue, Cline, Roo Code, Kilo Code, Codex CLI, and more.",
   "version": "0.1.0",
   "publisher": "aidome",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
     "Other"
   ],
   "activationEvents": [
@@ -52,6 +58,47 @@
         "title": "Export Diagnostics",
         "category": "AIdome"
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "aidome-switchboard-getting-started",
+        "title": "Get Started with LLM Endpoint Switchboard",
+        "description": "Configure your AI coding assistants to use enterprise-approved endpoints",
+        "steps": [
+          {
+            "id": "welcome",
+            "title": "Welcome to LLM Endpoint Switchboard",
+            "description": "This extension helps you configure AI coding assistants (Cline, Continue, Roo Code, etc.) to route through your approved LLM gateway endpoint.\n\n**No data leaves your machine** — this is a configuration tool only.\n\n[Learn More](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode#readme)",
+            "media": {
+              "markdown": "resources/walkthrough/welcome.md"
+            }
+          },
+          {
+            "id": "run-wizard",
+            "title": "Run the Setup Wizard",
+            "description": "The wizard detects your installed AI assistants, creates an endpoint profile, and automatically configures supported assistants.\n\n[Run Setup Wizard](command:aidome-switchboard.setupSwitchboard)",
+            "media": {
+              "markdown": "resources/walkthrough/setup.md"
+            }
+          },
+          {
+            "id": "verify",
+            "title": "Verify Your Configuration",
+            "description": "Run the 7-step verification pipeline to ensure your endpoint is reachable and correctly configured.\n\n[Verify Routing](command:aidome-switchboard.verifyRouting)",
+            "media": {
+              "markdown": "resources/walkthrough/verify.md"
+            }
+          },
+          {
+            "id": "explore-models",
+            "title": "Explore Available Models",
+            "description": "View the models and providers available through your gateway endpoint.\n\n[Show Models & Providers](command:aidome-switchboard.showModelsProviders)",
+            "media": {
+              "markdown": "resources/walkthrough/models.md"
+            }
+          }
+        ]
+      }
     ]
   },
   "scripts": {
@@ -79,19 +126,27 @@
     "type": "git",
     "url": "https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode"
   },
-  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues"
+  },
+  "license": "MIT",
+  "qna": "marketplace",
   "keywords": [
     "llm",
     "ai",
     "endpoint",
-    "gateway",
     "switchboard",
-    "routing",
-    "configuration",
     "aidome",
-    "copilot",
+    "openai",
+    "enterprise",
+    "gateway",
+    "configuration",
+    "proxy",
     "cline",
     "continue",
-    "roo-code"
+    "roo-code",
+    "kilo-code",
+    "codex"
   ]
 }
