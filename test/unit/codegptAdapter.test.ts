@@ -94,7 +94,10 @@ describe('CodeGptAdapter', () => {
     it('should create a plan with settings when keys are discovered', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'scanExtensionSettings').mockReturnValue(['codegpt.apiUrl']);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
+        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
       vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://old-url.com');
 
       const plan = await adapter.buildPlan(mockProfile);
@@ -112,7 +115,8 @@ describe('CodeGptAdapter', () => {
     it('should fall back to guided mode when no settings keys found', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'scanExtensionSettings').mockReturnValue([]);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
 
       const plan = await adapter.buildPlan(mockProfile);
 
@@ -128,9 +132,12 @@ describe('CodeGptAdapter', () => {
     it('should include provider setting when discovered', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'scanExtensionSettings')
-        .mockReturnValueOnce(['codegpt.apiUrl'])
-        .mockReturnValueOnce(['codegpt.provider']);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
+        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
+        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
+      ]);
       vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
 
       const plan = await adapter.buildPlan(mockProfile);
@@ -158,7 +165,10 @@ describe('CodeGptAdapter', () => {
     it('should return failure when no settings are configured', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'scanExtensionSettings').mockReturnValue(['codegpt.apiUrl']);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
+        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
       vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
 
       const result = await adapter.verify();
@@ -171,7 +181,10 @@ describe('CodeGptAdapter', () => {
     it('should return success when settings are configured', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'scanExtensionSettings').mockReturnValue(['codegpt.apiUrl']);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
+        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
       vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://aidome.example.com/v1');
 
       const result = await adapter.verify();
