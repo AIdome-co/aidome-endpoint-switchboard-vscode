@@ -18,10 +18,41 @@ export class ProfileStore {
 
   /**
    * Gets all stored profiles.
+   * Handles corrupted state by resetting to empty array with warning.
    * @returns Promise resolving to array of profiles
    */
   async getProfiles(): Promise<EndpointProfile[]> {
-    return this.context.globalState.get<EndpointProfile[]>(PROFILES_KEY, []);
+    try {
+      const profiles = this.context.globalState.get<EndpointProfile[]>(PROFILES_KEY, []);
+      
+      // Validate profiles array structure
+      if (!Array.isArray(profiles)) {
+        throw new Error('Profiles state is not an array');
+      }
+      
+      // Basic validation of each profile
+      for (const profile of profiles) {
+        if (!profile.id || !profile.name || !profile.baseUrl) {
+          throw new Error('Profile missing required fields');
+        }
+      }
+      
+      return profiles;
+    } catch (error) {
+      const logger = await import('../../util/log').then(m => m.Logger.getInstance());
+      logger.error('Corrupted profile state detected, resetting to empty', error instanceof Error ? error : undefined);
+      
+      // Reset to empty array
+      await this.context.globalState.update(PROFILES_KEY, []);
+      
+      // Show warning notification
+      vscode.window.showWarningMessage(
+        'Profile data was corrupted and has been reset. Please reconfigure your profiles.',
+        'OK'
+      );
+      
+      return [];
+    }
   }
 
   /**

@@ -14,12 +14,23 @@ import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
 
+// Mutex flag to prevent concurrent wizard runs
+let wizardRunning = false;
+
 /**
  * Handles the setupSwitchboard command.
  * Launches the setup wizard for configuring endpoint routing.
  */
 export async function setupSwitchboard(context: vscode.ExtensionContext): Promise<void> {
   const logger = Logger.getInstance();
+  
+  // Check if wizard is already running
+  if (wizardRunning) {
+    vscode.window.showWarningMessage('Setup wizard is already running. Please wait for it to complete.');
+    return;
+  }
+  
+  wizardRunning = true;
   
   try {
     logger.info('Starting switchboard setup');
@@ -101,6 +112,9 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   } catch (error) {
     logger.error('Failed to setup switchboard', error instanceof Error ? error : undefined);
     await showError(`Setup failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    // Reset wizard running flag
+    wizardRunning = false;
   }
 }
 
