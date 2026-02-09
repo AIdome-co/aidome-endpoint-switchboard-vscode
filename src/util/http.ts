@@ -216,8 +216,7 @@ async function makeRequest<T>(
 
     req.on('timeout', () => {
       req.destroy();
-      const timeoutSec = Math.round(options.timeout / 1000);
-      reject(new Error(`Request timeout after ${timeoutSec}s. The endpoint may be unreachable or slow to respond. Try increasing HTTP_TIMEOUT_MS environment variable if needed.`));
+      reject(new Error(`Request timeout after ${options.timeout}ms. The endpoint may be unreachable or slow to respond. Try increasing HTTP_TIMEOUT_MS environment variable if needed.`));
     });
 
     if (bodyData) {
