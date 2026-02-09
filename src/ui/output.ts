@@ -21,21 +21,25 @@ export function getOutputChannel(): vscode.OutputChannel {
 }
 
 /**
- * Logs a message to the output channel.
+ * Logs a message to the output channel with level formatting.
+ * Uses consistent [LEVEL] [TIMESTAMP] format for screen reader parsing.
  * @param message The message to log
+ * @param level Log level (INFO, WARN, ERROR, DEBUG)
  */
-export function log(message: string): void {
+export function log(message: string, level: string = 'INFO'): void {
   const channel = getOutputChannel();
-  channel.appendLine(`[${new Date().toISOString()}] ${message}`);
+  const timestamp = new Date().toISOString();
+  channel.appendLine(`[${level}] [${timestamp}] ${message}`);
 }
 
 /**
  * Logs a message with redaction for sensitive data.
  * @param message The message to log
+ * @param level Log level
  */
-export function logRedacted(message: string): void {
+export function logRedacted(message: string, level: string = 'INFO'): void {
   const redacted = redactString(message);
-  log(redacted);
+  log(redacted, level);
 }
 
 /**
