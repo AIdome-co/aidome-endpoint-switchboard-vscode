@@ -20,6 +20,10 @@ export class StatusBarManager {
     this.item.text = `$(shield) AIdome: ${profileName}`;
     this.item.tooltip = `Active profile: ${profileName}\nClick for quick actions`;
     this.item.color = undefined;
+    this.item.accessibilityInformation = {
+      label: `AIdome Switchboard configured with profile ${profileName}`,
+      role: 'button'
+    };
     this.item.show();
   }
 
@@ -30,6 +34,10 @@ export class StatusBarManager {
     this.item.text = '$(warning) AIdome: Not configured';
     this.item.tooltip = 'No active profile\nClick for quick actions';
     this.item.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+    this.item.accessibilityInformation = {
+      label: 'AIdome Switchboard not configured. Click to setup.',
+      role: 'button'
+    };
     this.item.show();
   }
 
@@ -41,6 +49,10 @@ export class StatusBarManager {
     this.item.text = '$(error) AIdome: Error';
     this.item.tooltip = message ? `Error: ${message}\nClick for quick actions` : 'Verification failed\nClick for quick actions';
     this.item.color = new vscode.ThemeColor('statusBarItem.errorForeground');
+    this.item.accessibilityInformation = {
+      label: message ? `AIdome Switchboard error: ${message}` : 'AIdome Switchboard verification failed',
+      role: 'button'
+    };
     this.item.show();
   }
 
@@ -51,6 +63,10 @@ export class StatusBarManager {
     this.item.text = '$(sync~spin) AIdome: Verifying...';
     this.item.tooltip = 'Verifying configuration...';
     this.item.color = undefined;
+    this.item.accessibilityInformation = {
+      label: 'AIdome Switchboard verifying configuration',
+      role: 'status'
+    };
     this.item.show();
   }
 

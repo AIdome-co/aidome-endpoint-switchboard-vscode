@@ -220,9 +220,21 @@ async function createNewProfile(
   
   const dialectChoice = await vscode.window.showQuickPick(
     [
-      { label: 'OpenAI Chat Completions', value: 'openai.chat_completions' },
-      { label: 'Anthropic Messages', value: 'anthropic.messages' },
-      { label: 'OpenAI Responses', value: 'openai.responses' }
+      { 
+        label: 'OpenAI Chat Completions', 
+        description: 'Standard OpenAI /v1/chat/completions format',
+        value: 'openai.chat_completions' 
+      },
+      { 
+        label: 'Anthropic Messages', 
+        description: 'Anthropic /v1/messages format',
+        value: 'anthropic.messages' 
+      },
+      { 
+        label: 'OpenAI Responses', 
+        description: 'Newer /v1/responses format',
+        value: 'openai.responses' 
+      }
     ],
     { placeHolder: 'Select API dialect' }
   );
@@ -234,8 +246,8 @@ async function createNewProfile(
   let authToken: string | undefined;
   const needsAuth = await vscode.window.showQuickPick(
     [
-      { label: 'Yes', value: true },
-      { label: 'No', value: false }
+      { label: 'Yes', description: 'Endpoint requires authentication', value: true },
+      { label: 'No', description: 'No authentication required', value: false }
     ],
     { placeHolder: 'Does this endpoint require authentication?' }
   );
