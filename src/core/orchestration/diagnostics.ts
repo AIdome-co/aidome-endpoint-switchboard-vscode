@@ -252,7 +252,6 @@ export function generateDiagnosticReport(data: DiagnosticData): DiagnosticReport
 export function formatAsJson(report: DiagnosticsReport | DiagnosticReport): string {
   const jsonStr = JSON.stringify(report, null, 2);
   // Second pass redaction on final output
-  const { redactString, redactUrl } = require('../../util/redact');
   let redacted = redactString(jsonStr);
   
   // Redact any URLs that might have slipped through
