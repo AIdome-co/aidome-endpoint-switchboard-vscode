@@ -4,7 +4,6 @@
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
 import { ChangeLog } from '../core/orchestration/changeLog';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
@@ -418,11 +417,18 @@ async function undoVSCodeSetting(settingKey: string, oldValue: unknown): Promise
  * Undoes a config file change.
  */
 async function undoConfigFile(filePath: string, oldValue: unknown, backupPath?: string): Promise<void> {
-  if (backupPath && fs.existsSync(backupPath)) {
-    // Restore from backup file
-    const backupContent = await fs.promises.readFile(backupPath, 'utf-8');
-    await safeWriteFile(filePath, backupContent);
-  } else if (oldValue !== undefined && oldValue !== null) {
+  if (backupPath) {
+    try {
+      // Try to restore from backup file
+      const backupContent = await fs.promises.readFile(backupPath, 'utf-8');
+      await safeWriteFile(filePath, backupContent);
+      return;
+    } catch {
+      // Backup file doesn't exist or can't be read, fall through to oldValue
+    }
+  }
+  
+  if (oldValue !== undefined && oldValue !== null) {
     // Restore from oldValue
     const content = typeof oldValue === 'string' ? oldValue : JSON.stringify(oldValue, null, 2);
     await safeWriteFile(filePath, content);
