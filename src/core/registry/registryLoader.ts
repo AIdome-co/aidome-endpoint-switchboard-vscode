@@ -8,7 +8,59 @@ import * as fs from 'fs/promises';
 import { AssistantRegistry, AssistantEntry } from './registryTypes';
 
 /**
+ * Hardcoded minimal fallback registry for when the main registry is corrupted.
+ */
+const FALLBACK_REGISTRY: AssistantRegistry = {
+  $schemaVersion: '1.0',
+  updatedAt: new Date().toISOString(),
+  dialectCatalog: {
+    'openai.chat_completions': 'OpenAI-style /v1/chat/completions'
+  },
+  assistants: [
+    {
+      key: 'continue',
+      displayName: 'Continue',
+      kind: 'vscode-extension',
+      detection: {
+        vscodeExtensionIds: ['Continue.continue']
+      },
+      dialect: {
+        primary: 'openai.chat_completions',
+        alsoPossible: []
+      },
+      endpointSwitching: {
+        supported: true,
+        tier: 'A',
+        configurationModes: ['settings'],
+        notes: ['Fallback registry entry']
+      },
+      sources: []
+    },
+    {
+      key: 'cline',
+      displayName: 'Cline',
+      kind: 'vscode-extension',
+      detection: {
+        vscodeExtensionIds: ['saoudrizwan.claude-dev']
+      },
+      dialect: {
+        primary: 'openai.chat_completions',
+        alsoPossible: []
+      },
+      endpointSwitching: {
+        supported: true,
+        tier: 'A',
+        configurationModes: ['settings'],
+        notes: ['Fallback registry entry']
+      },
+      sources: []
+    }
+  ]
+};
+
+/**
  * Loads the assistant registry from disk.
+ * Falls back to hardcoded minimal registry if file is corrupted.
  * @returns Promise resolving to the validated registry
  * @throws Error if registry file is not found or invalid
  */
@@ -26,7 +78,11 @@ export async function loadRegistry(): Promise<AssistantRegistry> {
     
     return registry;
   } catch (error) {
-    throw new Error(`Failed to load registry: ${error instanceof Error ? error.message : String(error)}`);
+    const logger = await import('../../util/log').then(m => m.Logger.getInstance());
+    logger.error('Failed to load registry, using fallback', error instanceof Error ? error : undefined);
+    
+    // Return fallback registry instead of throwing
+    return FALLBACK_REGISTRY;
   }
 }
 

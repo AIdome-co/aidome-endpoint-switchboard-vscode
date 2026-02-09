@@ -77,7 +77,7 @@ export class Switchboard {
 
     for (const assistantKey of assistantKeys) {
       // Get adapter for this assistant
-      const adapter = getAdapter(assistantKey);
+      const adapter = await getAdapter(assistantKey);
       
       if (!adapter) {
         this.logger.warning(`No adapter found for assistant: ${assistantKey}`);

@@ -23,9 +23,25 @@ export interface HttpRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   headers?: Record<string, string>;
   body?: unknown;
+  /** Timeout in milliseconds. Default: 10000 (10 seconds). Configurable via environment variable HTTP_TIMEOUT_MS. */
   timeout?: number;
   retries?: number;
   proxy?: string;
+}
+
+/**
+ * Gets the configured HTTP timeout value.
+ * @returns Timeout in milliseconds (default 10000)
+ */
+function getConfiguredTimeout(): number {
+  const envTimeout = process.env.HTTP_TIMEOUT_MS;
+  if (envTimeout) {
+    const parsed = parseInt(envTimeout, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 10000; // Default 10 seconds
 }
 
 /**
@@ -69,7 +85,7 @@ export async function httpRequest<T>(
     method = 'GET',
     headers = {},
     body,
-    timeout = 10000,
+    timeout = getConfiguredTimeout(),
     retries = 1,
     proxy
   } = options;
@@ -200,7 +216,8 @@ async function makeRequest<T>(
 
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error(`Request timeout after ${options.timeout}ms`));
+      const timeoutSec = Math.round(options.timeout / 1000);
+      reject(new Error(`Request timeout after ${timeoutSec}s. The endpoint may be unreachable or slow to respond. Try increasing HTTP_TIMEOUT_MS environment variable if needed.`));
     });
 
     if (bodyData) {

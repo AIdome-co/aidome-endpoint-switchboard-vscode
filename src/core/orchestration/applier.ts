@@ -56,6 +56,11 @@ export class PlanApplier {
         this.logger.error(`Step ${step.id} failed: ${errorMsg}`);
         failedSteps.push({ ...step, completed: false, error: errorMsg });
         
+        // Automatic rollback on failure
+        this.logger.warning('Failure detected, initiating automatic rollback...');
+        await this.rollbackSteps(appliedChangeSteps);
+        this.logger.info('Rollback completed');
+        
         // Stop on first error
         break;
       }
@@ -70,7 +75,8 @@ export class PlanApplier {
       steps: appliedChangeSteps
     };
 
-    if (appliedChangeSteps.length > 0) {
+    // Only record if successful (rollback cleared appliedChangeSteps on failure)
+    if (failedSteps.length === 0 && appliedChangeSteps.length > 0) {
       await this.changeLog.recordApply(changeLogEntry);
     }
 
@@ -267,6 +273,42 @@ export class PlanApplier {
 
     appliedStep.backupPath = backupPath;
     this.logger.info(`Created backup at ${backupPath}`);
+  }
+
+  /**
+   * Rolls back a list of applied steps (for automatic rollback on failure).
+   */
+  private async rollbackSteps(steps: AppliedStep[]): Promise<void> {
+    // Reverse steps in reverse order
+    for (let i = steps.length - 1; i >= 0; i--) {
+      try {
+        await this.reverseStep(steps[i]);
+      } catch (error) {
+        this.logger.error(`Failed to rollback step: ${error instanceof Error ? error.message : String(error)}`);
+        
+        // Show user-friendly error for manual recovery
+        const step = steps[i];
+        let recoveryMessage = `Failed to automatically rollback: ${step.type} on ${step.target}\n`;
+        
+        if (step.backupPath) {
+          recoveryMessage += `\nManual recovery steps:\n`;
+          recoveryMessage += `1. Locate backup file: ${step.backupPath}\n`;
+          recoveryMessage += `2. Restore to: ${step.target}\n`;
+          recoveryMessage += `3. Command: cp "${step.backupPath}" "${step.target}"`;
+        } else if (step.oldValue !== undefined) {
+          recoveryMessage += `\nManual recovery: Set ${step.target} back to: ${JSON.stringify(step.oldValue)}`;
+        } else {
+          recoveryMessage += `\nNo backup available. You may need to manually restore the original configuration.`;
+        }
+        
+        this.logger.error(recoveryMessage);
+        vscode.window.showErrorMessage('Rollback failed. Check Output panel for manual recovery instructions.', 'Open Output').then(action => {
+          if (action === 'Open Output') {
+            getOutputChannel().show();
+          }
+        });
+      }
+    }
   }
 
   /**

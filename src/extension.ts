@@ -15,35 +15,70 @@ import { createStatusBarItem, updateStatusBar, StatusBarManager } from './ui/sta
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 
+const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
+const CURRENT_STATE_VERSION = '1';
+
+/**
+ * Performs state migration if needed.
+ * @param context Extension context
+ */
+async function migrateState(context: vscode.ExtensionContext): Promise<void> {
+  const logger = Logger.getInstance();
+  const currentVersion = context.globalState.get<string>(STATE_VERSION_KEY);
+  
+  if (currentVersion === CURRENT_STATE_VERSION) {
+    // No migration needed
+    return;
+  }
+  
+  logger.info(`Migrating state from version ${currentVersion || 'undefined'} to ${CURRENT_STATE_VERSION}`);
+  
+  // Future migrations will go here
+  // Example:
+  // if (!currentVersion || currentVersion === '1') {
+  //   await migrateFromV1ToV2(context);
+  // }
+  
+  // Update state version
+  await context.globalState.update(STATE_VERSION_KEY, CURRENT_STATE_VERSION);
+  logger.info('State migration complete');
+}
+
 /**
  * Activates the extension.
  * Called when the extension is first activated.
  * @param context Extension context
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Initialize output channel and logger
   const outputChannel = getOutputChannel();
   Logger.initialize(outputChannel);
   const logger = Logger.getInstance();
   
   logger.info('AIdome Endpoint Switchboard extension is activating...');
+  
+  // Check and migrate state if needed
+  await migrateState(context);
 
-  // Initialize status bar with StatusBarManager
-  const statusBarItem = createStatusBarItem();
-  const statusBarManager = new StatusBarManager(statusBarItem);
-  context.subscriptions.push(statusBarItem);
+  // Defer status bar and non-essential initialization
+  setImmediate(async () => {
+    // Initialize status bar with StatusBarManager
+    const statusBarItem = createStatusBarItem();
+    const statusBarManager = new StatusBarManager(statusBarItem);
+    context.subscriptions.push(statusBarItem);
 
-  // Initialize profile store and update status bar
-  const profileStore = new ProfileStore(context);
-  profileStore.getActiveProfile().then(profile => {
-    if (profile) {
-      statusBarManager.setConfigured(profile.name);
-    } else {
+    // Initialize profile store and update status bar
+    const profileStore = new ProfileStore(context);
+    profileStore.getActiveProfile().then(profile => {
+      if (profile) {
+        statusBarManager.setConfigured(profile.name);
+      } else {
+        statusBarManager.setNotConfigured();
+      }
+    }).catch(error => {
+      logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
       statusBarManager.setNotConfigured();
-    }
-  }).catch(error => {
-    logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
-    statusBarManager.setNotConfigured();
+    });
   });
 
   // Register status bar action command (quick actions menu)
