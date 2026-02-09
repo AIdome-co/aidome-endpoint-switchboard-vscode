@@ -3,13 +3,14 @@
  */
 
 import * as vscode from 'vscode';
-import * as os from 'os';
 import { ProfileStore } from '../core/profiles/profileStore';
-import { Switchboard } from '../core/orchestration/switchboard';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
+import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
-import { generateDiagnosticReport, formatAsJson, formatAsMarkdown, DiagnosticData } from '../core/orchestration/diagnostics';
-import { showError, showSuccess } from '../ui/notifications';
+import { generateDiagnostics, formatAsJson, formatAsMarkdown } from '../core/orchestration/diagnostics';
+import { ChangeLog } from '../core/orchestration/changeLog';
+import { detectRemote } from '../core/detection/detectRemote';
+import { Verifier } from '../core/orchestration/verifier';
 import { Logger } from '../util/log';
 
 /**
@@ -22,43 +23,58 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
   try {
     logger.info('Generating diagnostics report');
     
+    // Initialize components
     const profileStore = new ProfileStore(context);
     const profileSecrets = new ProfileSecrets(context);
     const registry = await loadRegistry();
     const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
+    const changeLog = new ChangeLog(context);
     
+    // Gather profiles from ProfileStore
     const profiles = await profileStore.getProfiles();
-    const mappings = await profileStore.getAssistantMappings();
+    
+    // Detect assistants using Switchboard
     const detected = await switchboard.detectAll();
     
+    // Get mappings from ProfileStore
+    const mappings = await profileStore.getAssistantMappings();
+    
+    // Get change log entries using ChangeLog class
+    const changeLogEntries = await changeLog.getEntries();
+    
+    // Optionally run verification
     let verificationResults;
     try {
-      verificationResults = await switchboard.verifyAll();
+      const verifier = new Verifier();
+      verificationResults = [];
+      for (const profile of profiles) {
+        const result = await verifier.runVerificationPipeline(profile);
+        verificationResults.push(result);
+      }
     } catch (error) {
       logger.warning('Failed to run verification during diagnostics', error instanceof Error ? error : undefined);
     }
     
-    const diagnosticData: DiagnosticData = {
+    // Detect remote context
+    const remoteContext = detectRemote();
+    
+    // Generate diagnostics using the new function
+    const report = await generateDiagnostics(context, {
       profiles,
       assistants: detected.assistants,
-      clis: detected.clis,
       mappings,
+      changeLog: changeLogEntries,
       verificationResults,
-      systemInfo: {
-        platform: os.platform(),
-        arch: os.arch(),
-        nodeVersion: process.version,
-        vscodeVersion: vscode.version,
-        extensionVersion: context.extension.packageJSON.version || '0.1.0'
-      }
-    };
+      remoteContext
+    });
     
-    const report = generateDiagnosticReport(diagnosticData);
-    
+    // Show QuickPick with 4 options
     const choice = await vscode.window.showQuickPick(
       [
-        { label: 'Save to file', value: 'file' },
-        { label: 'Copy to clipboard', value: 'clipboard' }
+        { label: 'Save as JSON', value: 'save-json' },
+        { label: 'Save as Markdown', value: 'save-markdown' },
+        { label: 'Copy JSON to clipboard', value: 'copy-json' },
+        { label: 'Copy Markdown to clipboard', value: 'copy-markdown' }
       ],
       { placeHolder: 'How would you like to export the diagnostics?' }
     );
@@ -67,43 +83,48 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
       return;
     }
     
-    const formatChoice = await vscode.window.showQuickPick(
-      [
-        { label: 'Markdown', value: 'markdown' },
-        { label: 'JSON', value: 'json' }
-      ],
-      { placeHolder: 'Select export format' }
-    );
-    
-    if (!formatChoice) {
-      return;
-    }
-    
-    const content = formatChoice.value === 'json' 
-      ? formatAsJson(report)
-      : formatAsMarkdown(report);
-    
-    if (choice.value === 'file') {
-      const extension = formatChoice.value === 'json' ? 'json' : 'md';
+    // Handle the choice
+    if (choice.value === 'save-json') {
+      const content = formatAsJson(report);
       const uri = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.file(`aidome-diagnostics-${Date.now()}.${extension}`),
+        defaultUri: vscode.Uri.file(`aidome-diagnostics-${Date.now()}.json`),
         filters: {
-          [formatChoice.label]: [extension]
+          'JSON': ['json']
         }
       });
       
       if (uri) {
         await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-        await showSuccess(`Diagnostics exported to ${uri.fsPath}`, 'Open');
+        await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
         logger.info(`Diagnostics exported to ${uri.fsPath}`);
       }
-    } else {
+    } else if (choice.value === 'save-markdown') {
+      const content = formatAsMarkdown(report);
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(`aidome-diagnostics-${Date.now()}.md`),
+        filters: {
+          'Markdown': ['md']
+        }
+      });
+      
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+        await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+        logger.info(`Diagnostics exported to ${uri.fsPath}`);
+      }
+    } else if (choice.value === 'copy-json') {
+      const content = formatAsJson(report);
       await vscode.env.clipboard.writeText(content);
-      await showSuccess('Diagnostics copied to clipboard');
-      logger.info('Diagnostics copied to clipboard');
+      await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+      logger.info('Diagnostics copied to clipboard as JSON');
+    } else if (choice.value === 'copy-markdown') {
+      const content = formatAsMarkdown(report);
+      await vscode.env.clipboard.writeText(content);
+      await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+      logger.info('Diagnostics copied to clipboard as Markdown');
     }
   } catch (error) {
     logger.error('Failed to export diagnostics', error instanceof Error ? error : undefined);
-    await showError(`Failed to export diagnostics: ${error instanceof Error ? error.message : String(error)}`);
+    await vscode.window.showErrorMessage(`Failed to export diagnostics: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

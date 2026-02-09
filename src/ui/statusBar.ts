@@ -7,13 +7,69 @@ import * as vscode from 'vscode';
 let statusBarItem: vscode.StatusBarItem | undefined;
 
 /**
+ * StatusBarManager class for managing status bar states.
+ */
+export class StatusBarManager {
+  constructor(private item: vscode.StatusBarItem) {}
+
+  /**
+   * Set status bar to configured state.
+   * @param profileName The active profile name
+   */
+  setConfigured(profileName: string): void {
+    this.item.text = `$(shield) AIdome: ${profileName}`;
+    this.item.tooltip = `Active profile: ${profileName}\nClick for quick actions`;
+    this.item.color = undefined;
+    this.item.show();
+  }
+
+  /**
+   * Set status bar to not configured state.
+   */
+  setNotConfigured(): void {
+    this.item.text = '$(warning) AIdome: Not configured';
+    this.item.tooltip = 'No active profile\nClick for quick actions';
+    this.item.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+    this.item.show();
+  }
+
+  /**
+   * Set status bar to error state.
+   * @param message Optional error message
+   */
+  setError(message?: string): void {
+    this.item.text = '$(error) AIdome: Error';
+    this.item.tooltip = message ? `Error: ${message}\nClick for quick actions` : 'Verification failed\nClick for quick actions';
+    this.item.color = new vscode.ThemeColor('statusBarItem.errorForeground');
+    this.item.show();
+  }
+
+  /**
+   * Set status bar to verifying state.
+   */
+  setVerifying(): void {
+    this.item.text = '$(sync~spin) AIdome: Verifying...';
+    this.item.tooltip = 'Verifying configuration...';
+    this.item.color = undefined;
+    this.item.show();
+  }
+
+  /**
+   * Dispose the status bar item.
+   */
+  dispose(): void {
+    this.item.dispose();
+  }
+}
+
+/**
  * Creates and initializes the status bar item.
  * @returns The status bar item
  */
 export function createStatusBarItem(): vscode.StatusBarItem {
   if (!statusBarItem) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'aidome-switchboard.setupSwitchboard';
+    statusBarItem.command = 'aidome-switchboard.statusBarAction';
   }
   return statusBarItem;
 }
@@ -27,11 +83,13 @@ export function updateStatusBar(profileName?: string): void {
   
   if (profileName) {
     item.text = `$(shield) AIdome: ${profileName}`;
-    item.tooltip = `Active profile: ${profileName}\nClick to configure`;
+    item.tooltip = `Active profile: ${profileName}\nClick for quick actions`;
+    item.color = undefined;
     item.show();
   } else {
     item.text = '$(warning) AIdome: Not configured';
-    item.tooltip = 'No active profile\nClick to configure';
+    item.tooltip = 'No active profile\nClick for quick actions';
+    item.color = new vscode.ThemeColor('statusBarItem.warningForeground');
     item.show();
   }
 }
