@@ -125,7 +125,12 @@ export class Switchboard {
   async applyPlan(plan: Plan): Promise<ApplierResult> {
     this.logger.info(`Applying plan ${plan.id}`);
     
-    const result = await this.applier.applyPlan(plan);
+    // Get profile name from profile ID
+    const profiles = await this.profileStore.getProfiles();
+    const profile = profiles.find(p => p.id === plan.profileId);
+    const profileName = profile?.name || 'unknown';
+    
+    const result = await this.applier.applyPlan(plan, profileName);
     
     if (result.success) {
       this.logger.info('Plan applied successfully');
@@ -194,7 +199,7 @@ export class Switchboard {
    */
   async rollbackPlan(plan: Plan): Promise<void> {
     this.logger.info(`Rolling back plan ${plan.id}`);
-    await this.applier.rollbackPlan(plan);
+    await this.applier.rollbackPlan(plan.id);
     this.logger.info('Rollback complete');
   }
 

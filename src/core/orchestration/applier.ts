@@ -8,27 +8,7 @@ import { Plan, PlanStep } from './planBuilder';
 import { createBackup, safeWriteFile } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { Logger } from '../../util/log';
-
-/**
- * Change log entry for tracking applied changes.
- */
-export interface ChangeLogEntry {
-  stepId: string;
-  action: string;
-  targetPath?: string;
-  oldValue?: unknown;
-  newValue?: unknown;
-  timestamp: string;
-  backupPath?: string;
-}
-
-/**
- * Change log for tracking all applied changes.
- */
-export interface ChangeLog {
-  planId: string;
-  entries: ChangeLogEntry[];
-}
+import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 
 /**
  * Result of applying a plan.
@@ -37,40 +17,38 @@ export interface ApplierResult {
   success: boolean;
   appliedSteps: PlanStep[];
   failedSteps: PlanStep[];
-  changeLog: ChangeLog;
+  changeLogEntry: ChangeLogEntry;
 }
-
-const CHANGE_LOG_KEY = 'aidome.switchboard.changelog';
 
 /**
  * Applies configuration plan steps to the system.
  */
 export class PlanApplier {
   private logger: Logger;
+  private changeLog: ChangeLog;
 
   constructor(private context: vscode.ExtensionContext) {
     this.logger = Logger.getInstance();
+    this.changeLog = new ChangeLog(context);
   }
 
   /**
    * Applies a complete plan.
    * @param plan The plan to apply
+   * @param profileName The profile name for change log
    * @returns Promise resolving to applier result
    */
-  async applyPlan(plan: Plan): Promise<ApplierResult> {
+  async applyPlan(plan: Plan, profileName: string): Promise<ApplierResult> {
     const appliedSteps: PlanStep[] = [];
     const failedSteps: PlanStep[] = [];
-    const changeLog: ChangeLog = {
-      planId: plan.id,
-      entries: []
-    };
+    const appliedChangeSteps: AppliedStep[] = [];
 
     this.logger.info(`Applying plan ${plan.id} with ${plan.steps.length} steps`);
 
     for (const step of plan.steps) {
       try {
-        const entry = await this.applyStep(step);
-        changeLog.entries.push(entry);
+        const appliedStep = await this.applyStep(step);
+        appliedChangeSteps.push(appliedStep);
         appliedSteps.push({ ...step, completed: true });
         this.logger.info(`Step ${step.id} applied successfully`);
       } catch (error) {
@@ -83,8 +61,18 @@ export class PlanApplier {
       }
     }
 
-    // Store change log in globalState
-    await this.saveChangeLog(changeLog);
+    // Create and store change log entry using ChangeLog class
+    const changeLogEntry: ChangeLogEntry = {
+      id: plan.id,
+      timestamp: new Date().toISOString(),
+      assistantKey: plan.assistantKeys[0] || 'unknown',
+      profileName,
+      steps: appliedChangeSteps
+    };
+
+    if (appliedChangeSteps.length > 0) {
+      await this.changeLog.recordApply(changeLogEntry);
+    }
 
     const success = failedSteps.length === 0;
     this.logger.info(`Plan ${plan.id} ${success ? 'completed' : 'failed'}: ${appliedSteps.length} applied, ${failedSteps.length} failed`);
@@ -93,22 +81,21 @@ export class PlanApplier {
       success,
       appliedSteps,
       failedSteps,
-      changeLog
+      changeLogEntry
     };
   }
 
   /**
    * Applies a single plan step.
    * @param step The step to apply
-   * @returns Promise resolving to change log entry
+   * @returns Promise resolving to applied step
    */
-  async applyStep(step: PlanStep): Promise<ChangeLogEntry> {
+  async applyStep(step: PlanStep): Promise<AppliedStep> {
     this.logger.debug(`Applying step ${step.id}: ${step.action}`);
 
-    const entry: ChangeLogEntry = {
-      stepId: step.id,
-      action: step.action,
-      targetPath: step.targetPath,
+    const appliedStep: AppliedStep = {
+      type: step.action,
+      target: step.targetPath || '',
       oldValue: step.oldValue,
       newValue: step.newValue,
       timestamp: new Date().toISOString()
@@ -116,36 +103,36 @@ export class PlanApplier {
 
     switch (step.action) {
       case 'set-vscode-setting':
-        await this.applyVSCodeSetting(step, entry);
+        await this.applyVSCodeSetting(step, appliedStep);
         break;
       
       case 'edit-config-file':
-        await this.applyConfigFileEdit(step, entry);
+        await this.applyConfigFileEdit(step, appliedStep);
         break;
       
       case 'set-env-var':
-        await this.applyEnvVar(step, entry);
+        await this.applyEnvVar(step, appliedStep);
         break;
       
       case 'show-guided-steps':
-        await this.applyGuidedSteps(step, entry);
+        await this.applyGuidedSteps(step, appliedStep);
         break;
       
       case 'backup-file':
-        await this.applyBackup(step, entry);
+        await this.applyBackup(step, appliedStep);
         break;
       
       default:
         throw new Error(`Unknown action: ${step.action}`);
     }
 
-    return entry;
+    return appliedStep;
   }
 
   /**
    * Applies a VS Code setting change.
    */
-  private async applyVSCodeSetting(step: PlanStep, entry: ChangeLogEntry): Promise<void> {
+  private async applyVSCodeSetting(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
     if (!step.targetPath) {
       throw new Error('targetPath is required for set-vscode-setting');
     }
@@ -154,7 +141,7 @@ export class PlanApplier {
     const currentValue = config.get(step.targetPath);
     
     // Store old value for rollback
-    entry.oldValue = currentValue;
+    appliedStep.oldValue = currentValue;
 
     // Determine scope (user or workspace)
     const scope = step.data.scope === 'workspace' 
@@ -169,7 +156,7 @@ export class PlanApplier {
   /**
    * Applies a configuration file edit.
    */
-  private async applyConfigFileEdit(step: PlanStep, entry: ChangeLogEntry): Promise<void> {
+  private async applyConfigFileEdit(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
     if (!step.targetPath) {
       throw new Error('targetPath is required for edit-config-file');
     }
@@ -179,7 +166,7 @@ export class PlanApplier {
       await fs.access(step.targetPath);
       const backupPath = await createBackup(step.targetPath);
       if (backupPath) {
-        entry.backupPath = backupPath;
+        appliedStep.backupPath = backupPath;
         this.logger.info(`Created backup at ${backupPath}`);
       } else {
         this.logger.warning(`Failed to create backup for ${step.targetPath}`);
@@ -204,7 +191,7 @@ export class PlanApplier {
   /**
    * Applies environment variable instruction.
    */
-  private async applyEnvVar(step: PlanStep, entry: ChangeLogEntry): Promise<void> {
+  private async applyEnvVar(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
     const varName = step.targetPath;
     const varValue = step.newValue;
 
@@ -243,7 +230,7 @@ export class PlanApplier {
   /**
    * Applies guided steps display.
    */
-  private async applyGuidedSteps(step: PlanStep, entry: ChangeLogEntry): Promise<void> {
+  private async applyGuidedSteps(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
     const steps = step.data.steps;
     if (!Array.isArray(steps)) {
       throw new Error('steps array is required for show-guided-steps');
@@ -268,7 +255,7 @@ export class PlanApplier {
   /**
    * Applies file backup.
    */
-  private async applyBackup(step: PlanStep, entry: ChangeLogEntry): Promise<void> {
+  private async applyBackup(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
     if (!step.targetPath) {
       throw new Error('targetPath is required for backup-file');
     }
@@ -278,75 +265,79 @@ export class PlanApplier {
       throw new Error(`Failed to create backup of ${step.targetPath}`);
     }
 
-    entry.backupPath = backupPath;
+    appliedStep.backupPath = backupPath;
     this.logger.info(`Created backup at ${backupPath}`);
   }
 
   /**
-   * Reverses applied steps using a plan.
-   * @param plan The plan to reverse
+   * Reverses applied steps using a plan ID.
+   * @param planId The plan ID to reverse
    */
-  async rollbackPlan(plan: Plan): Promise<void> {
-    this.logger.info(`Rolling back plan ${plan.id}`);
+  async rollbackPlan(planId: string): Promise<void> {
+    this.logger.info(`Rolling back plan ${planId}`);
 
-    // Get change log
-    const changeLog = await this.getChangeLog(plan.id);
-    if (!changeLog) {
-      throw new Error(`No change log found for plan ${plan.id}`);
+    // Get all change log entries for this plan ID
+    const allEntries = await this.changeLog.getEntries();
+    const planEntry = allEntries.find(e => e.id === planId);
+    
+    if (!planEntry) {
+      throw new Error(`No change log found for plan ${planId}`);
     }
 
     // Reverse steps in reverse order
-    for (let i = changeLog.entries.length - 1; i >= 0; i--) {
-      const entry = changeLog.entries[i];
-      await this.reverseStep(entry);
+    for (let i = planEntry.steps.length - 1; i >= 0; i--) {
+      const step = planEntry.steps[i];
+      await this.reverseStep(step);
     }
 
-    this.logger.info(`Plan ${plan.id} rolled back successfully`);
+    // Remove the change log entry
+    await this.changeLog.removeEntry(planId);
+
+    this.logger.info(`Plan ${planId} rolled back successfully`);
   }
 
   /**
-   * Reverses a single step using its change log entry.
+   * Reverses a single step using an applied step.
    */
-  private async reverseStep(entry: ChangeLogEntry): Promise<void> {
-    this.logger.debug(`Reversing step ${entry.stepId}: ${entry.action}`);
+  private async reverseStep(step: AppliedStep): Promise<void> {
+    this.logger.debug(`Reversing step of type: ${step.type}`);
 
-    switch (entry.action) {
+    switch (step.type) {
       case 'set-vscode-setting':
-        if (entry.targetPath) {
+        if (step.target) {
           const config = vscode.workspace.getConfiguration();
-          await config.update(entry.targetPath, entry.oldValue, vscode.ConfigurationTarget.Global);
-          this.logger.info(`Reverted setting ${entry.targetPath}`);
+          await config.update(step.target, step.oldValue, vscode.ConfigurationTarget.Global);
+          this.logger.info(`Reverted setting ${step.target}`);
         }
         break;
       
       case 'edit-config-file':
-        // Restoration from backup would need to be implemented
-        // For now, just log
-        this.logger.info(`Config file rollback requires manual restoration from backup: ${entry.backupPath}`);
+        // Restoration from backup if available
+        if (step.backupPath) {
+          try {
+            const backupContent = await fs.readFile(step.backupPath, 'utf-8');
+            await safeWriteFile(step.target, backupContent);
+            this.logger.info(`Restored file from backup: ${step.backupPath}`);
+          } catch (error) {
+            this.logger.warning(`Could not restore from backup: ${error}`);
+            // Fallback to oldValue if available
+            if (step.oldValue && typeof step.oldValue === 'string') {
+              await safeWriteFile(step.target, step.oldValue);
+              this.logger.info(`Restored file from oldValue`);
+            }
+          }
+        } else if (step.oldValue && typeof step.oldValue === 'string') {
+          await safeWriteFile(step.target, step.oldValue);
+          this.logger.info(`Restored file from oldValue`);
+        }
         break;
       
       case 'set-env-var':
       case 'show-guided-steps':
       case 'backup-file':
+      case 'verify-endpoint':
         // These actions don't need reversal
         break;
     }
-  }
-
-  /**
-   * Saves change log to global state.
-   */
-  private async saveChangeLog(changeLog: ChangeLog): Promise<void> {
-    const allLogs = this.context.globalState.get<ChangeLog[]>(CHANGE_LOG_KEY, []);
-    allLogs.push(changeLog);
-    await this.context.globalState.update(CHANGE_LOG_KEY, allLogs);
-  }
-
-  /**
-   * Gets change log for a plan.
-   */
-  private async getChangeLog(planId: string): Promise<ChangeLog | undefined> {
-    const allLogs = this.context.globalState.get<ChangeLog[]>(CHANGE_LOG_KEY, []);
-    return allLogs.find(log => log.planId === planId);
   }
 }
