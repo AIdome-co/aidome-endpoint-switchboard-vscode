@@ -103,7 +103,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run copy-resources",
+    "copy-resources": "node -e \"const fs = require('fs'); fs.copyFileSync('src/core/registry/assistants.registry.json', 'out/core/registry/assistants.registry.json');\"",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "lint": "eslint src",
