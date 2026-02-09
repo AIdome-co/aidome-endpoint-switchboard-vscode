@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
-import { scanExtensionSettings, getSettingValue } from '../generic/settingsScanner';
+import { getSettingValue, discoverBaseUrlSettings, discoverProviderSettings } from '../generic/settingsScanner';
 import { Logger } from '../../util/log';
 
 /**
@@ -103,18 +103,14 @@ export class CodeGptAdapter implements AssistantAdapter {
         return {};
       }
 
-      // Scan for base URL related keys
-      const baseUrlPatterns = ['*apiUrl*', '*baseUrl*', '*apiBase*', '*endpoint*'];
-      const baseUrlKeys = scanExtensionSettings('CodeGPT.codegpt', baseUrlPatterns);
+      // Use the enhanced scanner with confidence scoring
+      const baseUrlMatches = discoverBaseUrlSettings('CodeGPT.codegpt');
+      const providerMatches = discoverProviderSettings('CodeGPT.codegpt');
 
-      // Scan for provider related keys
-      const providerPatterns = ['*provider*'];
-      const providerKeys = scanExtensionSettings('CodeGPT.codegpt', providerPatterns);
-
-      // Return the first match for each category
+      // Return the highest confidence matches
       return {
-        baseUrlKey: baseUrlKeys.length > 0 ? baseUrlKeys[0] : undefined,
-        providerKey: providerKeys.length > 0 ? providerKeys[0] : undefined
+        baseUrlKey: baseUrlMatches.length > 0 ? baseUrlMatches[0].key : undefined,
+        providerKey: providerMatches.length > 0 ? providerMatches[0].key : undefined
       };
     } catch (error) {
       this.logger.warning('Error discovering CodeGPT setting keys', error);
