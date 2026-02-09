@@ -20,15 +20,17 @@ export interface DetectedCLI {
 
 /**
  * Detects installed CLI tools from registry.
+ * Uses parallel detection with individual 2s timeouts for performance.
  * @param registry The assistant registry
+ * @param earlyExitTargets Optional array of assistant keys to find - will exit early if all found
  * @returns Promise resolving to array of detected CLIs
  */
-export async function detectCLIs(registry: AssistantRegistry): Promise<DetectedCLI[]> {
-  const detected: DetectedCLI[] = [];
+export async function detectCLIs(registry: AssistantRegistry, earlyExitTargets?: string[]): Promise<DetectedCLI[]> {
   const isWindows = process.platform === 'win32';
   const whichCommand = isWindows ? 'where' : 'which';
   
-  for (const entry of registry.assistants) {
+  // Build list of detection tasks
+  const detectionTasks = registry.assistants.map(async (entry) => {
     const cliCommands = entry.detection.cliCommands || [];
     
     for (const command of cliCommands) {
@@ -53,18 +55,36 @@ export async function detectCLIs(registry: AssistantRegistry): Promise<DetectedC
           // Version command not supported, continue without it
         }
         
-        detected.push({
+        return {
           assistantKey: entry.key,
           command,
           version,
           path
-        });
-        
-        // Only detect once per assistant (use first matching command)
-        break;
+        };
       } catch {
         // Command not found, continue to next
       }
+    }
+    
+    return null;
+  });
+  
+  // Run all detections in parallel
+  const results = await Promise.all(detectionTasks);
+  const detected: DetectedCLI[] = [];
+  
+  for (const result of results) {
+    if (result !== null) {
+      detected.push(result);
+    }
+  }
+  
+  // Early exit optimization: if we found all target assistants, return immediately
+  if (earlyExitTargets && earlyExitTargets.length > 0) {
+    const foundKeys = new Set(detected.map(d => d.assistantKey));
+    const allTargetsFound = earlyExitTargets.every(target => foundKeys.has(target));
+    if (allTargetsFound) {
+      return detected;
     }
   }
   

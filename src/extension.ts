@@ -14,6 +14,7 @@ import { getOutputChannel } from './ui/output';
 import { createStatusBarItem, updateStatusBar, StatusBarManager } from './ui/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
+import { initializeExtensionCaching } from './core/detection/detectExtensions';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -56,6 +57,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = Logger.getInstance();
   
   logger.info('AIdome Endpoint Switchboard extension is activating...');
+  
+  // Initialize extension caching for performance
+  initializeExtensionCaching(context);
   
   // Check and migrate state if needed
   await migrateState(context);
