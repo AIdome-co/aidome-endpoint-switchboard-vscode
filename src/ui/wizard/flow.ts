@@ -2,6 +2,9 @@
  * Wizard flow controller for setup process.
  */
 
+import { detectRemote, RemoteContext } from '../../core/detection/detectRemote';
+import { showRemoteBanner } from '../remoteBanner';
+
 /**
  * Wizard state management.
  */
@@ -10,6 +13,7 @@ export interface WizardState {
   totalSteps: number;
   data: Record<string, unknown>;
   completed: boolean;
+  remoteContext?: RemoteContext;
 }
 
 /**
@@ -17,6 +21,10 @@ export interface WizardState {
  * @returns Promise resolving when wizard completes
  */
 export async function runSetupWizard(): Promise<void> {
+  // Detect remote context and show banner
+  const remoteContext = detectRemote();
+  showRemoteBanner(remoteContext);
+  
   // Skeleton implementation
   throw new Error('Not implemented');
 }

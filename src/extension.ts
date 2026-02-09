@@ -11,7 +11,7 @@ import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
 import { getOutputChannel } from './ui/output';
-import { createStatusBarItem, updateStatusBar } from './ui/statusBar';
+import { createStatusBarItem, updateStatusBar, StatusBarManager } from './ui/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 
@@ -28,18 +28,65 @@ export function activate(context: vscode.ExtensionContext): void {
   
   logger.info('AIdome Endpoint Switchboard extension is activating...');
 
-  // Initialize status bar
-  const statusBar = createStatusBarItem();
-  context.subscriptions.push(statusBar);
+  // Initialize status bar with StatusBarManager
+  const statusBarItem = createStatusBarItem();
+  const statusBarManager = new StatusBarManager(statusBarItem);
+  context.subscriptions.push(statusBarItem);
 
   // Initialize profile store and update status bar
   const profileStore = new ProfileStore(context);
   profileStore.getActiveProfile().then(profile => {
-    updateStatusBar(profile?.name);
+    if (profile) {
+      statusBarManager.setConfigured(profile.name);
+    } else {
+      statusBarManager.setNotConfigured();
+    }
   }).catch(error => {
     logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
-    updateStatusBar(undefined);
+    statusBarManager.setNotConfigured();
   });
+
+  // Register status bar action command (quick actions menu)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
+      try {
+        const action = await vscode.window.showQuickPick([
+          { label: '$(debug-start) Verify Routing', value: 'verify' },
+          { label: '$(list-unordered) Manage Profiles', value: 'manage' },
+          { label: '$(wand) Open Setup Wizard', value: 'setup' },
+          { label: '$(notebook) Export Diagnostics', value: 'diagnostics' },
+          { label: '$(gear) Show Models & Providers', value: 'models' }
+        ], {
+          placeHolder: 'AIdome Quick Actions'
+        });
+
+        if (!action) {
+          return;
+        }
+
+        switch (action.value) {
+          case 'verify':
+            await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
+            break;
+          case 'manage':
+            await vscode.commands.executeCommand('aidome-switchboard.manageProfiles');
+            break;
+          case 'setup':
+            await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+            break;
+          case 'diagnostics':
+            await vscode.commands.executeCommand('aidome-switchboard.exportDiagnostics');
+            break;
+          case 'models':
+            await vscode.commands.executeCommand('aidome-switchboard.showModelsProviders');
+            break;
+        }
+      } catch (error) {
+        logger.error('Error in statusBarAction command', error as Error);
+        vscode.window.showErrorMessage('Failed to execute action: ' + (error as Error).message);
+      }
+    })
+  );
 
   // Register commands
   context.subscriptions.push(
