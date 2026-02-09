@@ -19,18 +19,59 @@ export interface DetectedAssistant {
 }
 
 /**
+ * Cache for vscode.extensions.all to avoid repeated lookups.
+ */
+let extensionsCache: readonly vscode.Extension<any>[] | null = null;
+
+/**
+ * Invalidates the extensions cache.
+ * Call this when extensions are installed/uninstalled.
+ */
+export function invalidateExtensionsCache(): void {
+  extensionsCache = null;
+}
+
+/**
+ * Gets all extensions with caching.
+ * @returns Array of all extensions
+ */
+function getAllExtensions(): readonly vscode.Extension<any>[] {
+  if (!extensionsCache) {
+    extensionsCache = vscode.extensions.all;
+  }
+  return extensionsCache;
+}
+
+/**
+ * Initializes extension change listeners to invalidate cache.
+ * Should be called during extension activation.
+ * @param context Extension context
+ */
+export function initializeExtensionCaching(context: vscode.ExtensionContext): void {
+  // Listen for extension changes
+  const disposable = vscode.extensions.onDidChange(() => {
+    invalidateExtensionsCache();
+  });
+  
+  context.subscriptions.push(disposable);
+}
+
+/**
  * Detects installed VS Code extensions from registry.
  * @param registry The assistant registry
  * @returns Array of detected assistants
  */
 export function detectExtensions(registry: AssistantRegistry): DetectedAssistant[] {
   const detected: DetectedAssistant[] = [];
+  const allExtensions = getAllExtensions();
   
   for (const entry of registry.assistants) {
     const extensionIds = entry.detection.vscodeExtensionIds || [];
     
     for (const extensionId of extensionIds) {
-      const extension = vscode.extensions.getExtension(normalizeExtensionId(extensionId));
+      const normalizedId = normalizeExtensionId(extensionId);
+      const extension = allExtensions.find(ext => ext.id.toLowerCase() === normalizedId);
+      
       if (extension) {
         detected.push({
           assistantKey: entry.key,

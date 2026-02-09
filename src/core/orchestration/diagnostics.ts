@@ -245,12 +245,20 @@ export function generateDiagnosticReport(data: DiagnosticData): DiagnosticReport
 }
 
 /**
- * Formats diagnostics report as JSON.
+ * Formats diagnostics report as JSON with redaction.
  * @param report The diagnostics report
  * @returns JSON string
  */
 export function formatAsJson(report: DiagnosticsReport | DiagnosticReport): string {
-  return JSON.stringify(report, null, 2);
+  const jsonStr = JSON.stringify(report, null, 2);
+  // Second pass redaction on final output
+  const { redactString, redactUrl } = require('../../util/redact');
+  let redacted = redactString(jsonStr);
+  
+  // Redact any URLs that might have slipped through
+  redacted = redacted.replace(/(https?:\/\/[^\s"]+)/g, (match: string) => redactUrl(match));
+  
+  return redacted;
 }
 
 /**

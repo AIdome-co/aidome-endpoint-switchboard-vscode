@@ -99,23 +99,39 @@ export function redactObject<T extends Record<string, unknown>>(
 
 /**
  * Redacts URLs containing sensitive query parameters.
+ * Strips all query parameters to prevent accidental exposure.
  * @param url The URL
  * @returns Redacted URL
  */
 export function redactUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    const sensitiveParams = ['api_key', 'apiKey', 'token', 'secret'];
     
-    for (const param of sensitiveParams) {
-      if (parsed.searchParams.has(param)) {
-        const value = parsed.searchParams.get(param) || '';
-        parsed.searchParams.set(param, redactApiKey(value));
-      }
+    // Strip all query parameters for safety
+    if (parsed.search) {
+      parsed.search = '';
+      return parsed.toString() + ' [query params redacted]';
     }
     
     return parsed.toString();
   } catch {
     return url;
   }
+}
+
+/**
+ * Redacts environment variable values from a string.
+ * @param input The input string
+ * @param envVars Array of environment variable names to check
+ * @returns Redacted string
+ */
+export function redactEnvVars(input: string, envVars: string[] = ['API_KEY', 'TOKEN', 'SECRET', 'PASSWORD']): string {
+  let result = input;
+  
+  for (const varName of envVars) {
+    const pattern = new RegExp(`${varName}\\s*=\\s*[^\\s]+`, 'gi');
+    result = result.replace(pattern, `${varName}=***`);
+  }
+  
+  return result;
 }

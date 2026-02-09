@@ -15,13 +15,21 @@ export interface ValidationResult {
 
 /**
  * Validates an endpoint URL.
+ * Rejects dangerous schemes like javascript:, data:, file:.
  * @param url The URL to validate
  * @returns True if valid, false otherwise
  */
 export function validateUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    // Must be https or http://localhost for dev
+    
+    // Reject dangerous schemes
+    const dangerousSchemes = ['javascript:', 'data:', 'file:', 'ftp:'];
+    if (dangerousSchemes.includes(parsed.protocol.toLowerCase())) {
+      return false;
+    }
+    
+    // Only allow https or http://localhost for dev
     return (
       parsed.protocol === 'https:' ||
       (parsed.protocol === 'http:' && 
@@ -34,11 +42,37 @@ export function validateUrl(url: string): boolean {
 
 /**
  * Validates a profile name.
+ * Only alphanumeric, hyphens, underscores. Max 64 chars.
  * @param name The profile name
  * @returns True if valid, false otherwise
  */
 export function validateProfileName(name: string): boolean {
-  return name.length > 0 && name.length <= 100;
+  if (!name || name.length === 0 || name.length > 64) {
+    return false;
+  }
+  
+  // Only allow alphanumeric, hyphens, underscores
+  const validPattern = /^[a-zA-Z0-9_-]+$/;
+  return validPattern.test(name);
+}
+
+/**
+ * Validates a file path to prevent path traversal attacks.
+ * @param filePath The file path to validate
+ * @returns True if valid, false otherwise
+ */
+export function validatePath(filePath: string): boolean {
+  // Reject paths with .. traversal
+  if (filePath.includes('..')) {
+    return false;
+  }
+  
+  // Reject paths with null bytes
+  if (filePath.includes('\0')) {
+    return false;
+  }
+  
+  return true;
 }
 
 /**
@@ -52,7 +86,7 @@ export function validateProfile(profile: Partial<EndpointProfile>): ValidationRe
 
   // Required fields
   if (!profile.name || !validateProfileName(profile.name)) {
-    errors.push('Profile name is required and must be 1-100 characters');
+    errors.push('Profile name is required and must be alphanumeric with hyphens/underscores only (max 64 chars)');
   }
 
   if (!profile.baseUrl) {
