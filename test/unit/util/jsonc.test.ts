@@ -61,7 +61,8 @@ describe('JSONC Parser Utilities', () => {
 
     it('should throw on invalid JSON', () => {
       const input = '{ "key": invalid }';
-      expect(() => parseJsonc(input)).toThrow(SyntaxError);
+      expect(() => parseJsonc(input)).toThrow();
+      expect(() => parseJsonc(input)).toThrow(/JSONC parse error/);
     });
 
     it('should throw with meaningful error message', () => {
