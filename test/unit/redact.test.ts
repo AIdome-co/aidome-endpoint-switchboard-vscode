@@ -86,6 +86,34 @@ describe('Redaction Utilities', () => {
         expect(redacted).toContain('***');
       }
     });
+
+    it('should NOT redact git commit SHAs', () => {
+      const input = 'commit 41726bdff010cfdeac2cd7e21a30cd325daf124f';
+      const result = redactString(input);
+      expect(result).toContain('41726bdff010cfdeac2cd7e21a30cd325daf124f');
+      expect(result).toBe(input);
+    });
+
+    it('should NOT redact UUIDs', () => {
+      const input = 'id: 550e8400e29b41d4a716446655440000';
+      const result = redactString(input);
+      expect(result).toContain('550e8400e29b41d4a716446655440000');
+      expect(result).toBe(input);
+    });
+
+    it('should still redact OpenAI keys', () => {
+      const input = 'key: sk-abcdefghijklmnopqrstuvwxyz123456789';
+      const result = redactString(input);
+      expect(result).not.toContain('sk-abcdefghijklmnopqrstuvwxyz123456789');
+      expect(result).toContain('***');
+    });
+
+    it('should still redact Bearer tokens', () => {
+      const input = 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.test';
+      const result = redactString(input);
+      expect(result).toContain('Bearer ***');
+      expect(result).not.toContain('eyJhbGciOiJIUzI1NiJ9.test');
+    });
   });
 
   describe('redactApiKey', () => {
