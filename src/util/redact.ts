@@ -10,7 +10,6 @@ const SECRET_PATTERNS = [
   /sk-[a-zA-Z0-9]{32,}/gi,                         // OpenAI API keys (sk-...)
   /sk-proj-[a-zA-Z0-9_-]{32,}/gi,                  // OpenAI project keys
   /sk-ant-[a-zA-Z0-9_-]{32,}/gi,                   // Anthropic API keys
-  /\b[A-Za-z0-9]{32,}\b/g,                         // Generic long alphanumeric (potential keys)
   /api[_-]?key[\s:=]+[\w\-._~+/]+=*/gi,           // API key patterns
   /x-api-key[\s:]+[\w\-._~+/]+=*/gi,              // x-api-key header values
   /password[\s:=]+\S+/gi,                          // Password patterns
@@ -46,10 +45,6 @@ export function redactString(input: string): string {
       }
       if (match.toLowerCase().includes('token')) {
         return 'token: ***';
-      }
-      // For long alphanumeric strings, only redact if they look like keys (32+ chars)
-      if (match.length >= 32 && /^[A-Za-z0-9]+$/.test(match)) {
-        return '***';
       }
       return match; // Keep non-sensitive matches
     });
