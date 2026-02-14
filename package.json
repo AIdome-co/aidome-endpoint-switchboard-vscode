@@ -106,6 +106,7 @@
     "package": "vsce package"
   },
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.6.0"
   },
   "devDependencies": {

@@ -2,19 +2,31 @@
  * JSON with comments (JSONC) parser utilities.
  */
 
+import { parse as jsoncParse, ParseError, printParseErrorCode } from 'jsonc-parser';
+
 /**
  * Parses JSONC (JSON with comments).
+ * Uses Microsoft's jsonc-parser for correct handling of comments
+ * inside string values (e.g., URLs containing "//").
  * @param content The JSONC content
  * @returns Parsed object
+ * @throws Error if parsing fails
  */
 export function parseJsonc<T>(content: string): T {
-  // Remove single-line comments
-  let cleaned = content.replace(/\/\/.*$/gm, '');
+  const errors: ParseError[] = [];
+  const result = jsoncParse(content, errors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  });
   
-  // Remove multi-line comments
-  cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
+  if (errors.length > 0) {
+    const firstError = errors[0];
+    throw new SyntaxError(
+      `JSONC parse error at offset ${firstError.offset}: ${printParseErrorCode(firstError.error)}`
+    );
+  }
   
-  return JSON.parse(cleaned) as T;
+  return result as T;
 }
 
 /**
