@@ -17,12 +17,6 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:aidome-switchboard.setupSwitchboard",
-    "onCommand:aidome-switchboard.verifyRouting",
-    "onCommand:aidome-switchboard.showModelsProviders",
-    "onCommand:aidome-switchboard.manageProfiles",
-    "onCommand:aidome-switchboard.resetSwitchboard",
-    "onCommand:aidome-switchboard.exportDiagnostics",
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
@@ -104,12 +98,15 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && npm run copy-resources",
-    "copy-resources": "node -e \"const fs = require('fs'); fs.copyFileSync('src/core/registry/assistants.registry.json', 'out/core/registry/assistants.registry.json');\"",
+    "copy-resources": "node -e \"const fs = require('fs'); const dir = 'out/core/registry'; fs.mkdirSync(dir, { recursive: true }); fs.copyFileSync('src/core/registry/assistants.registry.json', dir + '/assistants.registry.json');\"",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "lint": "eslint src",
     "test": "vitest",
     "package": "vsce package"
+  },
+  "dependencies": {
+    "smol-toml": "^1.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -119,7 +116,6 @@
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",
-    "smol-toml": "^1.6.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   },

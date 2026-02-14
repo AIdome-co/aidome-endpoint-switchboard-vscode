@@ -25,8 +25,9 @@ export async function runSetupWizard(): Promise<void> {
   const remoteContext = detectRemote();
   showRemoteBanner(remoteContext);
   
-  // Skeleton implementation
-  throw new Error('Not implemented');
+  // TODO: Wizard logic is implemented in src/commands/setupSwitchboard.ts
+  // This skeleton is preserved for potential future refactoring
+  return;
 }
 
 /**

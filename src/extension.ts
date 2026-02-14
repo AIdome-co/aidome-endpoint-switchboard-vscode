@@ -11,7 +11,7 @@ import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
 import { getOutputChannel } from './ui/output';
-import { createStatusBarItem, updateStatusBar, StatusBarManager } from './ui/statusBar';
+import { createStatusBarItem, StatusBarManager } from './ui/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
@@ -66,23 +66,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Defer status bar and non-essential initialization
   setImmediate(async () => {
-    // Initialize status bar with StatusBarManager
-    const statusBarItem = createStatusBarItem();
-    const statusBarManager = new StatusBarManager(statusBarItem);
-    context.subscriptions.push(statusBarItem);
+    try {
+      // Initialize status bar with StatusBarManager
+      const statusBarItem = createStatusBarItem();
+      const statusBarManager = new StatusBarManager(statusBarItem);
+      context.subscriptions.push(statusBarItem);
 
-    // Initialize profile store and update status bar
-    const profileStore = new ProfileStore(context);
-    profileStore.getActiveProfile().then(profile => {
-      if (profile) {
-        statusBarManager.setConfigured(profile.name);
-      } else {
+      // Initialize profile store and update status bar
+      const profileStore = new ProfileStore(context);
+      profileStore.getActiveProfile().then(profile => {
+        if (profile) {
+          statusBarManager.setConfigured(profile.name);
+        } else {
+          statusBarManager.setNotConfigured();
+        }
+      }).catch(error => {
+        logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
         statusBarManager.setNotConfigured();
-      }
-    }).catch(error => {
-      logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
-      statusBarManager.setNotConfigured();
-    });
+      });
+    } catch (error) {
+      logger.error('Failed to initialize status bar', error instanceof Error ? error : undefined);
+    }
   });
 
   // Register status bar action command (quick actions menu)
