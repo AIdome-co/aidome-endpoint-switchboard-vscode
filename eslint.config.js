@@ -1,5 +1,6 @@
 const tsParser = require('@typescript-eslint/parser');
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
+const stylistic = require('@stylistic/eslint-plugin');
 
 module.exports = [
   {
@@ -13,7 +14,8 @@ module.exports = [
       }
     },
     plugins: {
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      '@stylistic': stylistic
     },
     rules: {
       '@typescript-eslint/naming-convention': [
@@ -26,7 +28,7 @@ module.exports = [
       'curly': 'warn',
       'eqeqeq': 'warn',
       'no-throw-literal': 'warn',
-      'semi': 'warn'
+      '@stylistic/semi': 'warn'
     }
   },
   {
