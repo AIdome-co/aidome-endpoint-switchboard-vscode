@@ -64,7 +64,7 @@ Address each error. Never suppress with `// @ts-ignore` without a documented rea
 **Symptoms**: The "lint" step fails with ESLint rule violations.
 
 **Common causes**:
-- `console.log` used in `src/` (no-console rule)
+- `console.log` used in source code (no-console rule)
 - `any` type used where a stricter type is expected
 - Unused variable or import
 - Formatting issues (semicolons, etc.)

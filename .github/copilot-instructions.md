@@ -13,8 +13,8 @@ Read every section before suggesting or generating code.
 |---|---|
 | `AGENTS.md` | Build, test, lint commands — quick-start for any agent |
 | `CLAUDE.md` | Claude Code entry point with mandatory rules |
-| `.github/instructions/typescript-extension.instructions.md` | Rules for `src/**` |
-| `.github/instructions/testing.instructions.md` | Rules for `test/**` |
+| `.github/instructions/typescript-extension.instructions.md` | Rules for source code |
+| `.github/instructions/testing.instructions.md` | Rules for test code |
 | `.github/references/architecture.md` | Deep architecture reference |
 | `.github/references/security-rules.md` | Security rules with examples |
 | `.github/references/coding-guidelines.md` | Code quality reference |
@@ -37,7 +37,7 @@ These are hard requirements — not style preferences:
 
 1. **SecretStorage** — `vscode.SecretStorage` is the only acceptable store for API keys,
    tokens, and credentials. `globalState` is for non-sensitive preferences only.
-2. **No `console.log`** — The Logger class is the only logging mechanism in `src/`.
+2. **No `console.log`** — The Logger class is the only logging mechanism in source code.
    The ESLint no-console rule and pre-release validation tests both enforce this.
 3. **Redact before logging** — Pass sensitive values through the redaction utility before
    including them in any log entry or diagnostics export.
@@ -51,7 +51,9 @@ These are hard requirements — not style preferences:
 
 ## Code Organization Rules
 
-- Source is organized into `adapters/`, `core/`, `commands/`, `ui/`, and `util/` layers.
+- Source is organized into distinct conceptual layers: adapters for each AI assistant,
+  core business logic (profiles, orchestration, detection, registry), command handlers,
+  UI components, and narrow named utilities.
   Respect layer boundaries — UI code does not talk to adapters directly.
 - Name directories after their role: `validators/`, `formatters/`, `guards/`.
   Do **not** create generic catch-all directories like `utils/` or `helpers/`.
@@ -79,7 +81,7 @@ The extension has these conceptual layers (described as patterns, not paths):
 - **UI layer** — Wizard flows, notifications, output channel, status bar, diagnostics view.
   Never calls adapters directly — goes through the orchestrator.
 - **Util layer** — Narrow, named utilities: safe file operations, HTTP helpers, JSONC
-  parsing, logging, path helpers, secret redaction.
+  parsing, logging, path helpers, and secret redaction.
 
 For deep details on each layer, see `.github/references/architecture.md`.
 
@@ -98,4 +100,4 @@ For deep details on each layer, see `.github/references/architecture.md`.
 - Make small, incremental changes — prefer ~200 lines of code changed per PR.
 - Write or update tests before (or alongside) implementation changes.
 - If a test is failing, fix the root cause — do not delete or skip the test.
-- When uncertain about an architectural decision, consult the ADRs in `docs/adr/`.
+- When uncertain about an architectural decision, consult the project's ADRs.

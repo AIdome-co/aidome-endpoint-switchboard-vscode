@@ -105,7 +105,7 @@ Run the extension in development mode to test the full end-to-end flow:
 
 - Update `README.md` to mention the new assistant in the supported assistants section
 - Update `CHANGELOG.md` with the new assistant support
-- If the assistant required any architectural decisions, consider adding an ADR in `docs/adr/`
+- If the assistant required any architectural decisions, consider adding an ADR
 
 ## Checklist
 

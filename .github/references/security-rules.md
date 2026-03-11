@@ -65,7 +65,7 @@ logger.debug(`Connecting with key: ${apiKey}`);
 
 **✅ Correct — redacting before logging:**
 ```typescript
-import { redactString } from '../util/redact';
+// Use the project's redaction utility before logging any sensitive value
 logger.debug(`Connecting with key: ${redactString(apiKey)}`);
 ```
 
@@ -84,7 +84,7 @@ long opaque strings). When in doubt, redact.
 
 ## No `console.log`
 
-The `console` object must not be used anywhere in `src/`. All log output goes through
+The `console` object must not be used anywhere in source code. All log output goes through
 the Logger class, which writes to the extension's output channel and applies redaction.
 
 **❌ Wrong:**
@@ -100,7 +100,7 @@ logger.error('Setup failed', error);
 ```
 
 The ESLint `no-console` rule and the pre-release validation test both enforce this.
-A CI lint failure or validation test failure means `console.*` was used in `src/`.
+A CI lint failure or validation test failure means `console.*` was used in source code.
 
 ## Backup-Before-Modify
 
@@ -130,5 +130,5 @@ surface area. Keep them minimal:
 - Do not request filesystem permissions beyond what adapters need.
 - Do not add telemetry, analytics, or network calls that aren't part of the core
   endpoint routing functionality.
-- Review `.vscodeignore` before packaging: `src/`, `test/`, `node_modules/`, and
-  any development-only files must be excluded from the VSIX.
+- Review `.vscodeignore` before packaging: source, test, and dependency directories
+  plus any development-only files must be excluded from the VSIX.

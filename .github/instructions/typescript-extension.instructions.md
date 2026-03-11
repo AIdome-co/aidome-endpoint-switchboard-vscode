@@ -29,7 +29,7 @@ Rules for all TypeScript source files in this extension.
 ## Logging
 
 - Use the Logger class for all output. Never use `console.log`, `console.warn`,
-  `console.error`, or any other `console.*` method in `src/`.
+  `console.error`, or any other `console.*` method in source code.
 - Before logging any value that could contain user data, API keys, or URLs, run it
   through the redaction utility.
 - Log at the appropriate level: debug for internal state, info for user-visible progress,

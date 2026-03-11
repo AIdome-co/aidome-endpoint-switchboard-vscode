@@ -75,7 +75,7 @@ the detection and orchestration layers. Adapters are matched to registry entries
 
 ## Architecture Decision Records (ADRs)
 
-The `docs/adr/` directory contains the formal ADRs. Key decisions:
+The project maintains formal ADRs for key architectural decisions:
 
 | ADR | Decision | Rationale |
 |---|---|---|

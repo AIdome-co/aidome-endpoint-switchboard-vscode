@@ -66,31 +66,22 @@ npm run package
 npx @vscode/vsce package --out aidome-endpoint-switchboard.vsix
 ```
 
-This produces `aidome-endpoint-switchboard.vsix` in the project root.
+This produces a `.vsix` file in the project root.
 
 ## Step 5 — Validate VSIX Contents
 
 Inspect the VSIX (it's a zip file) to confirm the package is clean:
 
 ```bash
-unzip -l aidome-endpoint-switchboard.vsix | grep -E "(src/|test/|node_modules/|\.map$)"
+unzip -l *.vsix | grep -E "(src/|test/|node_modules/|\.map$)"
 ```
 
 This command should produce **no output**. If it does, update `.vscodeignore` to
 exclude those paths, then re-package and re-validate.
 
-Key items that must be in the VSIX:
-- `extension/package.json`
-- `extension/out/` (compiled JS)
-- `extension/resources/` (icons, walkthrough files)
-- `extension/README.md`, `extension/CHANGELOG.md`, `extension/LICENSE`
-
-Key items that must NOT be in the VSIX:
-- `src/` (TypeScript source)
-- `test/` (test files)
-- `node_modules/` (dependencies are bundled or excluded)
-- `*.map` source map files
-- `.vscode/`, `.github/`, `docs/`
+The VSIX must include the compiled JS output, resources (icons, walkthrough files),
+and documentation files (README, CHANGELOG, LICENSE). It must NOT include TypeScript
+source, test files, dependency directories, source maps, or development configuration.
 
 ## Step 6 — Tag and Push for Release
 

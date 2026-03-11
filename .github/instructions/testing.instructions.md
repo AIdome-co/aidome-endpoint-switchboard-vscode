@@ -56,11 +56,11 @@ Add only the vscode API members that the module under test actually uses.
 
 The validation test suite acts as the final gate before release. It checks:
 
-- **No `console.log` in `src/`** — scans compiled output and source for console calls.
+- **No `console.log` in source** — scans compiled output and source for console calls.
 - **Required files exist** — verifies that `package.json`, `LICENSE`, `CHANGELOG.md`,
   and the compiled output directory are all present.
 - **TypeScript compiles without errors** — runs the compiler and checks for zero errors.
-- **`.vscodeignore` is correct** — ensures that `src/`, `test/`, and `node_modules/`
+- **`.vscodeignore` is correct** — ensures that source, test, and dependency directories
   are excluded from the packaged VSIX.
 - **Registry is valid** — confirms that the assistant registry JSON is parseable and
   contains the expected fields.
@@ -80,9 +80,9 @@ The `npm run compile` step must succeed before tests run (`pretest` hook).
 
 ## Integration Tests
 
-Integration tests in `test/integration/` test the full extension activation in an
-Extension Development Host. They require a real VS Code instance and run more slowly.
-These are not part of the default `npm test` run — they require `@vscode/test-electron`.
+Integration tests exercise the full extension activation in an Extension Development
+Host. They require a real VS Code instance and run more slowly. These are not part of
+the default `npm test` run — they require `@vscode/test-electron`.
 
 Run integration tests only when making changes to extension activation, command
 registration, or features that interact deeply with the VS Code API.

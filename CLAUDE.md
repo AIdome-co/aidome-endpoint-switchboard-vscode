@@ -10,8 +10,8 @@
 |---|---|
 | `AGENTS.md` | Build, test, and lint commands — read first |
 | `.github/copilot-instructions.md` | Full hub: scope, security, architecture |
-| `.github/instructions/typescript-extension.instructions.md` | Rules for `src/` code |
-| `.github/instructions/testing.instructions.md` | Rules for `test/` code |
+| `.github/instructions/typescript-extension.instructions.md` | Rules for source code |
+| `.github/instructions/testing.instructions.md` | Rules for test code |
 | `.github/references/architecture.md` | Adapter pattern, profiles, orchestration, ADRs |
 | `.github/references/security-rules.md` | Security rules with ❌/✅ examples |
 | `.github/references/coding-guidelines.md` | Code quality, naming, anti-patterns |

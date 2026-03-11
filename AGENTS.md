@@ -25,10 +25,9 @@ npm test -- --watch               # Watch mode for TDD
 npm test -- path/to/test.test.ts  # Run a single test file
 ```
 
-Test layout:
-- `test/unit/` — Unit tests for adapters, core logic, and utilities
-- `test/integration/` — Extension host integration tests
-- `test/validation/` — Pre-release gate checks (no console.log, VSIX content, etc.)
+Tests are organized into three categories: unit tests for adapters, core logic, and
+utilities; integration tests that run in the Extension Development Host; and pre-release
+validation tests that gate releases (no console.log, VSIX content, required files).
 
 All tests must pass before opening a PR. Validation tests are the final gate before release.
 
@@ -39,7 +38,7 @@ npm run lint         # ESLint (TypeScript strict — no-console rule enforced)
 npm run compile      # TypeScript strict mode — zero errors required
 ```
 
-There is **no `console.log`** allowed anywhere in `src/`. Use the Logger class.
+There is **no `console.log`** allowed anywhere in source code. Use the Logger class.
 The pre-release validation tests will fail if any `console.log` slips through.
 
 ## Where To Find Deeper Guidance
