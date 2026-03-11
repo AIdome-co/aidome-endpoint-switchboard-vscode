@@ -1,0 +1,132 @@
+name: Bug report
+description: Report a reproducible problem in the VS Code extension.
+title: 'Bug: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+
+        This form is for issues in the extension itself: setup, profile management,
+        assistant detection, config patching, verification, diagnostics, and related docs.
+
+        Before filing:
+        - Search existing issues: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues
+        - Review the README: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode#readme
+        - Check the admin guide: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/docs/admin-guide.md
+        - If possible, export diagnostics from the extension and attach only redacted output
+
+        Please keep this to one bug per issue.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      description: These checks help maintainers reproduce and triage the issue faster.
+      options:
+        - label: I searched existing issues and did not find a matching report.
+          required: true
+        - label: I am using the latest released version of the extension, or I can reproduce on it.
+          required: true
+        - label: I reviewed the README or relevant docs before filing.
+          required: true
+        - label: I have redacted secrets, tokens, and private endpoint details from anything I attach.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Pick the area that is closest to the issue.
+      options:
+        - Setup wizard
+        - Profile management
+        - Assistant detection
+        - Assistant config patching
+        - Verify routing
+        - Models and providers
+        - Diagnostics export
+        - Documentation
+        - CI or packaging
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: assistants
+    attributes:
+      label: Affected assistant or integration
+      description: If relevant, list the assistant or adapter involved.
+      placeholder: Continue, Cline, Roo Code, Codex CLI, GitHub Copilot, multiple, unknown
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly and concretely.
+      placeholder: The setup wizard completed, but Verify Routing still reports an invalid endpoint even though the profile tests successfully.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the shortest reliable path to hit the issue.
+      placeholder: |
+        1. Install the extension
+        2. Run "AIdome: Setup Endpoint Switchboard"
+        3. Create or select profile X
+        4. Run "AIdome: Verify Endpoint Routing"
+        5. Observe Y
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: Verify Routing should detect the configured endpoint and complete successfully.
+    validations:
+      required: true
+  - type: dropdown
+    id: environment_kind
+    attributes:
+      label: Environment
+      description: Where are you running VS Code?
+      options:
+        - Local desktop
+        - Dev Container
+        - WSL
+        - SSH remote
+        - GitHub Codespaces
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Environment details
+      description: Include the versions and context needed to reproduce the issue.
+      render: markdown
+      value: |
+        - Extension version:
+        - VS Code version:
+        - OS:
+        - Remote/local context:
+        - Assistant(s) installed:
+        - Endpoint type or provider:
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Logs, diagnostics, or screenshots
+      description: Paste redacted logs, Output channel excerpts, diagnostics export details, or screenshots if they help.
+      render: shell
+      placeholder: |
+        Paste redacted diagnostics or log output here.
+
+        If the problem is visual or workflow-related, attach screenshots in the issue body after submission.
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add anything else that would help triage the issue.
+      placeholder: This only happens in a dev container, or only after switching profiles, or only with one assistant adapter.

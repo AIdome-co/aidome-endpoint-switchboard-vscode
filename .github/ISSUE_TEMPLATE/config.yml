@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup or usage help
+    url: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode#readme
+    about: Start with the README for setup, verification, and supported assistants.
+  - name: Admin and enterprise guidance
+    url: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/docs/admin-guide.md
+    about: Review deployment, policy, and operational guidance before filing an issue.
+  - name: Enterprise install guide
+    url: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/docs/enterprise-install.md
+    about: Check installation and rollout guidance for managed environments.

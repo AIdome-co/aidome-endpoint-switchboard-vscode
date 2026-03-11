@@ -1,0 +1,90 @@
+name: Feature request
+description: Propose an improvement for the VS Code extension.
+title: 'Feature: '
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement.
+
+        Good feature requests are specific about the workflow problem, the users affected,
+        and what a successful solution would look like in this repository.
+
+        Before filing:
+        - Search existing issues: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues
+        - Review the README: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode#readme
+        - Check the architecture notes if the request is implementation-oriented: https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/.github/references/architecture.md
+
+        Please keep this to one feature request per issue.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find the same request.
+          required: true
+        - label: This request is specific to this repository and not another AIdome project.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Pick the area that would change most.
+      options:
+        - Setup wizard
+        - Profile management
+        - Assistant support or adapters
+        - Assistant config patching
+        - Verify routing
+        - Models and providers
+        - Diagnostics or troubleshooting
+        - Documentation
+        - CI or release workflow
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: assistants
+    attributes:
+      label: Relevant assistant or integration
+      description: If this request affects a specific assistant, say which one.
+      placeholder: Continue, Cline, Roo Code, Codex CLI, GitHub Copilot, multiple, not applicable
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Start with the workflow pain, not the implementation.
+      placeholder: Teams can switch profiles, but there is no fast way to compare or validate them before applying changes to assistant configs.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Describe the behavior, UI, command, or workflow you want.
+      placeholder: Add a quick profile comparison flow in the wizard and profile manager before writing any assistant configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: success
+    attributes:
+      label: What would success look like?
+      description: Give concrete outcomes, acceptance criteria, or examples.
+      placeholder: |
+        - I can compare profile A and B before apply
+        - The extension shows which files would change
+        - No assistant config is modified until I confirm
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List workarounds, competing ideas, or why the current flow is not enough.
+      placeholder: I can export diagnostics and inspect config files manually, but that is slow and easy to get wrong.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add mockups, examples from similar tools, enterprise constraints, or implementation notes.
+      placeholder: This would be especially useful in regulated environments where profile changes must be reviewed before rollout.
