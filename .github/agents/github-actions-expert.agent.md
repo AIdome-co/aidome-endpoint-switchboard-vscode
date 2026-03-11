@@ -5,12 +5,8 @@ description: >
   TypeScript build pipelines, vsce packaging, and Marketplace / Open VSX
   publishing. Invoke when debugging workflow failures, authoring new workflows,
   or reviewing CI security and supply-chain hygiene.
-tools:
-  - codebase
-  - edit/editFiles
-  - terminalCommand
-  - search
-  - githubRepo
+tools:codebase, edit/editFiles, terminalCommand, search, githubRepo, vscode, execute, read, agent, 'io.snyk/mcp/*', 'playwright/*', 'microsoftdocs/mcp/*', new, todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest
+[vscode, execute, read, agent, new, todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest]
 ---
 
 # GitHub Actions Expert — AIdome Endpoint Switchboard
