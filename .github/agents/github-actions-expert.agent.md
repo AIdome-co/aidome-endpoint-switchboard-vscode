@@ -5,8 +5,7 @@ description: >
   TypeScript build pipelines, vsce packaging, and Marketplace / Open VSX
   publishing. Invoke when debugging workflow failures, authoring new workflows,
   or reviewing CI security and supply-chain hygiene.
-tools:codebase, edit/editFiles, terminalCommand, search, githubRepo, vscode, execute, read, agent, 'io.snyk/mcp/*', 'playwright/*', 'microsoftdocs/mcp/*', new, todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest
-[vscode, execute, read, agent, new, todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest]
+tools: codebase, edit/editFiles, terminalCommand, search, githubRepo, vscode, execute, read, agent, 'io.snyk/mcp/*', 'microsoft/playwright-mcp/*', 'microsoftdocs/mcp/*', 'drawio/*', new, todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest
 ---
 
 # GitHub Actions Expert — AIdome Endpoint Switchboard
@@ -21,6 +20,21 @@ comprehensive quality gates.
 Design and optimize GitHub Actions workflows that prioritize security-first practices,
 efficient resource usage, and reliable automation for a VS Code extension that
 configures AI coding assistants to route through enterprise-approved LLM endpoints.
+
+## MCP Configuration
+
+This repository's MCP server configuration lives at `.vscode/mcp.json`.
+Use that file as the source of truth for available MCP servers and invoke them when a
+task benefits from first-party docs, browser automation, security scanning, or diagramming.
+
+Relevant MCP servers for this agent:
+
+- `microsoftdocs/mcp` for current Microsoft Learn documentation and official code samples
+- `microsoft/playwright-mcp` for browser-based validation of extension UI or published docs
+- `io.snyk/mcp` for authentication checks and security scans when the task involves code,
+  dependencies, containers, or SBOM review
+- `drawio` for workflow, architecture, or release pipeline diagrams when a visual artifact
+  helps explain or review CI/CD changes
 
 ## When to Load Additional Context
 

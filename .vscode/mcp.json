@@ -1,0 +1,36 @@
+{
+	"inputs": [],
+	"servers": {
+		"io.snyk/mcp": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"snyk@1.1299.1",
+				"mcp",
+				"-t",
+				"stdio"
+			],
+			"gallery": "https://api.mcp.github.com",
+			"version": "1.1299.1"
+		},
+		"microsoft/playwright-mcp": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"@playwright/mcp@latest"
+			],
+			"gallery": "https://api.mcp.github.com",
+			"version": "0.0.1-seed"
+		},
+		"microsoftdocs/mcp": {
+			"type": "http",
+			"url": "https://learn.microsoft.com/api/mcp",
+			"gallery": "https://api.mcp.github.com",
+			"version": "1.0.0"
+		},
+		"drawio": {
+			"command": "npx",
+			"args": ["@drawio/mcp"]
+		}
+	}
+}
