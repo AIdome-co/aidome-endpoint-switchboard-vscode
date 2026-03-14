@@ -1,0 +1,54 @@
+# Path-based PR label rules for actions/labeler v6
+# Labels are applied when any changed file matches the listed patterns.
+# Uses `any` semantics: the label is applied if at least one changed file matches.
+
+enhancement:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/**"
+      - "resources/**"
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "test/**"
+      - "tests/**"
+      - "**/*.test.ts"
+      - "**/*.test.js"
+      - "**/*.spec.ts"
+      - "**/*.spec.js"
+
+infrastructure:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "package.json"
+      - "package-lock.json"
+      - "yarn.lock"
+      - "pnpm-lock.yaml"
+      - "tsconfig*.json"
+      - ".vscode/**"
+      - ".vscodeignore"
+      - "vitest.config.*"
+      - "eslint.config.*"
+      - ".eslintrc*"
+      - ".eslintignore"
+      - ".nvmrc"
+      - ".node-version"
+
+ci:
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/workflows/**"
+      - ".github/labeler.yml"
+      - ".github/labeler.yaml"
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE*"
+      - ".github/copilot-instructions.md"
+      - ".github/instructions/**"
+      - ".github/references/**"
