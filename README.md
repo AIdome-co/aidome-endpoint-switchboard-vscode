@@ -69,7 +69,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
 | Claude Code | CLI + Extension | C — Guided | 📋 Guided | Anthropic |
-| GitHub Copilot | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
+| GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
 
@@ -89,7 +89,7 @@ Different AI providers use different API protocols. The Switchboard understands 
 - **`openai.responses`** — Newer OpenAI format, `/v1/responses` (OpenAI Codex CLI)
 - **`anthropic.messages`** — Anthropic's `/v1/messages` (Claude Code)
 - **`google.gemini.generate_content`** — Google Gemini (Gemini CLI)
-- **`github.copilot`** — Proprietary (not switchable)
+- **`github.copilot`** — Routable via proxy override (`debug.overrideProxyUrl`) or native BYOK (`customOAIModels`, VS Code ≥ 1.104)
 - **`tabnine.proprietary`** — Proprietary (not switchable)
 
 ---
@@ -205,7 +205,11 @@ Yes. The extension detects remote environments and provides warnings if you conf
 
 ### What about GitHub Copilot?
 
-Copilot is detected for awareness, but it doesn't support custom endpoints. The extension explains this limitation and suggests alternatives.
+Copilot is now supported at **Tier B** using two mechanisms:
+- **Proxy Override** (`github.copilot.advanced.debug.overrideProxyUrl`): routes all Copilot REST traffic (inline completions + chat) through your gateway.
+- **Native BYOK** (`github.copilot.chat.customOAIModels`, VS Code ≥ 1.104): registers your gateway as a custom OpenAI-compatible model selectable inside Copilot Chat.
+
+Both settings are applied automatically and are fully reversible.
 
 ---
 

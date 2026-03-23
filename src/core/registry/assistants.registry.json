@@ -1,12 +1,12 @@
 {
   "$schemaVersion": "0.1.0",
-  "updatedAt": "2026-02-07",
+  "updatedAt": "2026-03-23",
   "dialectCatalog": {
     "openai.chat_completions": "OpenAI-style /v1/chat/completions",
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot proprietary service APIs (not endpoint-switchable)",
+    "github.copilot": "GitHub Copilot — routable via proxy override (debug.overrideProxyUrl) or native BYOK (customOAIModels)",
     "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server"
   },
   "assistants": [
@@ -22,12 +22,19 @@
         "alsoPossible": []
       },
       "endpointSwitching": {
-        "supported": false,
-        "tier": "C",
-        "configurationModes": ["guided-only"],
+        "supported": true,
+        "tier": "B",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": ["vscode-settings", "proxy-override", "native-byok"],
+        "settingKeyHints": [
+          "github.copilot.advanced",
+          "github.copilot.chat.customOAIModels"
+        ],
         "notes": [
-          "Copilot does not expose a supported 'base_url' override in VS Code settings.",
-          "Support means: detect presence, explain limitation, and guide to enterprise-approved alternatives that do support custom endpoints."
+          "Method 1 — Proxy Override: set github.copilot.advanced.debug.overrideProxyUrl to route ALL Copilot REST traffic (completions + chat) through the gateway.",
+          "Method 2 — Native BYOK (VS Code ≥ 1.104): add an entry to github.copilot.chat.customOAIModels to expose the gateway as a selectable model in Copilot Chat.",
+          "Both methods are applied as reversible VS Code setting changes.",
+          "Tier B rather than A because debug.overrideProxyUrl is an advanced/undocumented setting and the user may need to choose which method fits their environment."
         ]
       },
       "sources": [

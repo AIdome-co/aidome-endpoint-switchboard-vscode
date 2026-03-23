@@ -4,6 +4,28 @@ All notable changes to the "LLM Endpoint Switchboard (by AIdome)" extension will
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0] - 2026-03-23
+
+### Changed
+
+#### GitHub Copilot — Upgraded from Tier C to Tier B
+
+- **Proxy Override support**: `GitHubCopilotAdapter` now writes
+  `github.copilot.advanced.debug.overrideProxyUrl` as a reversible VS Code setting,
+  routing all Copilot REST traffic (inline completions + chat) through the configured
+  gateway endpoint.
+- **Native BYOK support** (VS Code ≥ 1.104): adapter also writes
+  `github.copilot.chat.customOAIModels`, registering the gateway as a custom
+  OpenAI-compatible model entry selectable in the Copilot Chat model picker.
+- Both configuration steps are recorded in the change log and can be undone via
+  **AIdome: Reset Switchboard**.
+- `verify()` now checks whether either mechanism is active and reports
+  `proxyOverrideConfigured` / `customModelsConfigured` in its result details.
+- Registry updated: `endpointSwitching.supported = true`, `tier = "B"`,
+  `configurationModes` expanded to include `proxy-override` and `native-byok`.
+
+---
+
 ## [0.1.0] - 2026-02-09
 
 ### Added
