@@ -111,13 +111,13 @@ describe('GitHubCopilotAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('should create a plan containing both proxy-override and native-byok steps', async () => {
+    it('should create a plan with a single proxy-override step', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan).toBeDefined();
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('github-copilot');
-      expect(plan.steps).toHaveLength(2);
+      expect(plan.steps).toHaveLength(1);
     });
 
     it('should include a set-vscode-setting step for the proxy override', async () => {
@@ -132,22 +132,6 @@ describe('GitHubCopilotAdapter', () => {
 
       const newValue = proxyStep!.newValue as Record<string, unknown>;
       expect(newValue['debug.overrideProxyUrl']).toBe(mockProfile.baseUrl);
-    });
-
-    it('should include a set-vscode-setting step for the native BYOK model entry', async () => {
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const byokStep = plan.steps.find(
-        (s) => s.action === 'set-vscode-setting' && s.data['method'] === 'native-byok'
-      );
-      expect(byokStep).toBeDefined();
-      expect(byokStep!.targetPath).toBe('github.copilot.chat.customOAIModels');
-      expect(byokStep!.reversible).toBe(true);
-
-      const models = byokStep!.newValue as Record<string, unknown>[];
-      const aidomeEntry = models.find((m) => m['id'] === 'aidome-gateway');
-      expect(aidomeEntry).toBeDefined();
-      expect(aidomeEntry!['url']).toBe(`${mockProfile.baseUrl}/chat/completions`);
     });
 
     it('should preserve existing advanced settings when adding proxy URL', async () => {
@@ -167,43 +151,19 @@ describe('GitHubCopilotAdapter', () => {
       expect(newValue['debug.overrideProxyUrl']).toBe(mockProfile.baseUrl);
     });
 
-    it('should replace any pre-existing aidome-gateway entry in customOAIModels', async () => {
-      const existingModels = [
-        { id: 'aidome-gateway', name: 'Old Entry', url: 'https://old.example.com' },
-        { id: 'other-model', name: 'Other', url: 'https://other.example.com' },
-      ];
+    it('should capture the old advanced value for rollback', async () => {
+      const existingAdvanced = { 'debug.overrideProxyUrl': 'https://old.example.com' };
       mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.chat.customOAIModels') {
-          return existingModels;
+        if (key === 'github.copilot.advanced') {
+          return existingAdvanced;
         }
         return undefined;
       });
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      const byokStep = plan.steps.find((s) => s.data['method'] === 'native-byok');
-      const models = byokStep!.newValue as Record<string, unknown>[];
-      const aidomeEntries = models.filter((m) => m['id'] === 'aidome-gateway');
-      expect(aidomeEntries).toHaveLength(1);
-      expect(aidomeEntries[0]['url']).toBe(`${mockProfile.baseUrl}/chat/completions`);
-
-      const otherEntry = models.find((m) => m['id'] === 'other-model');
-      expect(otherEntry).toBeDefined();
-    });
-
-    it('should record the old customOAIModels value for rollback', async () => {
-      const existingModels = [{ id: 'other-model', name: 'Other', url: 'https://other.example.com' }];
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.chat.customOAIModels') {
-          return existingModels;
-        }
-        return undefined;
-      });
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const byokStep = plan.steps.find((s) => s.data['method'] === 'native-byok');
-      expect(byokStep!.oldValue).toEqual(existingModels);
+      const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
+      expect(proxyStep!.oldValue).toEqual(existingAdvanced);
     });
   });
 
@@ -245,23 +205,6 @@ describe('GitHubCopilotAdapter', () => {
       expect(result.details?.tier).toBe('B');
     });
 
-    it('should return success when native BYOK model is configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.chat.customOAIModels') {
-          return [{ id: 'aidome-gateway', name: 'AIdome Gateway', url: 'https://aidome.example.com/v1/chat/completions' }];
-        }
-        return undefined;
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.details?.customModelsConfigured).toBe(true);
-      expect(result.details?.tier).toBe('B');
-    });
-
     it('should return not-configured when extension is installed but no settings are set', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
@@ -272,7 +215,6 @@ describe('GitHubCopilotAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('not yet configured');
       expect(result.details?.proxyOverrideConfigured).toBe(false);
-      expect(result.details?.customModelsConfigured).toBe(false);
       expect(result.details?.tier).toBe('B');
     });
 
