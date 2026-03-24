@@ -1,11 +1,17 @@
 /**
  * Adapter for GitHub Copilot assistant.
  *
- * Supports two interception mechanisms:
- *   1. Proxy Override — sets `github.copilot.advanced.debug.overrideProxyUrl` so all
- *      Copilot REST traffic is routed through the configured gateway.
- *   2. Native BYOK — sets `github.copilot.chat.customOAIModels` (VS Code ≥ 1.104) to
- *      register the AIdome gateway as a custom OpenAI-compatible model in Copilot Chat.
+ * Routes Copilot traffic through the AIdome gateway by setting the proxy override
+ * in `github.copilot.advanced`.  The key `debug.overrideProxyUrl` is the legacy
+ * setting (still read by the extension) that maps to `internal.completionsUrl`,
+ * which tells Copilot to route ALL REST traffic (inline completions + chat) through
+ * the configured URL.  This is confirmed in the official VS Code Copilot Chat source
+ * (`src/extension/completions-core/vscode-node/lib/src/config.ts`).
+ *
+ * Note: There is no publicly available settings.json key for registering a custom
+ * BYOK model directly in Copilot Chat via workspace settings.  Custom model
+ * providers in the official extension are registered via the VS Code
+ * `languageModelChatProviders` contribution point, not via a user-settable key.
  */
 
 import * as vscode from 'vscode';
@@ -14,25 +20,22 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
 
-/** The `id` used to identify the AIdome entry inside `customOAIModels`. */
-const AIDOME_MODEL_ID = 'aidome-gateway';
-
 /** VS Code setting key for the proxy override object. */
 const ADVANCED_SETTING_KEY = 'github.copilot.advanced';
 
-/** Nested property within `github.copilot.advanced` that holds the proxy URL. */
+/**
+ * Nested property within `github.copilot.advanced` that sets the proxy URL.
+ * Legacy key — maps to `internal.completionsUrl` in the Copilot Chat extension
+ * source.  Routes all Copilot REST traffic through the configured URL.
+ */
 const PROXY_URL_PROPERTY = 'debug.overrideProxyUrl';
-
-/** VS Code setting key for the native BYOK custom model list (VS Code ≥ 1.104). */
-const CUSTOM_OAI_MODELS_KEY = 'github.copilot.chat.customOAIModels';
 
 /**
  * GitHub Copilot assistant adapter.
  *
- * Tier B — automatic configuration of VS Code settings with guided context.
- * Two mechanisms are applied in a single plan:
- *   - Proxy override (all Copilot traffic incl. inline completions)
- *   - Custom OpenAI model entry in Copilot Chat (VS Code ≥ 1.104)
+ * Tier B — automatic configuration of VS Code settings.
+ * Sets `github.copilot.advanced.debug.overrideProxyUrl` so that all Copilot
+ * REST calls (inline completions + chat) are routed through the AIdome gateway.
  */
 export class GitHubCopilotAdapter implements AssistantAdapter {
   private logger = Logger.getInstance();
@@ -53,9 +56,9 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
 
     const config = vscode.workspace.getConfiguration();
 
-    // ── Method 1: Proxy Override ────────────────────────────────────────────
-    // Sets github.copilot.advanced.debug.overrideProxyUrl so that ALL Copilot
-    // REST calls (inline completions + chat) are routed through the gateway.
+    // Proxy Override — sets github.copilot.advanced.debug.overrideProxyUrl so
+    // that ALL Copilot REST calls (inline completions + chat) are routed through
+    // the gateway. Existing keys inside the `advanced` object are preserved.
     const currentAdvanced =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
     const newAdvanced: Record<string, unknown> = {
@@ -74,41 +77,6 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
         settingKey: ADVANCED_SETTING_KEY,
         value: newAdvanced,
         method: 'proxy-override',
-      },
-      reversible: true,
-    });
-
-    // ── Method 2: Native BYOK (VS Code ≥ 1.104) ─────────────────────────────
-    // Registers the AIdome gateway as a custom OpenAI-compatible model entry
-    // inside Copilot Chat's model picker.
-    const currentModels =
-      config.get<Record<string, unknown>[]>(CUSTOM_OAI_MODELS_KEY) ?? [];
-
-    // Remove any pre-existing AIdome entry to avoid duplicates.
-    const filteredModels = currentModels.filter(
-      (m) => m['id'] !== AIDOME_MODEL_ID,
-    );
-    const aidomeModelEntry: Record<string, unknown> = {
-      id: AIDOME_MODEL_ID,
-      name: 'AIdome Gateway',
-      url: `${profile.baseUrl}/chat/completions`,
-      // 'version' is VS Code's field name for the model identifier sent to the endpoint.
-      version: 'gpt-4o',
-    };
-    const newModels = [...filteredModels, aidomeModelEntry];
-
-    plan = addStep(plan, {
-      action: 'set-vscode-setting',
-      description: 'Register AIdome Gateway as a custom OpenAI model in Copilot Chat (VS Code ≥ 1.104)',
-      assistantKey: 'github-copilot',
-      targetPath: CUSTOM_OAI_MODELS_KEY,
-      oldValue: currentModels,
-      newValue: newModels,
-      data: {
-        settingKey: CUSTOM_OAI_MODELS_KEY,
-        value: newModels,
-        method: 'native-byok',
-        requiresVSCodeVersion: '1.104.0',
       },
       reversible: true,
     });
@@ -143,11 +111,7 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
         config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
       const proxyUrl = advancedSettings[PROXY_URL_PROPERTY];
 
-      const customModels =
-        config.get<Record<string, unknown>[]>(CUSTOM_OAI_MODELS_KEY) ?? [];
-      const hasAidomeModel = customModels.some((m) => m['id'] === AIDOME_MODEL_ID);
-
-      const isConfigured = !!proxyUrl || hasAidomeModel;
+      const isConfigured = !!proxyUrl;
 
       return {
         success: isConfigured,
@@ -158,8 +122,7 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
           copilot: !!copilotExtension,
           copilotChat: !!copilotChatExtension,
           tier: 'B',
-          proxyOverrideConfigured: !!proxyUrl,
-          customModelsConfigured: hasAidomeModel,
+          proxyOverrideConfigured: isConfigured,
           proxyUrl: proxyUrl ?? null,
         },
       };

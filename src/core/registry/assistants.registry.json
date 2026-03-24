@@ -6,7 +6,7 @@
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot — routable via proxy override (debug.overrideProxyUrl) or native BYOK (customOAIModels)",
+    "github.copilot": "GitHub Copilot — routable via proxy override (debug.overrideProxyUrl in github.copilot.advanced)",
     "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server"
   },
   "assistants": [
@@ -15,7 +15,10 @@
       "displayName": "GitHub Copilot",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["GitHub.copilot", "GitHub.copilot-chat"]
+        "vscodeExtensionIds": [
+          "GitHub.copilot",
+          "GitHub.copilot-chat"
+        ]
       },
       "dialect": {
         "primary": "github.copilot",
@@ -25,16 +28,18 @@
         "supported": true,
         "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["vscode-settings", "proxy-override", "native-byok"],
+        "configurationModes": [
+          "vscode-settings",
+          "proxy-override"
+        ],
         "settingKeyHints": [
-          "github.copilot.advanced",
-          "github.copilot.chat.customOAIModels"
+          "github.copilot.advanced"
         ],
         "notes": [
-          "Method 1 — Proxy Override: set github.copilot.advanced.debug.overrideProxyUrl to route ALL Copilot REST traffic (completions + chat) through the gateway.",
-          "Method 2 — Native BYOK (VS Code ≥ 1.104): add an entry to github.copilot.chat.customOAIModels to expose the gateway as a selectable model in Copilot Chat.",
-          "Both methods are applied as reversible VS Code setting changes.",
-          "Tier B rather than A because debug.overrideProxyUrl is an advanced/undocumented setting and the user may need to choose which method fits their environment."
+          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic — inline completions and chat — through the gateway.",
+          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API but is stable across current releases.",
+          "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
+          "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting; users should be aware it may change in future Copilot releases."
         ]
       },
       "sources": [
@@ -47,17 +52,26 @@
       "displayName": "Cline",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["saoudrizwan.claude-dev"]
+        "vscodeExtensionIds": [
+          "saoudrizwan.claude-dev"
+        ]
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+        "alsoPossible": [
+          "openai.responses",
+          "anthropic.messages",
+          "google.gemini.generate_content"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["in-extension-ui", "vscode-settings-scan"],
+        "configurationModes": [
+          "in-extension-ui",
+          "vscode-settings-scan"
+        ],
         "settingKeyHints": [
           "cline.*baseUrl*",
           "cline.*openai*base*",
@@ -78,17 +92,26 @@
       "displayName": "Roo Code",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["RooVeterinaryInc.roo-cline"]
+        "vscodeExtensionIds": [
+          "RooVeterinaryInc.roo-cline"
+        ]
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+        "alsoPossible": [
+          "openai.responses",
+          "anthropic.messages",
+          "google.gemini.generate_content"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["vscode-settings", "in-extension-ui"],
+        "configurationModes": [
+          "vscode-settings",
+          "in-extension-ui"
+        ],
         "settingKeyHints": [
           "roo-cline.apiProvider",
           "roo-cline.openAiBaseUrl",
@@ -113,17 +136,26 @@
       "displayName": "Kilo Code",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["kilocode.kilo-code"]
+        "vscodeExtensionIds": [
+          "kilocode.kilo-code"
+        ]
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+        "alsoPossible": [
+          "openai.responses",
+          "anthropic.messages",
+          "google.gemini.generate_content"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["vscode-settings", "in-extension-ui"],
+        "configurationModes": [
+          "vscode-settings",
+          "in-extension-ui"
+        ],
         "settingKeyHints": [
           "kilocode.apiProvider",
           "kilocode.openaiApiKey",
@@ -147,17 +179,26 @@
       "displayName": "Continue.dev",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["Continue.continue"]
+        "vscodeExtensionIds": [
+          "Continue.continue"
+        ]
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+        "alsoPossible": [
+          "openai.responses",
+          "anthropic.messages",
+          "google.gemini.generate_content"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["config-file", "guided"],
+        "configurationModes": [
+          "config-file",
+          "guided"
+        ],
         "configFileHints": [
           {
             "path": "~/.continue/config.yaml",
@@ -185,18 +226,27 @@
       "displayName": "Claude Code",
       "kind": "vscode-extension+cli",
       "detection": {
-        "vscodeExtensionIds": ["anthropic.claude-code"],
-        "cliCommands": ["claude"]
+        "vscodeExtensionIds": [
+          "anthropic.claude-code"
+        ],
+        "cliCommands": [
+          "claude"
+        ]
       },
       "dialect": {
         "primary": "anthropic.messages",
-        "alsoPossible": ["openai.chat_completions"]
+        "alsoPossible": [
+          "openai.chat_completions"
+        ]
       },
       "endpointSwitching": {
         "supported": "partially",
         "tier": "C",
         "preferredGatewayFrontDoor": "anthropic.messages",
-        "configurationModes": ["env-vars", "guided"],
+        "configurationModes": [
+          "env-vars",
+          "guided"
+        ],
         "envVarHints": [
           "ANTHROPIC_API_KEY",
           "HTTPS_PROXY",
@@ -217,17 +267,24 @@
       "displayName": "OpenAI Codex (CLI / IDE)",
       "kind": "cli",
       "detection": {
-        "cliCommands": ["codex"]
+        "cliCommands": [
+          "codex"
+        ]
       },
       "dialect": {
         "primary": "openai.responses",
-        "alsoPossible": ["openai.chat_completions"]
+        "alsoPossible": [
+          "openai.chat_completions"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.responses",
-        "configurationModes": ["config-file", "env-vars"],
+        "configurationModes": [
+          "config-file",
+          "env-vars"
+        ],
         "configFileHints": [
           {
             "path": "~/.codex/config.toml",
@@ -241,7 +298,10 @@
             ]
           }
         ],
-        "envVarHints": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+        "envVarHints": [
+          "OPENAI_API_KEY",
+          "OPENAI_BASE_URL"
+        ],
         "notes": [
           "Codex supports provider base_url and 'wire_api' (responses vs chat).",
           "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
@@ -256,16 +316,22 @@
       "displayName": "Gemini CLI",
       "kind": "cli",
       "detection": {
-        "cliCommands": ["gemini"]
+        "cliCommands": [
+          "gemini"
+        ]
       },
       "dialect": {
         "primary": "google.gemini.generate_content",
-        "alsoPossible": ["openai.chat_completions"]
+        "alsoPossible": [
+          "openai.chat_completions"
+        ]
       },
       "endpointSwitching": {
         "supported": false,
         "tier": "C",
-        "configurationModes": ["guided-only"],
+        "configurationModes": [
+          "guided-only"
+        ],
         "notes": [
           "Official Gemini CLI does not present a general 'base_url' override.",
           "Prefer tools that support OpenAI-compatible endpoints and let AIdome talk to Gemini upstream."
@@ -280,17 +346,26 @@
       "displayName": "CodeGPT",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["CodeGPT.codegpt"]
+        "vscodeExtensionIds": [
+          "CodeGPT.codegpt"
+        ]
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses", "anthropic.messages", "google.gemini.generate_content"]
+        "alsoPossible": [
+          "openai.responses",
+          "anthropic.messages",
+          "google.gemini.generate_content"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["in-extension-ui", "guided"],
+        "configurationModes": [
+          "in-extension-ui",
+          "guided"
+        ],
         "settingKeyHints": [
           "codegpt.*provider*",
           "codegpt.*apiUrl*",
@@ -316,13 +391,17 @@
       },
       "dialect": {
         "primary": "openai.chat_completions",
-        "alsoPossible": ["openai.responses"]
+        "alsoPossible": [
+          "openai.responses"
+        ]
       },
       "endpointSwitching": {
         "supported": true,
         "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
-        "configurationModes": ["guided"],
+        "configurationModes": [
+          "guided"
+        ],
         "notes": [
           "AnythingLLM supports a 'Generic OpenAI' provider pattern for OpenAI-compatible gateways via Base URL.",
           "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
@@ -337,7 +416,9 @@
       "displayName": "Tabnine",
       "kind": "vscode-extension",
       "detection": {
-        "vscodeExtensionIds": ["TabNine.tabnine-vscode"]
+        "vscodeExtensionIds": [
+          "TabNine.tabnine-vscode"
+        ]
       },
       "dialect": {
         "primary": "tabnine.proprietary",
@@ -346,7 +427,10 @@
       "endpointSwitching": {
         "supported": "enterprise-server-only",
         "tier": "C",
-        "configurationModes": ["in-extension-ui", "guided"],
+        "configurationModes": [
+          "in-extension-ui",
+          "guided"
+        ],
         "notes": [
           "Tabnine can be pointed to a Tabnine Enterprise Server URL, not an OpenAI-compatible 'base_url' switch.",
           "Unless AIdome emulates Tabnine Enterprise protocol, treat as: detect + explain + guide."
