@@ -89,8 +89,8 @@ Replace hardcoded strings in `package.json` with `%key%` placeholders:
 
 ### Naming Convention
 
-- File: `package.nls.{locale}.json` where locale follows BCP 47 (e.g., `ja`, `pt-br`,
-  `zh-cn`, `de`, `fr`, `es`)
+- File: `package.nls.{locale}.json` where locale uses lowercase BCP 47 codes as
+  per VS Code convention (e.g., `ja`, `pt-br`, `zh-cn`, `de`, `fr`, `es`)
 - Keys: dot-separated, matching the contribution path (`commands.setup.title`)
 
 ## Step 2 — Localize Source Code Strings
