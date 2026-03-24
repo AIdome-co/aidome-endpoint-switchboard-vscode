@@ -129,3 +129,29 @@ The extension's `package.json` defines its attack surface. Keep it minimal.
 - Never approve user-supplied URLs used without scheme validation
 - Never approve `console.*` usage in source code — insist on the Logger class
 - Never flag issues that are not present in the actual code under review
+
+```markdown
+# Security Review: [Component]
+
+**Passes Security Gate**: [Yes / No]
+**Critical Issues**: [count]
+
+## Priority 1 — Must Fix ⛔
+- [specific issue with file, line, and fix]
+
+## Priority 2 — Should Fix ⚠️
+- [issue with recommendation]
+
+## Priority 3 — Consider 💡
+- [suggestion for hardening]
+
+## Checklist
+- [ ] SecretStorage used for all credentials
+- [ ] No console.log in source
+- [ ] Sensitive values redacted before logging
+- [ ] URLs validated against scheme allowlist
+- [ ] Profile names sanitized
+- [ ] Backup-before-modify in all adapters
+- [ ] No direct config writes outside adapter layer
+```
+>>>>>>> 78789d4 (Add new Copilot agent and skill definitions cherry-picked from awesome-copilot)
