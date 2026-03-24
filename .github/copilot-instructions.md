@@ -21,7 +21,15 @@ Read every section before suggesting or generating code.
 | `.github/skills/adapter-development/SKILL.md` | Adding a new assistant |
 | `.github/skills/extension-packaging/SKILL.md` | Packaging and releasing |
 | `.github/skills/ci-debugging/SKILL.md` | Debugging CI failures |
+| `.github/skills/codeql/SKILL.md` | CodeQL code scanning |
+| `.github/skills/secret-scanning/SKILL.md` | Secret scanning and push protection |
+| `.github/skills/vscode-ext-commands/SKILL.md` | VS Code command contribution |
+| `.github/skills/vscode-ext-localization/SKILL.md` | VS Code extension localization |
 | `.github/agents/github-actions-expert.agent.md` | CI/CD specialist agent |
+| `.github/agents/security-reviewer.agent.md` | Security review specialist |
+| `.github/agents/technical-writer.agent.md` | Documentation specialist |
+| `.github/agents/repo-architect.agent.md` | Architecture review specialist |
+| `.github/agents/debug.agent.md` | Debugging specialist |
 
 ## Scope & Boundaries
 
@@ -90,6 +98,10 @@ For deep details on each layer, see `.github/references/architecture.md`.
 - **How to add a new assistant** → `.github/skills/adapter-development/SKILL.md`
 - **How to package and release** → `.github/skills/extension-packaging/SKILL.md`
 - **CI is failing** → `.github/skills/ci-debugging/SKILL.md`
+- **CodeQL scanning** → `.github/skills/codeql/SKILL.md`
+- **Secret scanning** → `.github/skills/secret-scanning/SKILL.md`
+- **Adding VS Code commands** → `.github/skills/vscode-ext-commands/SKILL.md`
+- **Localizing the extension** → `.github/skills/vscode-ext-localization/SKILL.md`
 - **Security pattern examples** → `.github/references/security-rules.md`
 - **Architecture decisions** → `.github/references/architecture.md`
 - **Code quality rules** → `.github/references/coding-guidelines.md`
