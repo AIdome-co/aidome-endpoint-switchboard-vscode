@@ -8,7 +8,7 @@ import { httpRequest, HttpError } from '../../util/http';
 import { EndpointProfile } from '../profiles/profileTypes';
 import { RemoteContext } from '../detection/detectRemote';
 import { Logger } from '../../util/log';
-import { CircuitBreaker } from '../../util/retry';
+import { CircuitBreaker, withRetry } from '../../util/retry';
 
 /**
  * Individual verification step result.
@@ -345,11 +345,13 @@ export class Verifier {
     const startTime = Date.now();
     
     try {
-      const response = await httpRequest(baseUrl, {
-        method: 'GET',
-        timeout: 10000,
-        retries: 1
-      });
+      const response = await withRetry(
+        () => httpRequest(baseUrl, {
+          method: 'GET',
+          timeout: 10000
+        }),
+        { maxAttempts: 2, baseDelayMs: 500, isRetryable: (e) => !(e instanceof HttpError && e.status < 500) }
+      );
       
       return {
         name: 'endpoint-reachability',

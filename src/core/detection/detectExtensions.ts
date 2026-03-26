@@ -3,6 +3,7 @@
  */
 
 import * as vscode from 'vscode';
+import { Logger } from '../../util/log';
 import { AssistantRegistry, AssistantEntry } from '../registry/registryTypes';
 
 /**
@@ -64,15 +65,18 @@ export function initializeExtensionCaching(context: vscode.ExtensionContext): vo
 export function detectExtensions(registry: AssistantRegistry): DetectedAssistant[] {
   const detected: DetectedAssistant[] = [];
   const allExtensions = getAllExtensions();
+  const logger = Logger.getInstance().scoped('Detection');
   
   for (const entry of registry.assistants) {
     const extensionIds = entry.detection.vscodeExtensionIds || [];
+    logger.debug(`Checking registry entry: ${entry.key} against ${extensionIds.length} extension ID(s)`);
     
     for (const extensionId of extensionIds) {
       const normalizedId = normalizeExtensionId(extensionId);
       const extension = allExtensions.find(ext => ext.id.toLowerCase() === normalizedId);
       
       if (extension) {
+        logger.debug(`Found ${entry.key}: extension ${extensionId} v${extension.packageJSON?.version}`);
         detected.push({
           assistantKey: entry.key,
           displayName: entry.displayName,

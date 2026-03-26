@@ -65,7 +65,8 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
       mappings,
       changeLog: changeLogEntries,
       verificationResults,
-      remoteContext
+      remoteContext,
+      recentLogs: Logger.getInstance().getBuffer()
     });
     
     // Show QuickPick with 4 options
