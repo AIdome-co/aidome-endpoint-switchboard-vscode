@@ -6,6 +6,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { AssistantRegistry, AssistantEntry } from './registryTypes';
+import { withRetry } from '../../util/retry';
 
 /**
  * Hardcoded minimal fallback registry for when the main registry is corrupted.
@@ -61,6 +62,7 @@ const FALLBACK_REGISTRY: AssistantRegistry = {
 /**
  * Loads the assistant registry from disk.
  * Falls back to hardcoded minimal registry if file is corrupted.
+ * Retries the read once on transient I/O errors before giving up.
  * @returns Promise resolving to the validated registry
  * @throws Error if registry file is not found or invalid
  */
@@ -68,7 +70,20 @@ export async function loadRegistry(): Promise<AssistantRegistry> {
   const registryPath = path.join(__dirname, 'assistants.registry.json');
   
   try {
-    const content = await fs.readFile(registryPath, 'utf-8');
+    const content = await withRetry(
+      () => fs.readFile(registryPath, 'utf-8'),
+      {
+        maxAttempts: 2,
+        baseDelayMs: 100,
+        maxDelayMs: 500,
+        isRetryable: (e) => {
+          // Retry on transient I/O errors (EAGAIN, EMFILE) but not on
+          // ENOENT (file missing) — that would never succeed on retry.
+          const code = (e as NodeJS.ErrnoException).code;
+          return code !== 'ENOENT';
+        }
+      }
+    );
     const registry = JSON.parse(content) as AssistantRegistry;
     
     // Basic validation

@@ -20,13 +20,25 @@ export interface RetryOptions {
    * Default: always retry.
    */
   isRetryable?: (error: unknown) => boolean;
+  /**
+   * Optional callback invoked before each retry delay.
+   * Use this to log retry attempts without coupling the utility to a specific
+   * logger implementation.
+   *
+   * @param attempt    - The attempt number that just failed (1-based).
+   * @param maxAttempts - Total number of attempts allowed.
+   * @param error      - The error thrown by the failed attempt.
+   * @param nextDelayMs - Milliseconds the utility will wait before the next try.
+   */
+  onRetry?: (attempt: number, maxAttempts: number, error: unknown, nextDelayMs: number) => void;
 }
 
-const DEFAULT_OPTIONS: Required<RetryOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> & Pick<RetryOptions, 'onRetry'> = {
   maxAttempts: 3,
   baseDelayMs: 500,
   maxDelayMs: 5_000,
-  isRetryable: () => true
+  isRetryable: () => true,
+  onRetry: undefined
 };
 
 /**
@@ -66,6 +78,7 @@ export async function withRetry<T>(
         opts.baseDelayMs * Math.pow(2, attempt - 1),
         opts.maxDelayMs
       );
+      opts.onRetry?.(attempt, opts.maxAttempts, error, delayMs);
       await new Promise<void>(resolve => setTimeout(resolve, delayMs));
     }
   }
@@ -108,6 +121,13 @@ export class CircuitBreaker {
   private state: CircuitState = 'closed';
 
   /**
+   * Optional callback invoked whenever the circuit state changes.
+   * Use this to log circuit-breaker transitions without coupling the class to
+   * a specific logger implementation.
+   */
+  onStateChange?: (from: CircuitState, to: CircuitState, failures: number) => void;
+
+  /**
    * @param failureThreshold - Number of consecutive failures before the circuit
    *                           opens. Default: 3.
    * @param resetTimeoutMs   - Milliseconds to wait before entering half-open
@@ -126,7 +146,9 @@ export class CircuitBreaker {
     if (this.state === 'open') {
       const elapsed = Date.now() - (this.lastFailureTime ?? 0);
       if (elapsed >= this.resetTimeoutMs) {
+        const prev = this.state;
         this.state = 'half-open';
+        this.onStateChange?.(prev, this.state, this.failures);
         return false;
       }
       return true;
@@ -136,9 +158,13 @@ export class CircuitBreaker {
 
   /** Records a successful operation and resets the circuit to closed. */
   recordSuccess(): void {
+    const prev = this.state;
     this.failures = 0;
     this.lastFailureTime = undefined;
     this.state = 'closed';
+    if (prev !== 'closed') {
+      this.onStateChange?.(prev, this.state, this.failures);
+    }
   }
 
   /**
@@ -148,8 +174,10 @@ export class CircuitBreaker {
   recordFailure(): void {
     this.failures++;
     this.lastFailureTime = Date.now();
-    if (this.failures >= this.failureThreshold) {
+    if (this.failures >= this.failureThreshold && this.state !== 'open') {
+      const prev = this.state;
       this.state = 'open';
+      this.onStateChange?.(prev, this.state, this.failures);
     }
   }
 

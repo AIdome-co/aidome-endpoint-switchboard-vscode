@@ -66,11 +66,34 @@ export class Verifier {
 
   /**
    * Returns (creating if necessary) the circuit breaker for a given profile.
+   * The circuit breaker is configured to log state transitions via the logger.
    */
   private getCircuitBreaker(profileId: string): CircuitBreaker {
     if (!this.circuitBreakers.has(profileId)) {
       // Open after 3 consecutive failures; reset probe after CIRCUIT_RESET_MS
-      this.circuitBreakers.set(profileId, new CircuitBreaker(3, Verifier.CIRCUIT_RESET_MS));
+      const breaker = new CircuitBreaker(3, Verifier.CIRCUIT_RESET_MS);
+      breaker.onStateChange = (from, to, failures) => {
+        if (to === 'open') {
+          this.logger.warning(
+            `[Verifier] Circuit breaker opened for profile "${profileId}" after ${failures} consecutive failure(s). ` +
+            `Verification will be suppressed for ${Verifier.CIRCUIT_RESET_MS / 1_000}s.`
+          );
+        } else if (to === 'half-open') {
+          this.logger.info(
+            `[Verifier] Circuit breaker half-open for profile "${profileId}" — allowing probe attempt.`
+          );
+        } else if (to === 'closed') {
+          this.logger.info(
+            `[Verifier] Circuit breaker closed for profile "${profileId}" — endpoint responding normally.`
+          );
+        }
+        this.logger.debug(
+          `[Verifier] Circuit breaker transition: ${from} → ${to}`,
+          undefined,
+          { profileId, failures }
+        );
+      };
+      this.circuitBreakers.set(profileId, breaker);
     }
     return this.circuitBreakers.get(profileId)!;
   }
@@ -350,7 +373,18 @@ export class Verifier {
           method: 'GET',
           timeout: 10000
         }),
-        { maxAttempts: 2, baseDelayMs: 500, isRetryable: (e) => !(e instanceof HttpError && e.status < 500) }
+        {
+          maxAttempts: 2,
+          baseDelayMs: 500,
+          isRetryable: (e) => !(e instanceof HttpError && e.status < 500),
+          onRetry: (attempt, maxAttempts, error, nextDelayMs) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.logger.warning(
+              `[Verifier] Endpoint reachability check failed (attempt ${attempt}/${maxAttempts}), ` +
+              `retrying in ${nextDelayMs}ms — ${msg}`
+            );
+          }
+        }
       );
       
       return {

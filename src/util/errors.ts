@@ -66,3 +66,68 @@ export class ValidationError extends Error {
 export function isUserCancellation(error: unknown): error is UserCancellationError {
   return error instanceof UserCancellationError;
 }
+
+/**
+ * Outcome produced by {@link withErrorBoundary}.
+ */
+export type BoundaryOutcome<T> =
+  | { kind: 'success'; value: T }
+  | { kind: 'cancelled'; step: string }
+  | { kind: 'domain'; error: ConfigurationError | ValidationError | DetectionError }
+  | { kind: 'unexpected'; error: Error };
+
+/**
+ * Wraps an async wizard or command flow with a typed error boundary.
+ *
+ * Classifies thrown errors into four outcome categories so callers can respond
+ * without nested try/catch logic:
+ * - **success**    — operation completed normally; `value` holds the result.
+ * - **cancelled**  — user dismissed a wizard step; no error popup should appear.
+ * - **domain**     — a typed domain error ({@link ConfigurationError},
+ *   {@link ValidationError}, or {@link DetectionError}); caller may surface
+ *   `error.userMessage` to the user.
+ * - **unexpected** — any other thrown value; caller should log the full stack
+ *   and show a generic error notification.
+ *
+ * @param operation  Async function to execute inside the boundary.
+ * @returns          A {@link BoundaryOutcome} — never throws.
+ *
+ * @example
+ * ```typescript
+ * const outcome = await withErrorBoundary(() => runSetupWizard(context));
+ * if (outcome.kind === 'cancelled') return;
+ * if (outcome.kind === 'domain') {
+ *   showError(outcome.error.userMessage);
+ *   return;
+ * }
+ * if (outcome.kind === 'unexpected') {
+ *   logger.error('Unexpected error', outcome.error);
+ *   showError('An unexpected error occurred. Check the output channel.');
+ *   return;
+ * }
+ * // outcome.kind === 'success'
+ * ```
+ */
+export async function withErrorBoundary<T>(
+  operation: () => Promise<T>
+): Promise<BoundaryOutcome<T>> {
+  try {
+    const value = await operation();
+    return { kind: 'success', value };
+  } catch (error) {
+    if (error instanceof UserCancellationError) {
+      return { kind: 'cancelled', step: error.step };
+    }
+    if (
+      error instanceof ConfigurationError ||
+      error instanceof ValidationError ||
+      error instanceof DetectionError
+    ) {
+      return { kind: 'domain', error };
+    }
+    return {
+      kind: 'unexpected',
+      error: error instanceof Error ? error : new Error(String(error))
+    };
+  }
+}

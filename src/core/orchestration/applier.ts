@@ -18,6 +18,8 @@ export interface ApplierResult {
   appliedSteps: PlanStep[];
   failedSteps: PlanStep[];
   changeLogEntry: ChangeLogEntry;
+  /** Per-assistant outcome summary for graceful degradation reporting. */
+  assistantResults: Map<string, { success: boolean; reason?: string }>;
 }
 
 /**
@@ -33,61 +35,104 @@ export class PlanApplier {
   }
 
   /**
-   * Applies a complete plan.
+   * Applies a complete plan with graceful per-assistant degradation.
+   *
+   * Steps are grouped by `assistantKey`. Each assistant's steps are applied as
+   * an atomic unit — if any step in the group fails the group is rolled back,
+   * but other assistants are still attempted. This ensures that a single broken
+   * assistant does not prevent successfully-configured ones from taking effect.
+   *
    * @param plan The plan to apply
    * @param profileName The profile name for change log
    * @returns Promise resolving to applier result
    */
   async applyPlan(plan: Plan, profileName: string): Promise<ApplierResult> {
-    const appliedSteps: PlanStep[] = [];
-    const failedSteps: PlanStep[] = [];
-    const appliedChangeSteps: AppliedStep[] = [];
+    const allAppliedSteps: PlanStep[] = [];
+    const allFailedSteps: PlanStep[] = [];
+    const allChangeLogEntries: ChangeLogEntry[] = [];
+    const assistantResults = new Map<string, { success: boolean; reason?: string }>();
 
-    this.logger.info(`Applying plan ${plan.id} with ${plan.steps.length} steps`);
+    this.logger.info(`Applying plan ${plan.id} with ${plan.steps.length} steps across ${plan.assistantKeys.length} assistant(s)`);
 
+    // Group steps by assistantKey for independent application
+    const stepsByAssistant = new Map<string, PlanStep[]>();
     for (const step of plan.steps) {
-      try {
-        const appliedStep = await this.applyStep(step);
-        appliedChangeSteps.push(appliedStep);
-        appliedSteps.push({ ...step, completed: true });
-        this.logger.info(`Step ${step.id} applied successfully`);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Step ${step.id} failed: ${errorMsg}`);
-        failedSteps.push({ ...step, completed: false, error: errorMsg });
-        
-        // Automatic rollback on failure
-        this.logger.warning('Failure detected, initiating automatic rollback...');
-        await this.rollbackSteps(appliedChangeSteps);
-        this.logger.info('Rollback completed');
-        
-        // Stop on first error
-        break;
+      const key = step.assistantKey || 'unknown';
+      if (!stepsByAssistant.has(key)) {
+        stepsByAssistant.set(key, []);
+      }
+      stepsByAssistant.get(key)!.push(step);
+    }
+
+    for (const [assistantKey, steps] of stepsByAssistant) {
+      const appliedChangeSteps: AppliedStep[] = [];
+      let assistantFailed = false;
+      let failReason: string | undefined;
+
+      this.logger.info(`[Applier] Applying ${steps.length} step(s) for assistant "${assistantKey}"`);
+
+      for (const step of steps) {
+        try {
+          const appliedStep = await this.applyStep(step);
+          appliedChangeSteps.push(appliedStep);
+          allAppliedSteps.push({ ...step, completed: true });
+          this.logger.info(`[Applier] Step ${step.id} applied successfully`);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `[Applier] Step ${step.id} failed for "${assistantKey}": ${errorMsg}`,
+            error instanceof Error ? error : undefined
+          );
+          allFailedSteps.push({ ...step, completed: false, error: errorMsg });
+          assistantFailed = true;
+          failReason = errorMsg;
+
+          // Roll back only this assistant's steps so other assistants are unaffected
+          this.logger.warning(`[Applier] Rolling back ${appliedChangeSteps.length} step(s) for "${assistantKey}" due to failure`);
+          await this.rollbackSteps(appliedChangeSteps);
+          this.logger.info(`[Applier] Rollback completed for "${assistantKey}"`);
+          break;
+        }
+      }
+
+      if (!assistantFailed && appliedChangeSteps.length > 0) {
+        const entry: ChangeLogEntry = {
+          id: `${plan.id}-${assistantKey}`,
+          timestamp: new Date().toISOString(),
+          assistantKey,
+          profileName,
+          steps: appliedChangeSteps
+        };
+        await this.changeLog.recordApply(entry);
+        allChangeLogEntries.push(entry);
+        assistantResults.set(assistantKey, { success: true });
+        this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
+      } else if (assistantFailed) {
+        assistantResults.set(assistantKey, { success: false, reason: failReason });
       }
     }
 
-    // Create and store change log entry using ChangeLog class
-    const changeLogEntry: ChangeLogEntry = {
+    const success = allFailedSteps.length === 0;
+    this.logger.info(
+      `[Applier] Plan ${plan.id} ${success ? 'completed' : 'partially failed'}: ` +
+      `${allAppliedSteps.length} step(s) applied, ${allFailedSteps.length} failed`
+    );
+
+    // Build a composite change log entry for API compatibility
+    const compositeEntry: ChangeLogEntry = allChangeLogEntries[0] ?? {
       id: plan.id,
       timestamp: new Date().toISOString(),
       assistantKey: plan.assistantKeys[0] || 'unknown',
       profileName,
-      steps: appliedChangeSteps
+      steps: []
     };
-
-    // Only record if successful (rollback cleared appliedChangeSteps on failure)
-    if (failedSteps.length === 0 && appliedChangeSteps.length > 0) {
-      await this.changeLog.recordApply(changeLogEntry);
-    }
-
-    const success = failedSteps.length === 0;
-    this.logger.info(`Plan ${plan.id} ${success ? 'completed' : 'failed'}: ${appliedSteps.length} applied, ${failedSteps.length} failed`);
 
     return {
       success,
-      appliedSteps,
-      failedSteps,
-      changeLogEntry
+      appliedSteps: allAppliedSteps,
+      failedSteps: allFailedSteps,
+      changeLogEntry: compositeEntry,
+      assistantResults
     };
   }
 

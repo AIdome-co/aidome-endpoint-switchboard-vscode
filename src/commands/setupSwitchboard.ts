@@ -125,23 +125,45 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     
     // Step 5/5 — Verify and report
     logger.info('Setup wizard step 5/5: Reporting result');
+    const elapsed = wizardTimer.stop();
+
     if (result.success) {
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       
-      const elapsed = wizardTimer.stop();
       await showSuccess(
         `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
         'Verify'
       );
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
-      const failedCount = result.failedSteps.length;
-      await showError(
-        `Configuration partially completed. ${failedCount} step(s) failed. Check the output for details.`,
-        'View Output'
-      );
-      logger.error(`Setup failed: ${failedCount} steps failed`);
+      // Partial success: some assistants configured, some failed.
+      // The system is still usable — show which assistants succeeded and provide next steps.
+      const succeeded = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.success)
+        .map(([k]) => k);
+      const failed = [...result.assistantResults.entries()]
+        .filter(([, r]) => !r.success)
+        .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
+
+      if (succeeded.length > 0) {
+        // At least some assistants were configured — activate the profile so
+        // the successfully configured ones start routing through it.
+        await profileStore.setActiveProfile(profile.id);
+        updateStatusBar(profile.name);
+        logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
+        await showError(
+          `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
+          `${failed.length} failed: ${failed.join(', ')}. Check the output channel for details.`,
+          'View Output'
+        );
+      } else {
+        logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
+        await showError(
+          `Configuration failed for all assistants. Check the output channel for details.`,
+          'View Output'
+        );
+      }
     }
   } catch (error) {
     if (error instanceof UserCancellationError) {
