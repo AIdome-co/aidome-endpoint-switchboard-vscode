@@ -13,6 +13,7 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
+import { getAssistantsByTier } from '../core/registry/registryLoader';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
@@ -54,10 +55,29 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const outputChannel = vscode.window.createOutputChannel('AIdome Setup');
     outputChannel.appendLine(summary);
     outputChannel.show();
-    
-    const selectedAssistants = await selectAssistants(detected.assistants.map(a => a.assistantKey));
+
+    const switchableAssistants = detected.assistants.filter(a => a.tier !== 'C');
+    const nonSwitchableAssistants = detected.assistants.filter(a => a.tier === 'C');
+
+    if (switchableAssistants.length === 0 && nonSwitchableAssistants.length > 0) {
+      const names = nonSwitchableAssistants.map(a => a.displayName).join(', ');
+      const tierANames = getAssistantsByTier(registry, 'A').map(a => a.displayName).join(', ');
+      logger.warning(`Only non-switchable (Tier C) assistants detected: ${names}`);
+      await showWarning(
+        `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support endpoint switching. ` +
+        `Install a Tier A assistant (${tierANames}) for automatic configuration.`
+      );
+      return;
+    }
+
+    const switchableKeys = [
+      ...switchableAssistants.map(a => a.assistantKey),
+      ...detected.clis.map(c => c.assistantKey)
+    ];
+
+    const selectedAssistants = await selectAssistants(switchableKeys);
     if (!selectedAssistants || selectedAssistants.length === 0) {
-      logger.info('Setup cancelled - no assistants selected');
+      // Cancellation already logged inside selectAssistants()
       return;
     }
     
@@ -119,6 +139,14 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
 }
 
 async function selectAssistants(detectedKeys: string[]): Promise<string[] | undefined> {
+  const logger = Logger.getInstance();
+  logger.info(`Offering ${detectedKeys.length} assistant(s) for selection: ${detectedKeys.join(', ')}`);
+
+  if (detectedKeys.length === 0) {
+    logger.warning('No switchable assistants to offer in selection QuickPick');
+    return undefined;
+  }
+
   const items = detectedKeys.map(key => ({
     label: key,
     picked: true
@@ -126,10 +154,23 @@ async function selectAssistants(detectedKeys: string[]): Promise<string[] | unde
   
   const selected = await vscode.window.showQuickPick(items, {
     canPickMany: true,
-    placeHolder: 'Select assistants to configure (all selected by default)'
+    placeHolder: 'Select assistants to configure (all selected by default)',
+    title: 'AIdome Setup (Step 2/5): Select Assistants',
+    ignoreFocusOut: true
   });
-  
-  return selected?.map(s => s.label);
+
+  if (selected === undefined) {
+    logger.info('Setup cancelled - user dismissed assistant selection');
+    return undefined;
+  }
+
+  if (selected.length === 0) {
+    logger.info('Setup cancelled - user unchecked all assistants');
+    return [];
+  }
+
+  logger.info(`User selected ${selected.length} assistant(s): ${selected.map(s => s.label).join(', ')}`);
+  return selected.map(s => s.label);
 }
 
 async function getOrCreateProfile(
@@ -151,7 +192,9 @@ async function getOrCreateProfile(
   ];
   
   const choice = await vscode.window.showQuickPick(choices, {
-    placeHolder: 'Select a profile or create a new one'
+    placeHolder: 'Select a profile or create a new one',
+    title: 'AIdome Setup (Step 3/5): Select Profile',
+    ignoreFocusOut: true
   });
   
   if (!choice) {
@@ -173,6 +216,8 @@ async function createNewProfile(
   const name = await vscode.window.showInputBox({
     prompt: 'Enter profile name',
     placeHolder: 'e.g., Production, Development',
+    title: 'AIdome Setup (Step 3/5): Create Profile',
+    ignoreFocusOut: true,
     validateInput: (value) => {
       if (!value.trim()) {
         return 'Profile name cannot be empty';
@@ -190,7 +235,11 @@ async function createNewProfile(
       { label: 'AIdome Gateway', description: 'Managed LLM gateway with multi-provider support', value: 'aidome' },
       { label: 'Custom Endpoint', description: 'Your own OpenAI-compatible endpoint', value: 'custom' }
     ],
-    { placeHolder: 'Select profile type' }
+    {
+      placeHolder: 'Select profile type',
+      title: 'AIdome Setup (Step 3/5): Profile Type',
+      ignoreFocusOut: true
+    }
   );
   
   if (!typeChoice) {
@@ -201,6 +250,8 @@ async function createNewProfile(
     prompt: 'Enter base URL',
     placeHolder: typeChoice.value === 'aidome' ? 'https://api.aidome.ai' : 'https://your-endpoint.com',
     value: typeChoice.value === 'aidome' ? 'https://api.aidome.ai' : '',
+    title: 'AIdome Setup (Step 3/5): Base URL',
+    ignoreFocusOut: true,
     validateInput: (value) => {
       if (!value.trim()) {
         return 'Base URL cannot be empty';
@@ -236,7 +287,11 @@ async function createNewProfile(
         value: 'openai.responses' 
       }
     ],
-    { placeHolder: 'Select API dialect' }
+    {
+      placeHolder: 'Select API dialect',
+      title: 'AIdome Setup (Step 3/5): API Dialect',
+      ignoreFocusOut: true
+    }
   );
   
   if (!dialectChoice) {
@@ -249,14 +304,20 @@ async function createNewProfile(
       { label: 'Yes', description: 'Endpoint requires authentication', value: true },
       { label: 'No', description: 'No authentication required', value: false }
     ],
-    { placeHolder: 'Does this endpoint require authentication?' }
+    {
+      placeHolder: 'Does this endpoint require authentication?',
+      title: 'AIdome Setup (Step 3/5): Authentication',
+      ignoreFocusOut: true
+    }
   );
   
   if (needsAuth?.value) {
     authToken = await vscode.window.showInputBox({
       prompt: 'Enter authentication token/API key',
       password: true,
-      placeHolder: 'sk-...'
+      placeHolder: 'sk-...',
+      title: 'AIdome Setup (Step 3/5): API Key',
+      ignoreFocusOut: true
     });
     
     if (!authToken) {
