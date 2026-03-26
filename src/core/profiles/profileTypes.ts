@@ -34,6 +34,12 @@ export interface EndpointProfile {
   tenant?: string;
   lastVerified?: string;
   capabilitiesCache?: AIdomeCapabilities;
+  /**
+   * Path to a custom CA certificate file (PEM format).
+   * Used to trust self-signed or enterprise CA certificates when connecting to endpoints.
+   * Maps to the NODE_EXTRA_CA_CERTS environment variable for Node.js-based assistants.
+   */
+  caCertPath?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -12,6 +12,7 @@ import { showError, showSuccess, showWarning, withProgress } from '../ui/notific
 import { updateStatusBar } from '../ui/statusBar';
 import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
+import { validateCaCertPath } from '../core/profiles/profileValidator';
 import { Logger } from '../util/log';
 
 // Mutex flag to prevent concurrent wizard runs
@@ -264,6 +265,43 @@ async function createNewProfile(
     }
   }
   
+  // Optional: CA certificate path for self-signed / enterprise CA certificates
+  let caCertPath: string | undefined;
+  const needsCaCert = await vscode.window.showQuickPick(
+    [
+      { label: 'No', description: 'Standard trusted CA certificates are sufficient', value: false },
+      { label: 'Yes', description: 'Browse for a custom CA certificate file (.pem, .crt, .cer)', value: true }
+    ],
+    { placeHolder: 'Do you need a custom CA certificate (e.g., self-signed or enterprise CA)?' }
+  );
+
+  if (needsCaCert?.value) {
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      title: 'Select CA Certificate File',
+      filters: {
+        'Certificate files': ['pem', 'crt', 'cer', 'ca-bundle'],
+        'All files': ['*']
+      }
+    });
+
+    if (!uris || uris.length === 0) {
+      return undefined;
+    }
+
+    const selectedPath = uris[0].fsPath;
+    if (!validateCaCertPath(selectedPath)) {
+      await vscode.window.showErrorMessage(
+        'Invalid certificate file path. Please select a .pem, .crt, .cer, or .ca-bundle file.'
+      );
+      return undefined;
+    }
+
+    caCertPath = selectedPath;
+  }
+  
   const profile: EndpointProfile = {
     id: `profile-${Date.now()}`,
     name: name.trim(),
@@ -271,6 +309,7 @@ async function createNewProfile(
     baseUrl: baseUrl.trim(),
     dialect: dialectChoice.value as any,
     authRef: authToken ? name.trim() : undefined,
+    caCertPath,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };

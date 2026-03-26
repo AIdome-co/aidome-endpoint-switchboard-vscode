@@ -7,6 +7,7 @@ import {
   validateUrl,
   validateProfileName,
   validatePath,
+  validateCaCertPath,
   validateProfile,
   validateApiKey,
   sanitizeUrl
@@ -116,6 +117,43 @@ describe('ProfileValidator', () => {
     });
   });
 
+  describe('validateCaCertPath', () => {
+    it('should accept valid .pem paths', () => {
+      expect(validateCaCertPath('/etc/ssl/certs/ca.pem')).toBe(true);
+      expect(validateCaCertPath('C:\\certs\\enterprise-ca.pem')).toBe(true);
+    });
+
+    it('should accept valid .crt paths', () => {
+      expect(validateCaCertPath('/usr/local/share/ca-certificates/my-ca.crt')).toBe(true);
+    });
+
+    it('should accept valid .cer paths', () => {
+      expect(validateCaCertPath('/home/user/certs/root.cer')).toBe(true);
+    });
+
+    it('should accept valid .ca-bundle paths', () => {
+      expect(validateCaCertPath('/etc/pki/tls/certs/ca-bundle.ca-bundle')).toBe(true);
+    });
+
+    it('should reject empty string', () => {
+      expect(validateCaCertPath('')).toBe(false);
+    });
+
+    it('should reject paths with unrecognized extensions', () => {
+      expect(validateCaCertPath('/etc/ssl/certs/ca.txt')).toBe(false);
+      expect(validateCaCertPath('/etc/ssl/certs/ca.json')).toBe(false);
+      expect(validateCaCertPath('/etc/ssl/certs/ca')).toBe(false);
+    });
+
+    it('should reject paths with .. traversal', () => {
+      expect(validateCaCertPath('../../../etc/ssl/ca.pem')).toBe(false);
+    });
+
+    it('should reject paths with null bytes', () => {
+      expect(validateCaCertPath('/certs/ca\0.pem')).toBe(false);
+    });
+  });
+
   describe('validateProfile', () => {
     it('should validate a complete valid profile', () => {
       const profile = {
@@ -222,6 +260,56 @@ describe('ProfileValidator', () => {
 
       const result = validateProfile(profile);
       expect(result.valid).toBe(true);
+    });
+
+    it('should accept a profile with a valid caCertPath', () => {
+      const profile = {
+        name: 'my-profile',
+        baseUrl: 'https://api.aidome.cloud',
+        dialect: 'openai.chat_completions',
+        caCertPath: '/etc/ssl/certs/my-ca.pem'
+      };
+
+      const result = validateProfile(profile);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should accept a profile with no caCertPath', () => {
+      const profile = {
+        name: 'my-profile',
+        baseUrl: 'https://api.aidome.cloud',
+        dialect: 'openai.chat_completions'
+      };
+
+      const result = validateProfile(profile);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should reject a profile with an invalid caCertPath', () => {
+      const profile = {
+        name: 'my-profile',
+        baseUrl: 'https://api.aidome.cloud',
+        dialect: 'openai.chat_completions',
+        caCertPath: '../../../etc/passwd'
+      };
+
+      const result = validateProfile(profile);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('CA certificate path'))).toBe(true);
+    });
+
+    it('should reject a profile with a caCertPath having an unrecognized extension', () => {
+      const profile = {
+        name: 'my-profile',
+        baseUrl: 'https://api.aidome.cloud',
+        dialect: 'openai.chat_completions',
+        caCertPath: '/etc/ssl/certs/ca.txt'
+      };
+
+      const result = validateProfile(profile);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('CA certificate path'))).toBe(true);
     });
   });
 

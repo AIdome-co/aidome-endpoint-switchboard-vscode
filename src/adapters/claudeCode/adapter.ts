@@ -71,6 +71,30 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       reversible: false
     });
 
+    // Add CA certificate guidance when a cert path is configured
+    if (profile.caCertPath) {
+      plan = addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Set NODE_EXTRA_CA_CERTS for custom CA certificate',
+        assistantKey: 'claude-code',
+        data: {
+          message: 'Custom CA certificate configuration',
+          steps: [
+            `Set the NODE_EXTRA_CA_CERTS environment variable to: ${profile.caCertPath}`,
+            'This tells Claude Code (and Node.js) to trust your custom or self-signed CA.',
+            'On Linux/macOS, add to your shell profile (~/.bashrc or ~/.zshrc):',
+            `  export NODE_EXTRA_CA_CERTS="${profile.caCertPath}"`,
+            'On Windows, set a user environment variable NODE_EXTRA_CA_CERTS in System Properties.',
+            'Restart VS Code after setting the environment variable.',
+            'Reference: https://code.claude.com/docs/en/network-config#custom-ca-certificates'
+          ],
+          envVarName: 'NODE_EXTRA_CA_CERTS',
+          certPath: profile.caCertPath
+        },
+        reversible: false
+      });
+    }
+
     return plan;
   }
 
@@ -96,6 +120,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       // Check for proxy environment variables
       const httpsProxy = process.env.HTTPS_PROXY;
       const httpProxy = process.env.HTTP_PROXY;
+      const nodeExtraCaCerts = process.env.NODE_EXTRA_CA_CERTS;
 
       if (httpsProxy || httpProxy) {
         return {
@@ -106,6 +131,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
             cli: cliDetected,
             httpsProxy: !!httpsProxy,
             httpProxy: !!httpProxy,
+            nodeExtraCaCerts: nodeExtraCaCerts ?? null,
             note: 'Proxy-based routing may or may not be effective for Claude Code'
           }
         };
@@ -118,6 +144,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
           extension: !!extension,
           cli: cliDetected,
           tier: 'C',
+          nodeExtraCaCerts: nodeExtraCaCerts ?? null,
           limitation: 'Claude Code does not support custom base URL configuration'
         }
       };

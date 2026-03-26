@@ -76,6 +76,27 @@ export function validatePath(filePath: string): boolean {
 }
 
 /**
+ * Validates a CA certificate file path.
+ * Enforces safe path format and expected certificate file extensions.
+ * @param certPath The certificate file path to validate
+ * @returns True if valid, false otherwise
+ */
+export function validateCaCertPath(certPath: string): boolean {
+  if (!certPath || certPath.trim().length === 0) {
+    return false;
+  }
+
+  if (!validatePath(certPath)) {
+    return false;
+  }
+
+  // Require a recognized certificate file extension
+  const allowedExtensions = ['.pem', '.crt', '.cer', '.ca-bundle'];
+  const lower = certPath.toLowerCase();
+  return allowedExtensions.some(ext => lower.endsWith(ext));
+}
+
+/**
  * Validates a complete profile.
  * @param profile The profile to validate
  * @returns Validation result
@@ -107,6 +128,13 @@ export function validateProfile(profile: Partial<EndpointProfile>): ValidationRe
 
   if (profile.profileType === 'aidome' && !profile.tenant) {
     warnings.push('AIdome profiles typically have a tenant specified');
+  }
+
+  // Optional CA cert path validation
+  if (profile.caCertPath !== undefined && profile.caCertPath !== '') {
+    if (!validateCaCertPath(profile.caCertPath)) {
+      errors.push('CA certificate path is invalid. Use an absolute path ending in .pem, .crt, .cer, or .ca-bundle without path traversal sequences');
+    }
   }
 
   return {

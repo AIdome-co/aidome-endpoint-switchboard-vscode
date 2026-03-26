@@ -121,6 +121,34 @@ describe('ClaudeCodeAdapter', () => {
       expect(proxyGuidance).toBeDefined();
       expect(proxyGuidance?.data.envVarName).toBe('HTTPS_PROXY');
     });
+
+    it('should not include CA cert step when caCertPath is not set', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const certStep = plan.steps.find(s =>
+        s.action === 'show-guided-steps' && s.data.envVarName === 'NODE_EXTRA_CA_CERTS'
+      );
+      expect(certStep).toBeUndefined();
+    });
+
+    it('should include CA cert guidance step when caCertPath is set', async () => {
+      const profileWithCert: EndpointProfile = {
+        ...mockProfile,
+        caCertPath: '/etc/ssl/certs/my-ca.pem'
+      };
+
+      const plan = await adapter.buildPlan(profileWithCert);
+
+      const certStep = plan.steps.find(s =>
+        s.action === 'show-guided-steps' && s.data.envVarName === 'NODE_EXTRA_CA_CERTS'
+      );
+      expect(certStep).toBeDefined();
+      expect(certStep?.data.certPath).toBe('/etc/ssl/certs/my-ca.pem');
+      // Steps should mention the cert path and NODE_EXTRA_CA_CERTS
+      const steps = certStep?.data.steps as string[];
+      expect(steps.some((s: string) => s.includes('/etc/ssl/certs/my-ca.pem'))).toBe(true);
+      expect(steps.some((s: string) => s.includes('NODE_EXTRA_CA_CERTS'))).toBe(true);
+    });
   });
 
   describe('verify', () => {
@@ -179,6 +207,46 @@ describe('ClaudeCodeAdapter', () => {
         delete process.env.HTTPS_PROXY;
       } else {
         process.env.HTTPS_PROXY = originalEnv;
+      }
+    });
+
+    it('should include nodeExtraCaCerts in details when env var is set', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+
+      const originalEnv = process.env.NODE_EXTRA_CA_CERTS;
+      process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/certs/my-ca.pem';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.nodeExtraCaCerts).toBe('/etc/ssl/certs/my-ca.pem');
+
+      // Restore
+      if (originalEnv === undefined) {
+        delete process.env.NODE_EXTRA_CA_CERTS;
+      } else {
+        process.env.NODE_EXTRA_CA_CERTS = originalEnv;
+      }
+    });
+
+    it('should report null nodeExtraCaCerts when env var is not set', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+
+      const originalEnv = process.env.NODE_EXTRA_CA_CERTS;
+      delete process.env.NODE_EXTRA_CA_CERTS;
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.nodeExtraCaCerts).toBeNull();
+
+      // Restore
+      if (originalEnv !== undefined) {
+        process.env.NODE_EXTRA_CA_CERTS = originalEnv;
       }
     });
 
