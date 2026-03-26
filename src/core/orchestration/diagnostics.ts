@@ -6,6 +6,7 @@
 import * as os from 'os';
 import * as vscode from 'vscode';
 import { redactString, redactUrl } from '../../util/redact';
+import { LogEntry } from '../../util/log';
 import { EndpointProfile, AssistantMapping } from '../profiles/profileTypes';
 import { DetectedAssistant } from '../detection/detectExtensions';
 import { DetectedCLI } from '../detection/detectCLIs';
@@ -89,6 +90,7 @@ export interface DiagnosticsReport {
   networkContext: DiagnosticsNetwork;
   
   safetyNotice: string;  // "This report is safe to share with support — no secrets are included"
+  recentLogs: LogEntry[];
 }
 
 // Legacy interfaces for backward compatibility
@@ -130,6 +132,7 @@ export async function generateDiagnostics(
     changeLog?: ChangeLogEntry[];
     verificationResults?: VerificationReport[];
     remoteContext?: RemoteContext;
+    recentLogs?: readonly LogEntry[];
   }
 ): Promise<DiagnosticsReport> {
   const systemInfo = {
@@ -211,7 +214,8 @@ export async function generateDiagnostics(
     changeLog: diagnosticsChangeLog,
     verificationResults: options?.verificationResults || [],
     networkContext,
-    safetyNotice: 'This report is safe to share with support — no secrets are included'
+    safetyNotice: 'This report is safe to share with support — no secrets are included',
+    recentLogs: options?.recentLogs ? [...options.recentLogs] : []
   };
 }
 
@@ -410,6 +414,19 @@ function formatEnhancedMarkdown(report: DiagnosticsReport): string {
     lines.push(`- **Remote Host**: ${report.networkContext.remoteHost}`);
   }
   lines.push('');
+
+  // Recent Logs
+  if (report.recentLogs && report.recentLogs.length > 0) {
+    lines.push('## Recent Logs');
+    lines.push('');
+    lines.push('```');
+    const entries = report.recentLogs.slice(-50);
+    for (const entry of entries) {
+      lines.push(`[${entry.level}] ${entry.message}`);
+    }
+    lines.push('```');
+    lines.push('');
+  }
 
   return lines.join('\n');
 }
