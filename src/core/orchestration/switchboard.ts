@@ -15,6 +15,7 @@ import { detectExtensions, DetectedAssistant } from '../detection/detectExtensio
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
 import { getAdapter } from '../../adapters/adapters.index';
 import { Logger } from '../../util/log';
+import { startTimer } from '../../util/operationTimer';
 
 /**
  * Combined detection results.
@@ -49,6 +50,7 @@ export class Switchboard {
    */
   async detectAll(): Promise<DetectionResults> {
     this.logger.info('Detecting installed assistants...');
+    const timer = startTimer();
 
     // Detect extensions
     const assistants = detectExtensions(this.registry);
@@ -57,6 +59,8 @@ export class Switchboard {
     // Detect CLIs
     const clis = await detectCLIs(this.registry);
     this.logger.info(`Detected ${clis.length} CLI tool(s)`);
+
+    this.logger.info(`Detection completed in ${timer.stop()}ms`);
 
     return {
       assistants,
@@ -72,6 +76,7 @@ export class Switchboard {
    */
   async buildPlan(profile: EndpointProfile, assistantKeys: string[]): Promise<Plan> {
     this.logger.info(`Building plan for profile ${profile.name} with assistants: ${assistantKeys.join(', ')}`);
+    const timer = startTimer();
 
     let plan = createPlan(profile.id, assistantKeys);
 
@@ -113,7 +118,7 @@ export class Switchboard {
       }
     }
 
-    this.logger.info(`Plan created with ${plan.steps.length} total steps`);
+    this.logger.info(`Plan created with ${plan.steps.length} total steps in ${timer.stop()}ms`);
     return plan;
   }
 
@@ -124,6 +129,7 @@ export class Switchboard {
    */
   async applyPlan(plan: Plan): Promise<ApplierResult> {
     this.logger.info(`Applying plan ${plan.id}`);
+    const timer = startTimer();
     
     // Get profile name from profile ID
     const profiles = await this.profileStore.getProfiles();
@@ -133,7 +139,7 @@ export class Switchboard {
     const result = await this.applier.applyPlan(plan, profileName);
     
     if (result.success) {
-      this.logger.info('Plan applied successfully');
+      this.logger.info(`Plan applied successfully in ${timer.stop()}ms`);
       
       // Update mappings in profile store
       for (const step of result.appliedSteps) {

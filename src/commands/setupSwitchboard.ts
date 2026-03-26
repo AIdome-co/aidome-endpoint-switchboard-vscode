@@ -14,6 +14,8 @@ import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
+import { startTimer } from '../util/operationTimer';
+import { UserCancellationError } from '../util/errors';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
@@ -32,6 +34,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   }
   
   wizardRunning = true;
+  const wizardTimer = startTimer();
   
   try {
     logger.info('Starting switchboard setup');
@@ -41,6 +44,8 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const registry = await loadRegistry();
     const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
     
+    // Step 1/5 — Detection
+    logger.info('Setup wizard step 1/5: Detection');
     const detected = await withProgress(
       'Detecting installed assistants...',
       async () => await switchboard.detectAll()
@@ -75,18 +80,24 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       ...detected.clis.map(c => c.assistantKey)
     ];
 
+    // Step 2/5 — Assistant selection
+    logger.info('Setup wizard step 2/5: Assistant selection');
     const selectedAssistants = await selectAssistants(switchableKeys);
     if (!selectedAssistants || selectedAssistants.length === 0) {
       // Cancellation already logged inside selectAssistants()
       return;
     }
     
+    // Step 3/5 — Profile selection
+    logger.info('Setup wizard step 3/5: Profile selection');
     const profile = await getOrCreateProfile(context, profileStore, profileSecrets);
     if (!profile) {
       logger.info('Setup cancelled - no profile selected');
       return;
     }
     
+    // Step 4/5 — Plan and apply
+    logger.info('Setup wizard step 4/5: Building and applying plan');
     const plan = await withProgress(
       'Building configuration plan...',
       async () => await switchboard.buildPlan(profile, selectedAssistants)
@@ -112,15 +123,18 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       async () => await switchboard.applyPlan(plan)
     );
     
+    // Step 5/5 — Verify and report
+    logger.info('Setup wizard step 5/5: Reporting result');
     if (result.success) {
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       
+      const elapsed = wizardTimer.stop();
       await showSuccess(
         `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
         'Verify'
       );
-      logger.info(`Setup complete: ${result.appliedSteps.length} steps applied`);
+      logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
       const failedCount = result.failedSteps.length;
       await showError(
@@ -130,6 +144,10 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       logger.error(`Setup failed: ${failedCount} steps failed`);
     }
   } catch (error) {
+    if (error instanceof UserCancellationError) {
+      logger.info(`Setup cancelled by user at step: ${error.step}`);
+      return;
+    }
     logger.error('Failed to setup switchboard', error instanceof Error ? error : undefined);
     await showError(`Setup failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

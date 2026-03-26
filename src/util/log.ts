@@ -15,6 +15,47 @@ export enum LogLevel {
   Error = 3
 }
 
+/** A single buffered log entry retained for diagnostics export. */
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
+/** Maximum number of log entries kept in the in-memory ring buffer. */
+const LOG_BUFFER_MAX = 200;
+
+/**
+ * A scoped logger that prepends `[scope]` to every log message.
+ * Obtain one via {@link Logger.scoped}.
+ */
+export class ScopedLogger {
+  constructor(
+    private readonly parent: Logger,
+    private readonly scope: string
+  ) {}
+
+  /** @see Logger.debug */
+  debug(message: string, ...args: unknown[]): void {
+    this.parent.debug(`[${this.scope}] ${message}`, ...args);
+  }
+
+  /** @see Logger.info */
+  info(message: string, ...args: unknown[]): void {
+    this.parent.info(`[${this.scope}] ${message}`, ...args);
+  }
+
+  /** @see Logger.warning */
+  warning(message: string, ...args: unknown[]): void {
+    this.parent.warning(`[${this.scope}] ${message}`, ...args);
+  }
+
+  /** @see Logger.error */
+  error(message: string, error?: Error, ...args: unknown[]): void {
+    this.parent.error(`[${this.scope}] ${message}`, error, ...args);
+  }
+}
+
 /**
  * Logger class for extension logging.
  */
@@ -22,6 +63,7 @@ export class Logger {
   private static instance: Logger;
   private outputChannel: vscode.OutputChannel;
   private logLevel: LogLevel = LogLevel.Info;
+  private buffer: LogEntry[] = [];
 
   private constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
@@ -40,6 +82,22 @@ export class Logger {
 
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
+  }
+
+  /**
+   * Creates a {@link ScopedLogger} that prefixes every message with `[scope]`.
+   * Useful for subsystems (e.g., `logger.scoped('Detection')`).
+   */
+  scoped(scope: string): ScopedLogger {
+    return new ScopedLogger(this, scope);
+  }
+
+  /**
+   * Returns a copy of the recent log ring buffer (up to {@link LOG_BUFFER_MAX}
+   * entries, oldest first). Use for diagnostics export.
+   */
+  getBuffer(): readonly LogEntry[] {
+    return this.buffer.slice();
   }
 
   debug(message: string, ...args: unknown[]): void {
@@ -73,13 +131,22 @@ export class Logger {
     // Redact sensitive information from message
     formattedMessage = redactString(formattedMessage);
     
+    let outputLine: string;
     if (args.length > 0) {
       const argsStr = JSON.stringify(args, null, 2);
       // Redact sensitive information from args
       const redactedArgs = redactString(argsStr);
-      this.outputChannel.appendLine(`${formattedMessage} ${redactedArgs}`);
+      outputLine = `${formattedMessage} ${redactedArgs}`;
     } else {
-      this.outputChannel.appendLine(formattedMessage);
+      outputLine = formattedMessage;
+    }
+
+    this.outputChannel.appendLine(outputLine);
+
+    // Append to ring buffer, evicting the oldest entry when full
+    this.buffer.push({ timestamp, level, message: redactString(message) });
+    if (this.buffer.length > LOG_BUFFER_MAX) {
+      this.buffer.shift();
     }
   }
 
