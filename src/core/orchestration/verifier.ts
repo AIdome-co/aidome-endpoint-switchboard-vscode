@@ -8,6 +8,7 @@ import { httpRequest, HttpError } from '../../util/http';
 import { EndpointProfile } from '../profiles/profileTypes';
 import { RemoteContext } from '../detection/detectRemote';
 import { Logger } from '../../util/log';
+import { CircuitBreaker } from '../../util/retry';
 
 /**
  * Individual verification step result.
@@ -54,9 +55,24 @@ export interface VerificationResult {
  */
 export class Verifier {
   private logger: Logger;
+  /** Per-profile circuit breakers keyed by profile ID. */
+  private circuitBreakers: Map<string, CircuitBreaker> = new Map();
+  /** Milliseconds before an open circuit allows a probe attempt. */
+  private static readonly CIRCUIT_RESET_MS = 30_000;
 
   constructor() {
     this.logger = Logger.getInstance();
+  }
+
+  /**
+   * Returns (creating if necessary) the circuit breaker for a given profile.
+   */
+  private getCircuitBreaker(profileId: string): CircuitBreaker {
+    if (!this.circuitBreakers.has(profileId)) {
+      // Open after 3 consecutive failures; reset probe after CIRCUIT_RESET_MS
+      this.circuitBreakers.set(profileId, new CircuitBreaker(3, Verifier.CIRCUIT_RESET_MS));
+    }
+    return this.circuitBreakers.get(profileId)!;
   }
 
   /**
@@ -77,6 +93,32 @@ export class Verifier {
     const suggestions: string[] = [];
     
     this.logger.info(`Starting verification pipeline for profile: ${profile.name}`);
+
+    // Circuit breaker guard — skip the pipeline if the endpoint has failed
+    // repeatedly until the reset timeout elapses.
+    const breaker = this.getCircuitBreaker(profile.id);
+    if (breaker.isOpen()) {
+      this.logger.warning(
+        `Circuit breaker open for profile "${profile.name}" — skipping verification to avoid repeated failures`
+      );
+      return {
+        profileName: profile.name,
+        baseUrl: profile.baseUrl,
+        dialect: profile.dialect,
+        timestamp: new Date().toISOString(),
+        overallStatus: 'failed',
+        steps: [
+          {
+            name: 'circuit-breaker',
+            status: 'skipped',
+            message: `Verification skipped: endpoint has failed repeatedly. Retry in ~${Verifier.CIRCUIT_RESET_MS / 1_000} s.`
+          }
+        ],
+        remoteContext: options?.remoteContext,
+        actionableErrors: [`Endpoint is temporarily unavailable. Wait ${Verifier.CIRCUIT_RESET_MS / 1_000} s and try again.`],
+        suggestions: ['Ensure the endpoint URL and auth token are correct before retrying.']
+      };
+    }
     
     // Parse base URL
     const url = new URL(profile.baseUrl);
@@ -144,6 +186,18 @@ export class Verifier {
       overallStatus = 'partial';
     } else {
       overallStatus = 'failed';
+    }
+
+    // Update circuit breaker based on overall outcome
+    if (overallStatus === 'passed') {
+      breaker.recordSuccess();
+    } else if (overallStatus === 'failed') {
+      breaker.recordFailure();
+      if (breaker.getState() === 'open') {
+        this.logger.warning(
+          `Circuit breaker opened for profile "${profile.name}" after ${breaker.getFailureCount()} consecutive failures`
+        );
+      }
     }
     
     return {
