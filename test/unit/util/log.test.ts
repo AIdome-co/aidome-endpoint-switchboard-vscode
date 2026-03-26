@@ -1,6 +1,6 @@
 /**
  * Unit tests for the enhanced Logger in src/util/log.ts
- * Covers: scoped logger, ring buffer, log level filtering.
+ * Covers: scoped logger, ring buffer, log level filtering, dumpBuffer, context.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -65,6 +65,78 @@ describe('Logger — ring buffer', () => {
   });
 });
 
+describe('Logger — structured context on error()', () => {
+  it('stores context in the buffer entry', () => {
+    const { logger } = makeLogger();
+    logger.error('apply failed', new Error('boom'), { step: 'apply', assistantKey: 'kilocode' });
+    const [entry] = logger.getBuffer();
+    expect(entry.context).toBeDefined();
+    expect(entry.context?.step).toBe('apply');
+    expect(entry.context?.assistantKey).toBe('kilocode');
+  });
+
+  it('context is absent when not provided', () => {
+    const { logger } = makeLogger();
+    logger.info('hello');
+    const [entry] = logger.getBuffer();
+    expect(entry.context).toBeUndefined();
+  });
+
+  it('includes context JSON in the output line', () => {
+    const { logger, appendLine } = makeLogger();
+    logger.error('failed', undefined, { reason: 'timeout' });
+    expect(appendLine).toHaveBeenCalledWith(
+      expect.stringContaining('"reason"')
+    );
+  });
+});
+
+describe('Logger — dumpBuffer()', () => {
+  it('returns "(no log entries)" when buffer is empty', () => {
+    const { logger } = makeLogger();
+    expect(logger.dumpBuffer()).toBe('(no log entries)');
+  });
+
+  it('returns all entries when no maxEntries argument', () => {
+    const { logger } = makeLogger();
+    logger.info('first');
+    logger.info('second');
+    logger.info('third');
+    const dump = logger.dumpBuffer();
+    expect(dump.split('\n')).toHaveLength(3);
+    expect(dump).toContain('first');
+    expect(dump).toContain('third');
+  });
+
+  it('limits output to the last N entries', () => {
+    const { logger } = makeLogger();
+    for (let i = 1; i <= 5; i++) {
+      logger.info(`msg ${i}`);
+    }
+    const dump = logger.dumpBuffer(3);
+    const lines = dump.split('\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('msg 3');
+    expect(lines[2]).toContain('msg 5');
+  });
+
+  it('includes level and message in each line', () => {
+    const { logger } = makeLogger();
+    logger.warning('check this');
+    const dump = logger.dumpBuffer();
+    expect(dump).toContain('[WARNING]');
+    expect(dump).toContain('check this');
+  });
+
+  it('includes context JSON when present', () => {
+    const { logger } = makeLogger();
+    logger.error('oops', undefined, { code: 42 });
+    const dump = logger.dumpBuffer();
+    expect(dump).toContain('"code"');
+    expect(dump).toContain('42');
+  });
+});
+
 describe('Logger — scoped logger', () => {
   it('scoped() returns a ScopedLogger that prepends [scope]', () => {
     const { logger, appendLine } = makeLogger();
@@ -94,6 +166,15 @@ describe('Logger — scoped logger', () => {
     expect(appendLine).toHaveBeenCalledWith(
       expect.stringContaining('[ERROR]')
     );
+  });
+
+  it('scoped error forwards context to parent logger', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.scoped('Applier');
+    scoped.error('step failed', undefined, { step: 'configure', elapsed: 120 });
+    const [entry] = logger.getBuffer();
+    expect(entry.context?.step).toBe('configure');
+    expect(entry.context?.elapsed).toBe(120);
   });
 
   it('scoped debug message is suppressed at Info level', () => {

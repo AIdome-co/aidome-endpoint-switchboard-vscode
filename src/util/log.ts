@@ -20,6 +20,8 @@ export interface LogEntry {
   timestamp: string;
   level: string;
   message: string;
+  /** Optional structured context attached to the entry (redacted before storage). */
+  context?: Record<string, unknown>;
 }
 
 /** Maximum number of log entries kept in the in-memory ring buffer. */
@@ -51,8 +53,8 @@ export class ScopedLogger {
   }
 
   /** @see Logger.error */
-  error(message: string, error?: Error, ...args: unknown[]): void {
-    this.parent.error(`[${this.scope}] ${message}`, error, ...args);
+  error(message: string, error?: Error, context?: Record<string, unknown>): void {
+    this.parent.error(`[${this.scope}] ${message}`, error, context);
   }
 }
 
@@ -118,9 +120,9 @@ export class Logger {
     }
   }
 
-  error(message: string, error?: Error, ...args: unknown[]): void {
+  error(message: string, error?: Error, context?: Record<string, unknown>): void {
     if (this.logLevel <= LogLevel.Error) {
-      this.log('ERROR', message, error, ...args);
+      this.log('ERROR', message, error, context);
     }
   }
 
@@ -131,23 +133,63 @@ export class Logger {
     // Redact sensitive information from message
     formattedMessage = redactString(formattedMessage);
     
+    // Separate context object (last arg that is a plain object and not an Error)
+    let context: Record<string, unknown> | undefined;
+    const filteredArgs = args.filter(a => {
+      if (a !== null && typeof a === 'object' && !(a instanceof Error) && !context) {
+        context = a as Record<string, unknown>;
+        return false;
+      }
+      return true;
+    });
+
     let outputLine: string;
-    if (args.length > 0) {
-      const argsStr = JSON.stringify(args, null, 2);
-      // Redact sensitive information from args
-      const redactedArgs = redactString(argsStr);
-      outputLine = `${formattedMessage} ${redactedArgs}`;
+    if (filteredArgs.length > 0 || context) {
+      const parts: string[] = [formattedMessage];
+      if (filteredArgs.length > 0) {
+        parts.push(redactString(JSON.stringify(filteredArgs, null, 2)));
+      }
+      if (context) {
+        parts.push(redactString(JSON.stringify(context)));
+      }
+      outputLine = parts.join(' ');
     } else {
       outputLine = formattedMessage;
     }
 
     this.outputChannel.appendLine(outputLine);
 
-    // Append to ring buffer, evicting the oldest entry when full
-    this.buffer.push({ timestamp, level, message: redactString(message) });
+    // Append to ring buffer, evicting the oldest entry when full.
+    // Redact the context before storing so secrets never sit in memory.
+    const entry: LogEntry = { timestamp, level, message: redactString(message) };
+    if (context) {
+      entry.context = JSON.parse(redactString(JSON.stringify(context))) as Record<string, unknown>;
+    }
+    this.buffer.push(entry);
     if (this.buffer.length > LOG_BUFFER_MAX) {
       this.buffer.shift();
     }
+  }
+
+  /**
+   * Returns a formatted plain-text summary of the last `maxEntries` log entries
+   * (or all entries if `maxEntries` is omitted), suitable for attaching to
+   * diagnostics exports or bug reports.
+   *
+   * @param maxEntries - Maximum number of entries to include (default: all).
+   */
+  dumpBuffer(maxEntries?: number): string {
+    const entries = maxEntries !== undefined
+      ? this.buffer.slice(-maxEntries)
+      : this.buffer.slice();
+    if (entries.length === 0) {
+      return '(no log entries)';
+    }
+    const lines = entries.map(e => {
+      const ctx = e.context ? ` ${JSON.stringify(e.context)}` : '';
+      return `[${e.timestamp}] [${e.level}] ${e.message}${ctx}`;
+    });
+    return lines.join('\n');
   }
 
   show(): void {
