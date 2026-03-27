@@ -15,7 +15,7 @@ import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderRe
 import { Logger } from '../util/log';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
-import { UserCancellationError } from '../util/errors';
+import { UserCancellationError, ConfigurationError } from '../util/errors';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
@@ -168,6 +168,15 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   } catch (error) {
     if (error instanceof UserCancellationError) {
       logger.info(`Setup cancelled by user at step: ${error.step}`);
+      return;
+    }
+    if (error instanceof ConfigurationError) {
+      logger.warning(
+        `Configuration error during setup: ${error.message}`,
+        undefined,
+        { assistantKey: error.assistantKey }
+      );
+      await showError(error.userMessage);
       return;
     }
     logger.error('Failed to setup switchboard', error instanceof Error ? error : undefined);

@@ -16,6 +16,7 @@ import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
 import { getAdapter } from '../../adapters/adapters.index';
 import { Logger } from '../../util/log';
 import { startTimer } from '../../util/operationTimer';
+import { withRetry } from '../../util/retry';
 
 /**
  * Combined detection results.
@@ -56,8 +57,26 @@ export class Switchboard {
     const assistants = detectExtensions(this.registry);
     this.logger.info(`Detected ${assistants.length} extension(s)`);
 
-    // Detect CLIs
-    const clis = await detectCLIs(this.registry);
+    // Detect CLIs with retry for transient process-spawn failures
+    const clis = await withRetry(
+      () => detectCLIs(this.registry),
+      {
+        maxAttempts: 2,
+        baseDelayMs: 200,
+        isRetryable: (e) => {
+          // Retry on generic errors; don't retry on known non-transient cases
+          const code = (e as NodeJS.ErrnoException).code;
+          return code !== 'ENOENT';
+        },
+        onRetry: (attempt, maxAttempts, error, nextDelayMs) => {
+          const msg = error instanceof Error ? error.message : String(error);
+          this.logger.warning(
+            `CLI detection failed (attempt ${attempt}/${maxAttempts}), ` +
+            `retrying in ${nextDelayMs}ms — ${msg}`
+          );
+        }
+      }
+    );
     this.logger.info(`Detected ${clis.length} CLI tool(s)`);
 
     this.logger.info(`Detection completed in ${timer.stop()}ms`);

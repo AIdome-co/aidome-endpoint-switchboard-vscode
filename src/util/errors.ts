@@ -60,6 +60,25 @@ export class ValidationError extends Error {
 }
 
 /**
+ * Thrown when a multi-step operation (plan apply, verification, registry load)
+ * fails at runtime in a way that has a clear user-facing recovery message.
+ * Unlike {@link ConfigurationError}, this is not tied to a specific assistant —
+ * it describes an operational failure in a named procedure.
+ */
+export class OperationError extends Error {
+  constructor(
+    message: string,
+    /** User-friendly message suitable for display in a VS Code notification. */
+    public readonly userMessage: string,
+    /** Optional name of the operation that failed. */
+    public readonly operation?: string
+  ) {
+    super(message);
+    this.name = 'OperationError';
+  }
+}
+
+/**
  * Returns true when the error is a user-initiated cancellation.
  * Use this to suppress error notifications for deliberate cancellations.
  */
@@ -73,7 +92,7 @@ export function isUserCancellation(error: unknown): error is UserCancellationErr
 export type BoundaryOutcome<T> =
   | { kind: 'success'; value: T }
   | { kind: 'cancelled'; step: string }
-  | { kind: 'domain'; error: ConfigurationError | ValidationError | DetectionError }
+  | { kind: 'domain'; error: ConfigurationError | ValidationError | DetectionError | OperationError }
   | { kind: 'unexpected'; error: Error };
 
 /**
@@ -84,8 +103,8 @@ export type BoundaryOutcome<T> =
  * - **success**    — operation completed normally; `value` holds the result.
  * - **cancelled**  — user dismissed a wizard step; no error popup should appear.
  * - **domain**     — a typed domain error ({@link ConfigurationError},
- *   {@link ValidationError}, or {@link DetectionError}); caller may surface
- *   `error.userMessage` to the user.
+ *   {@link ValidationError}, {@link DetectionError}, or {@link OperationError});
+ *   caller may surface `error.userMessage` to the user.
  * - **unexpected** — any other thrown value; caller should log the full stack
  *   and show a generic error notification.
  *
@@ -121,7 +140,8 @@ export async function withErrorBoundary<T>(
     if (
       error instanceof ConfigurationError ||
       error instanceof ValidationError ||
-      error instanceof DetectionError
+      error instanceof DetectionError ||
+      error instanceof OperationError
     ) {
       return { kind: 'domain', error };
     }
