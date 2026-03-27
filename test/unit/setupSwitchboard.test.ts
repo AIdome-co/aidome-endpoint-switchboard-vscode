@@ -341,4 +341,36 @@ describe('setupSwitchboard', () => {
       expect.stringContaining('they do not support')
     );
   });
+
+  it('shows userMessage (not technical message) when ConfigurationError is thrown', async () => {
+    const { ConfigurationError } = await import('../../src/util/errors');
+    mockDetectAll.mockRejectedValue(
+      new ConfigurationError('technical detail hidden from user', 'Endpoint is misconfigured. Please re-run setup.', 'kilocode')
+    );
+
+    await setupSwitchboard(makeContext());
+
+    // Should show the userMessage, not the technical message
+    expect(mockShowError).toHaveBeenCalledWith(
+      'Endpoint is misconfigured. Please re-run setup.'
+    );
+    expect(mockShowError).not.toHaveBeenCalledWith(
+      expect.stringContaining('technical detail hidden from user')
+    );
+  });
+
+  it('logs ConfigurationError at warning level (not error)', async () => {
+    const { ConfigurationError } = await import('../../src/util/errors');
+    mockDetectAll.mockRejectedValue(
+      new ConfigurationError('internal', 'User message', 'kilocode')
+    );
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockLoggerWarning).toHaveBeenCalled();
+    expect(mockLoggerError).not.toHaveBeenCalledWith(
+      expect.stringContaining('Failed to setup'),
+      expect.anything()
+    );
+  });
 });

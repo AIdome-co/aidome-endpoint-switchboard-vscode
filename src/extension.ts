@@ -15,7 +15,8 @@ import { createStatusBarItem, StatusBarManager } from './ui/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
-import { isUserCancellation } from './util/errors';
+import { withErrorBoundary } from './util/errors';
+import { handleBoundaryOutcome } from './ui/notifications';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -135,73 +136,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Register commands
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.setupSwitchboard', async () => {
-      try {
-        await setupSwitchboard(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in setupSwitchboard command', error as Error);
-        vscode.window.showErrorMessage('Failed to run setup: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => setupSwitchboard(context));
+      await handleBoundaryOutcome(outcome, logger, 'Setup');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.verifyRouting', async () => {
-      try {
-        await verifyRouting(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in verifyRouting command', error as Error);
-        vscode.window.showErrorMessage('Failed to verify routing: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => verifyRouting(context));
+      await handleBoundaryOutcome(outcome, logger, 'Verify routing');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async () => {
-      try {
-        await showModelsProviders(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in showModelsProviders command', error as Error);
-        vscode.window.showErrorMessage('Failed to show models: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => showModelsProviders(context));
+      await handleBoundaryOutcome(outcome, logger, 'Show models');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async () => {
-      try {
-        await manageProfiles(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in manageProfiles command', error as Error);
-        vscode.window.showErrorMessage('Failed to manage profiles: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => manageProfiles(context));
+      await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.resetSwitchboard', async () => {
-      try {
-        await resetSwitchboard(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in resetSwitchboard command', error as Error);
-        vscode.window.showErrorMessage('Failed to reset: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => resetSwitchboard(context));
+      await handleBoundaryOutcome(outcome, logger, 'Reset');
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.exportDiagnostics', async () => {
-      try {
-        await exportDiagnostics(context);
-      } catch (error) {
-        if (isUserCancellation(error)) { return; }
-        logger.error('Error in exportDiagnostics command', error as Error);
-        vscode.window.showErrorMessage('Failed to export diagnostics: ' + (error as Error).message);
-      }
+      const outcome = await withErrorBoundary(() => exportDiagnostics(context));
+      await handleBoundaryOutcome(outcome, logger, 'Export diagnostics');
     })
   );
 

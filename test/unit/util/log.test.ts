@@ -209,3 +209,64 @@ describe('Logger — log level filtering', () => {
     expect(appendLine).toHaveBeenCalled();
   });
 });
+
+describe('Logger — withOperationId()', () => {
+  it('returns a ScopedLogger with the given operationId', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.withOperationId('Setup', 'op-123');
+    expect(scoped.operationId).toBe('op-123');
+  });
+
+  it('prefixes messages with the scope', () => {
+    const { logger, appendLine } = makeLogger();
+    const scoped = logger.withOperationId('Setup', 'op-xyz');
+    scoped.info('step started');
+    expect(appendLine).toHaveBeenCalledWith(
+      expect.stringContaining('[Setup] step started')
+    );
+  });
+
+  it('injects operationId into the ring buffer entry', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.withOperationId('Setup', 'op-abc');
+    scoped.info('wizard step 1');
+    const [entry] = logger.getBuffer();
+    expect(entry.operationId).toBe('op-abc');
+  });
+
+  it('operationId appears in context for error() calls', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.withOperationId('Verifier', 'op-def');
+    scoped.error('endpoint down', new Error('ECONNREFUSED'), { step: 'reachability' });
+    const [entry] = logger.getBuffer();
+    expect(entry.operationId).toBe('op-def');
+    expect(entry.context?.step).toBe('reachability');
+  });
+
+  it('scoped logger without operationId does NOT set operationId on buffer entries', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.scoped('Detection');
+    scoped.info('found 3 extensions');
+    const [entry] = logger.getBuffer();
+    expect(entry.operationId).toBeUndefined();
+  });
+
+  it('operationId appears in dumpBuffer output with [op:...] prefix', () => {
+    const { logger } = makeLogger();
+    const scoped = logger.withOperationId('Apply', 'op-999');
+    scoped.info('plan applied');
+    const dump = logger.dumpBuffer();
+    expect(dump).toContain('[op:op-999]');
+  });
+
+  it('two concurrent operations can be distinguished by operationId', () => {
+    const { logger } = makeLogger();
+    const op1 = logger.withOperationId('Setup', 'setup-1');
+    const op2 = logger.withOperationId('Setup', 'setup-2');
+    op1.info('step from op1');
+    op2.info('step from op2');
+    const buf = logger.getBuffer();
+    expect(buf[0].operationId).toBe('setup-1');
+    expect(buf[1].operationId).toBe('setup-2');
+  });
+});
