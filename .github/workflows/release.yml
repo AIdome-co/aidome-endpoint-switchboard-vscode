@@ -9,39 +9,53 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-and-upload:
-    name: Build, test, and upload release assets
+  release:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
+      
       - name: Install dependencies
         run: npm ci
 
       - name: Lint
         run: npm run lint
-
+      
       - name: Compile
         run: npm run compile
-
+      
       - name: Run tests
         run: npm test
-
+      
       - name: Package extension
         run: npx @vscode/vsce package --out aidome-endpoint-switchboard.vsix
-
-      - name: Upload VSIX to GitHub Release
-        run: gh release upload "${{ github.ref_name }}" aidome-endpoint-switchboard.vsix --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: Upload VSIX to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: aidome-endpoint-switchboard.vsix
+          generate_release_notes: true
+          body: |
+            ## LLM Endpoint Switchboard ${{ github.ref_name }}
+            
+            ### Installation
+            
+            **VS Code Marketplace**: Search for "LLM Endpoint Switchboard" in VS Code Extensions
+            
+            **Manual Install (air-gapped)**: 
+            1. Download the `.vsix` file below
+            2. `Ctrl+Shift+P` → "Extensions: Install from VSIX..."
+            3. Select the downloaded file
+            
+            ### What's New
+            See [CHANGELOG.md](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/CHANGELOG.md) for details.
 
       - name: Upload VSIX as workflow artifact
         uses: actions/upload-artifact@v4
@@ -49,11 +63,11 @@ jobs:
           name: vsix-${{ github.ref_name }}
           path: aidome-endpoint-switchboard.vsix
           retention-days: 90
-
+            
       # Uncomment when ready to publish to VS Code Marketplace:
       # - name: Publish to VS Code Marketplace
       #   run: npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
-
+      
       # Uncomment when ready to publish to Open VSX (for Cursor/VSCodium):
       # - name: Publish to Open VSX
       #   run: npx ovsx publish aidome-endpoint-switchboard.vsix --pat ${{ secrets.OVSX_PAT }}
@@ -61,14 +75,13 @@ jobs:
   apply-release-labels:
     name: Apply labels to referenced PRs
     runs-on: ubuntu-latest
-    needs: build-and-upload
+    needs: release
 
     steps:
       - name: Apply labels from release notes to referenced PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
           RELEASE_BODY: ${{ github.event.release.body }}
         shell: bash
         run: |
