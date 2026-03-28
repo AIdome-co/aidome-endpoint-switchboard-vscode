@@ -42,51 +42,40 @@ jobs:
           PREFIX=$(printf '%s' "$PR_TITLE" | sed -E 's/^([a-zA-Z]+)[:(].*/\1/' | tr '[:upper:]' '[:lower:]')
           echo "PR title: $PR_TITLE"
           echo "Detected prefix: '$PREFIX'"
-          LABEL=""
           LABELS=""
           case "$PREFIX" in
-            feat|feature)
-              LABEL="enhancement"
+            feat|feature|frontend|forntend|perf)
+              LABELS="enhancement"
               ;;
-            fix|bugfix)
-              LABEL="bug"
+            fix|bugfix|security)
+              LABELS="bug"
               ;;
             hotfix)
               LABELS="hotfix bug"
               ;;
             docs)
-              LABEL="documentation"
+              LABELS="documentation"
               ;;
             ci)
-              LABEL="ci"
+              LABELS="ci"
               ;;
-            security)
-              LABEL="security"
-              ;;
-            perf)
-              LABEL="performance"
-              ;;
-            build)
-              LABEL="infrastructure"
-              ;;
-            docker)
-              LABEL="docker"
-              ;;
-            frontend|forntend) # also catches common typo "forntend"
-              LABEL="frontend"
+            build|docker|chore)
+              LABELS="infrastructure"
               ;;
             patch)
-              LABEL="patch"
+              LABELS="patch"
               ;;
             release)
-              LABEL="release"
+              LABELS="release"
+              ;;
+            test|tests)
+              LABELS="tests"
               ;;
             *)
               echo "No label mapping for prefix '${PREFIX}' — skipping."
               exit 0
               ;;
           esac
-          LABELS=${LABELS:-$LABEL}
           if [ -z "$LABELS" ]; then
             echo "::warning::No labels resolved for prefix '$PREFIX' — skipping."
             exit 0

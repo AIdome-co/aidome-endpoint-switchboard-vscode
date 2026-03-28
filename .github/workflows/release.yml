@@ -1,16 +1,18 @@
 name: Release
 
 on:
-  release:
-    types: [published, prereleased]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout code
@@ -24,6 +26,18 @@ jobs:
       
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate tag matches extension version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+
+          if [ "$RELEASE_TAG" != "$EXPECTED_TAG" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match package.json version $PACKAGE_VERSION. Expected $EXPECTED_TAG."
+            exit 1
+          fi
 
       - name: Lint
         run: npm run lint
@@ -41,6 +55,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: aidome-endpoint-switchboard.vsix
+          fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ## LLM Endpoint Switchboard ${{ github.ref_name }}
@@ -62,6 +77,7 @@ jobs:
         with:
           name: vsix-${{ github.ref_name }}
           path: aidome-endpoint-switchboard.vsix
+          if-no-files-found: error
           retention-days: 90
             
       # Uncomment when ready to publish to VS Code Marketplace:
@@ -76,20 +92,29 @@ jobs:
     name: Apply labels to referenced PRs
     runs-on: ubuntu-latest
     needs: release
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Apply labels from release notes to referenced PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
+          RELEASE_BODY=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json body -q '.body' 2>/dev/null)
+
+          if [ -z "$RELEASE_BODY" ]; then
+            echo "No release body found for $RELEASE_TAG - skipping label assignment."
+            exit 0
+          fi
+
           # Extract PR numbers referenced in the release body (e.g., "#42" or "PR #42")
           PR_NUMBERS=$(printf '%s' "$RELEASE_BODY" | grep -oE '#[0-9]+' | grep -oE '[0-9]+' | sort -u)
 
-          # Maps a conventional-commit title prefix to a label, matching the
-          # rules in .github/workflows/pr-auto-labeler.yml and .github/labeler.yml.
+          # Keep this mapping aligned with .github/workflows/pr-auto-labeler.yml.
           apply_label_for_pr() {
             local PR_NUMBER=$1
             local PR_TITLE
@@ -97,31 +122,50 @@ jobs:
 
             # Strip prefix from titles like "feat: …" or "feat(scope): …"
             local PREFIX
+            local LABELS=""
             PREFIX=$(printf '%s' "$PR_TITLE" | sed -E 's/^([a-zA-Z]+)[:(].*/\1/' | tr '[:upper:]' '[:lower:]')
-
-            local LABEL=""
             case "$PREFIX" in
-              feat|feature) LABEL="enhancement"   ;;
-              fix|bugfix)   LABEL="bug"            ;;
-              hotfix)       LABEL="bug"            ;;
-              docs)         LABEL="documentation"  ;;
-              ci)           LABEL="ci"             ;;
-              security)     LABEL="security"       ;;
-              perf)         LABEL="performance"    ;;
-              build)        LABEL="infrastructure" ;;
-              test|tests)   LABEL="tests"          ;;
-              chore)        LABEL="chore"          ;;
+              feat|feature|frontend|forntend|perf)
+                LABELS="enhancement"
+                ;;
+              fix|bugfix|security)
+                LABELS="bug"
+                ;;
+              hotfix)
+                LABELS="hotfix bug"
+                ;;
+              docs)
+                LABELS="documentation"
+                ;;
+              ci)
+                LABELS="ci"
+                ;;
+              build|docker|chore)
+                LABELS="infrastructure"
+                ;;
+              patch)
+                LABELS="patch"
+                ;;
+              release)
+                LABELS="release"
+                ;;
+              test|tests)
+                LABELS="tests"
+                ;;
               *)
                 echo "No label mapping for prefix '${PREFIX}' in PR #${PR_NUMBER} — skipping."
                 return 0
                 ;;
             esac
 
-            echo "Applying label '$LABEL' to PR #${PR_NUMBER} (title: $PR_TITLE)..."
-            APPLY_ERR=$(gh pr edit "$PR_NUMBER" \
-              --repo "$REPO" \
-              --add-label "$LABEL" 2>&1) \
-              || echo "::warning::Could not apply label '$LABEL' to PR #${PR_NUMBER}: ${APPLY_ERR}"
+            echo "Applying label(s) '$LABELS' to PR #${PR_NUMBER} (title: $PR_TITLE)..."
+            read -r -a LABEL_ARRAY <<< "$LABELS"
+            for label in "${LABEL_ARRAY[@]}"; do
+              APPLY_ERR=$(gh pr edit "$PR_NUMBER" \
+                --repo "$REPO" \
+                --add-label "$label" 2>&1) \
+                || echo "::warning::Could not apply label '$label' to PR #${PR_NUMBER}: ${APPLY_ERR}"
+            done
           }
 
           if [ -z "$PR_NUMBERS" ]; then
