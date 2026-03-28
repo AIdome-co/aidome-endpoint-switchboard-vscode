@@ -10,6 +10,11 @@ on:
         description: Existing release tag to publish (for example v0.2.0).
         required: true
         type: string
+      publish_registries:
+        description: Also publish to VS Code Marketplace and Open VSX.
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -100,6 +105,7 @@ jobs:
           retention-days: 90
 
       - name: Publish to VS Code Marketplace
+        if: github.event_name == 'push' || inputs.publish_registries
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
@@ -111,6 +117,7 @@ jobs:
           npx @vscode/vsce publish --packagePath aidome-endpoint-switchboard.vsix --pat "$VSCE_PAT"
 
       - name: Publish to Open VSX
+        if: github.event_name == 'push' || inputs.publish_registries
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
