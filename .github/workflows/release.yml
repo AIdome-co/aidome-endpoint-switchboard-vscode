@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -17,6 +21,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,10 +40,31 @@ jobs:
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           EXPECTED_TAG="v${PACKAGE_VERSION}"
 
+          echo "Release tag: $RELEASE_TAG"
+          echo "Extension version: $PACKAGE_VERSION"
+
           if [ "$RELEASE_TAG" != "$EXPECTED_TAG" ]; then
-            echo "::error::Tag $RELEASE_TAG does not match package.json version $PACKAGE_VERSION. Expected $EXPECTED_TAG."
+            echo "::error::Release tag/version mismatch."
+            echo "::error::Git tag is $RELEASE_TAG, but the VS Code extension manifest version is $PACKAGE_VERSION."
+            echo "::error::Retag this commit as $EXPECTED_TAG, or bump package.json before creating the release tag."
             exit 1
           fi
+
+      - name: Validate changelog entry exists
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+
+          if ! grep -Eq "^## \[$RELEASE_VERSION\]" CHANGELOG.md; then
+            echo "::error::Missing CHANGELOG entry for $RELEASE_VERSION. Update CHANGELOG.md before tagging a release."
+            exit 1
+          fi
+        
+      - name: Build release body
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node .github/scripts/build-release-body.mjs "$RELEASE_TAG" release-body.md
 
       - name: Lint
         run: npm run lint
@@ -56,21 +83,9 @@ jobs:
         with:
           files: aidome-endpoint-switchboard.vsix
           fail_on_unmatched_files: true
+          body_path: release-body.md
+          append_body: true
           generate_release_notes: true
-          body: |
-            ## LLM Endpoint Switchboard ${{ github.ref_name }}
-            
-            ### Installation
-            
-            **VS Code Marketplace**: Search for "LLM Endpoint Switchboard" in VS Code Extensions
-            
-            **Manual Install (air-gapped)**: 
-            1. Download the `.vsix` file below
-            2. `Ctrl+Shift+P` → "Extensions: Install from VSIX..."
-            3. Select the downloaded file
-            
-            ### What's New
-            See [CHANGELOG.md](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/blob/main/CHANGELOG.md) for details.
 
       - name: Upload VSIX as workflow artifact
         uses: actions/upload-artifact@v4
@@ -79,14 +94,34 @@ jobs:
           path: aidome-endpoint-switchboard.vsix
           if-no-files-found: error
           retention-days: 90
-            
-      # Uncomment when ready to publish to VS Code Marketplace:
-      # - name: Publish to VS Code Marketplace
-      #   run: npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
-      
-      # Uncomment when ready to publish to Open VSX (for Cursor/VSCodium):
-      # - name: Publish to Open VSX
-      #   run: npx ovsx publish aidome-endpoint-switchboard.vsix --pat ${{ secrets.OVSX_PAT }}
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT is not configured - skipping VS Code Marketplace publish."
+            exit 0
+          fi
+
+          npx @vscode/vsce publish --packagePath aidome-endpoint-switchboard.vsix --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT is not configured - skipping Open VSX publish because Marketplace publish is required first."
+            exit 0
+          fi
+
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT is not configured - skipping Open VSX publish."
+            exit 0
+          fi
+
+          npx ovsx publish aidome-endpoint-switchboard.vsix --pat "$OVSX_PAT"
 
   apply-release-labels:
     name: Apply labels to referenced PRs
@@ -114,7 +149,6 @@ jobs:
           # Extract PR numbers referenced in the release body (e.g., "#42" or "PR #42")
           PR_NUMBERS=$(printf '%s' "$RELEASE_BODY" | grep -oE '#[0-9]+' | grep -oE '[0-9]+' | sort -u)
 
-          # Keep this mapping aligned with .github/workflows/pr-auto-labeler.yml.
           apply_label_for_pr() {
             local PR_NUMBER=$1
             local PR_TITLE
@@ -124,39 +158,12 @@ jobs:
             local PREFIX
             local LABELS=""
             PREFIX=$(printf '%s' "$PR_TITLE" | sed -E 's/^([a-zA-Z]+)[:(].*/\1/' | tr '[:upper:]' '[:lower:]')
-            case "$PREFIX" in
-              feat|feature|frontend|forntend|perf)
-                LABELS="enhancement"
-                ;;
-              fix|bugfix|security)
-                LABELS="bug"
-                ;;
-              hotfix)
-                LABELS="hotfix bug"
-                ;;
-              docs)
-                LABELS="documentation"
-                ;;
-              ci)
-                LABELS="ci"
-                ;;
-              build|docker|chore)
-                LABELS="infrastructure"
-                ;;
-              patch)
-                LABELS="patch"
-                ;;
-              release)
-                LABELS="release"
-                ;;
-              test|tests)
-                LABELS="tests"
-                ;;
-              *)
-                echo "No label mapping for prefix '${PREFIX}' in PR #${PR_NUMBER} — skipping."
-                return 0
-                ;;
-            esac
+            LABELS=$(bash .github/scripts/label-from-prefix.sh "$PREFIX")
+
+            if [ -z "$LABELS" ]; then
+              echo "No label mapping for prefix '${PREFIX}' in PR #${PR_NUMBER} — skipping."
+              return 0
+            fi
 
             echo "Applying label(s) '$LABELS' to PR #${PR_NUMBER} (title: $PR_TITLE)..."
             read -r -a LABEL_ARRAY <<< "$LABELS"

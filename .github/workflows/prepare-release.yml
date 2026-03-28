@@ -1,0 +1,125 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact semver version to release (for example 0.2.1). Leave blank to use release type.
+        required: false
+        type: string
+      release_type:
+        description: Semver increment to apply when version is blank.
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine target version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          if [ -n "$INPUT_VERSION" ]; then
+            TARGET_VERSION="$INPUT_VERSION"
+          else
+            TARGET_VERSION=$(node -e "const current = require('./package.json').version; const releaseType = process.env.RELEASE_TYPE; const parts = current.split('.').map(Number); if (parts.length !== 3 || parts.some((part) => Number.isNaN(part) || part < 0)) { throw new Error('Unsupported version: ' + current); } let [major, minor, patch] = parts; switch (releaseType) { case 'patch': patch += 1; break; case 'minor': minor += 1; patch = 0; break; case 'major': major += 1; minor = 0; patch = 0; break; default: throw new Error('Unsupported release type: ' + releaseType); } console.log([major, minor, patch].join('.'));" )
+          fi
+
+          if ! printf '%s' "$TARGET_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Target version must be a semver value like 1.2.3."
+            exit 1
+          fi
+
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "target_version=$TARGET_VERSION" >> "$GITHUB_OUTPUT"
+          echo "target_tag=v$TARGET_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tag does not already exist
+        env:
+          TARGET_TAG: ${{ steps.version.outputs.target_tag }}
+        run: |
+          git fetch --tags origin
+          if git rev-parse "$TARGET_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TARGET_TAG already exists locally."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TARGET_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TARGET_TAG already exists on origin."
+            exit 1
+          fi
+
+      - name: Validate changelog entry exists
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.target_version }}
+        run: |
+          if ! grep -Eq "^## \[$TARGET_VERSION\]" CHANGELOG.md; then
+            echo "::error::Missing CHANGELOG entry for $TARGET_VERSION. Update CHANGELOG.md before preparing the release."
+            exit 1
+          fi
+
+      - name: Update version metadata
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.target_version }}
+        run: npm version "$TARGET_VERSION" --no-git-tag-version
+
+      - name: Run release checks
+        run: |
+          npm run lint
+          npm run compile
+          npm test
+
+      - name: Commit version metadata
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.target_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+
+          if git diff --cached --quiet; then
+            echo "No version metadata changes to commit."
+          else
+            git commit -m "chore(release): $TARGET_VERSION"
+          fi
+
+      - name: Create and push release tag
+        env:
+          TARGET_TAG: ${{ steps.version.outputs.target_tag }}
+        run: |
+          git tag -a "$TARGET_TAG" -m "Release $TARGET_TAG"
+          git push origin HEAD:main
+          git push origin "$TARGET_TAG"

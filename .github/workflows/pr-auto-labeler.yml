@@ -30,6 +30,12 @@ jobs:
     name: Label by PR title prefix
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout workflow scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 1
+
       - name: Apply label from conventional commit prefix
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -42,42 +48,9 @@ jobs:
           PREFIX=$(printf '%s' "$PR_TITLE" | sed -E 's/^([a-zA-Z]+)[:(].*/\1/' | tr '[:upper:]' '[:lower:]')
           echo "PR title: $PR_TITLE"
           echo "Detected prefix: '$PREFIX'"
-          LABELS=""
-          case "$PREFIX" in
-            feat|feature|frontend|forntend|perf)
-              LABELS="enhancement"
-              ;;
-            fix|bugfix|security)
-              LABELS="bug"
-              ;;
-            hotfix)
-              LABELS="hotfix bug"
-              ;;
-            docs)
-              LABELS="documentation"
-              ;;
-            ci)
-              LABELS="ci"
-              ;;
-            build|docker|chore)
-              LABELS="infrastructure"
-              ;;
-            patch)
-              LABELS="patch"
-              ;;
-            release)
-              LABELS="release"
-              ;;
-            test|tests)
-              LABELS="tests"
-              ;;
-            *)
-              echo "No label mapping for prefix '${PREFIX}' — skipping."
-              exit 0
-              ;;
-          esac
+          LABELS=$(bash .github/scripts/label-from-prefix.sh "$PREFIX")
           if [ -z "$LABELS" ]; then
-            echo "::warning::No labels resolved for prefix '$PREFIX' — skipping."
+            echo "No label mapping for prefix '${PREFIX}' — skipping."
             exit 0
           fi
           echo "Applying label(s) '$LABELS' based on prefix '$PREFIX'..."
