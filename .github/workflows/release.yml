@@ -143,6 +143,11 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Checkout workflow scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Apply labels from release notes to referenced PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -158,7 +163,7 @@ jobs:
           fi
 
           # Extract PR numbers referenced in the release body (e.g., "#42" or "PR #42")
-          PR_NUMBERS=$(printf '%s' "$RELEASE_BODY" | grep -oE '#[0-9]+' | grep -oE '[0-9]+' | sort -u)
+          PR_NUMBERS=$(printf '%s' "$RELEASE_BODY" | grep -oE '#[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
 
           apply_label_for_pr() {
             local PR_NUMBER=$1
