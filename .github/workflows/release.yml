@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish (for example v0.2.0).
+        required: true
+        type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -17,12 +23,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,8 +43,6 @@ jobs:
         run: npm ci
 
       - name: Validate tag matches extension version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           EXPECTED_TAG="v${PACKAGE_VERSION}"
@@ -51,8 +58,6 @@ jobs:
           fi
 
       - name: Validate changelog entry exists
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           RELEASE_VERSION="${RELEASE_TAG#v}"
 
@@ -62,8 +67,6 @@ jobs:
           fi
         
       - name: Build release body
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: node .github/scripts/build-release-body.mjs "$RELEASE_TAG" release-body.md
 
       - name: Lint
@@ -90,7 +93,7 @@ jobs:
       - name: Upload VSIX as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vsix-${{ github.ref_name }}
+          name: vsix-${{ env.RELEASE_TAG }}
           path: aidome-endpoint-switchboard.vsix
           if-no-files-found: error
           retention-days: 90
@@ -136,7 +139,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         shell: bash
         run: |
           RELEASE_BODY=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json body -q '.body' 2>/dev/null)

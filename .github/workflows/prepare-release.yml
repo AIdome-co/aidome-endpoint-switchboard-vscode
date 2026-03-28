@@ -22,6 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -130,3 +131,10 @@ jobs:
           git tag -a "$TARGET_TAG" -m "Release $TARGET_TAG"
           git push origin HEAD:main
           git push origin "$TARGET_TAG"
+
+      - name: Dispatch release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_TAG: ${{ steps.version.outputs.target_tag }}
+        run: gh workflow run release.yml --repo "$REPO" --ref main -f tag="$TARGET_TAG"
