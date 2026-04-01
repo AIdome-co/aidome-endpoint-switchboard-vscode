@@ -103,6 +103,8 @@
     "pretest": "npm run compile",
     "lint": "eslint src",
     "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:kilo:coverage": "vitest run test/unit/kilocodeAdapter.test.ts --coverage --coverage.include=src/adapters/kilocode/adapter.ts --coverage.thresholds.lines=100 --coverage.thresholds.functions=100 --coverage.thresholds.statements=100 --coverage.thresholds.branches=100",
     "package": "vsce package"
   },
   "dependencies": {
@@ -115,6 +117,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",

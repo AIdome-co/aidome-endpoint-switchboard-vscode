@@ -31,6 +31,9 @@ jobs:
       
       - name: Run tests
         run: npm test
+
+      - name: Enforce Kilo adapter coverage gate
+        run: npm run test:kilo:coverage
       
       - name: Package extension
         run: npm run package

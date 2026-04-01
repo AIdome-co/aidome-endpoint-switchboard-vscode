@@ -81,7 +81,9 @@ export class KiloCodeAdapter implements AssistantAdapter {
       const configuration = contributes?.configuration;
 
       if (!configuration) {
-        return this.getFallbackKeys();
+        // Extension is installed but does not expose configurable keys.
+        // Avoid writing guessed keys that may not be registered.
+        return [];
       }
 
       const properties = Array.isArray(configuration) 
@@ -104,13 +106,8 @@ export class KiloCodeAdapter implements AssistantAdapter {
           const description = (property.description || '').toLowerCase();
           const propertyType = Array.isArray(property.type) ? property.type : [property.type];
           const isStringLike = propertyType.filter(Boolean).includes('string') || propertyType.length === 0;
-          const keyLooksLikeUrlSetting =
-            normalizedKey.includes('baseurl') ||
-            normalizedKey.includes('base_url') ||
-            normalizedKey.includes('apibase') ||
-            normalizedKey.includes('endpoint') ||
-            normalizedKey.includes('customproviderendpoint');
-          const descMentionsUrl = description.includes('url') || description.includes('endpoint') || description.includes('base');
+          const keyLooksLikeUrlSetting = /(baseurl|base_url|apibase|endpoint|customproviderendpoint)/.test(normalizedKey);
+          const descMentionsUrl = /(url|endpoint|base)/.test(description);
 
           return isStringLike && (keyLooksLikeUrlSetting || descMentionsUrl);
         })
