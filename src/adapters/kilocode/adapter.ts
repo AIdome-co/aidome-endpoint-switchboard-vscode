@@ -12,6 +12,11 @@ interface ExtensionConfiguration {
   properties?: Record<string, unknown>;
 }
 
+interface ConfigurationProperty {
+  type?: string | string[];
+  description?: string;
+}
+
 /**
  * Kilo Code assistant adapter.
  */
@@ -68,7 +73,7 @@ export class KiloCodeAdapter implements AssistantAdapter {
     try {
       const extension = vscode.extensions.getExtension('kilocode.kilo-code');
       if (!extension) {
-        return [];
+        return this.getFallbackKeys();
       }
 
       const packageJson = extension.packageJSON;
@@ -83,17 +88,39 @@ export class KiloCodeAdapter implements AssistantAdapter {
         ? configuration.flatMap((c: ExtensionConfiguration) => Object.keys(c.properties || {}))
         : Object.keys(configuration.properties || {});
 
-      const baseUrlKeys = properties.filter((key: string) => 
-        key.toLowerCase().includes('baseurl') || 
-        key.toLowerCase().includes('base_url') ||
-        (key.toLowerCase().includes('openai') && key.toLowerCase().includes('base')) ||
-        key.toLowerCase().includes('customproviderendpoint')
-      );
+      const propertiesMap = Array.isArray(configuration)
+        ? configuration.reduce<Record<string, ConfigurationProperty>>((acc, c: ExtensionConfiguration) => {
+            for (const [key, value] of Object.entries(c.properties || {})) {
+              acc[key] = value as ConfigurationProperty;
+            }
+            return acc;
+          }, {})
+        : (configuration.properties || {}) as Record<string, ConfigurationProperty>;
 
-      return baseUrlKeys.length > 0 ? baseUrlKeys : this.getFallbackKeys();
+      const baseUrlKeys = properties
+        .filter((key: string) => {
+          const normalizedKey = key.toLowerCase();
+          const property = propertiesMap[key] || {};
+          const description = (property.description || '').toLowerCase();
+          const propertyType = Array.isArray(property.type) ? property.type : [property.type];
+          const isStringLike = propertyType.filter(Boolean).includes('string') || propertyType.length === 0;
+          const keyLooksLikeUrlSetting =
+            normalizedKey.includes('baseurl') ||
+            normalizedKey.includes('base_url') ||
+            normalizedKey.includes('apibase') ||
+            normalizedKey.includes('endpoint') ||
+            normalizedKey.includes('customproviderendpoint');
+          const descMentionsUrl = description.includes('url') || description.includes('endpoint') || description.includes('base');
+
+          return isStringLike && (keyLooksLikeUrlSetting || descMentionsUrl);
+        })
+        .filter((key) => key.startsWith('kilocode.'));
+
+      // Do not guess unknown keys when extension is installed; use guided mode instead.
+      return [...new Set(baseUrlKeys)];
     } catch (error) {
       this.logger.warning('Error discovering Kilo Code setting keys', error);
-      return this.getFallbackKeys();
+      return [];
     }
   }
 
