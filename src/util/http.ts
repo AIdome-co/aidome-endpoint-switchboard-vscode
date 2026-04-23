@@ -5,6 +5,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { getRuntimeSettings } from '../config/runtimeSettings';
 
 /**
  * HTTP response type.
@@ -23,7 +24,7 @@ export interface HttpRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   headers?: Record<string, string>;
   body?: unknown;
-  /** Timeout in milliseconds. Default: 10000 (10 seconds). Configurable via environment variable HTTP_TIMEOUT_MS. */
+  /** Timeout in milliseconds. Defaults to the extension's configured HTTP timeout. */
   timeout?: number;
   retries?: number;
   proxy?: string;
@@ -31,17 +32,10 @@ export interface HttpRequestOptions {
 
 /**
  * Gets the configured HTTP timeout value.
- * @returns Timeout in milliseconds (default 10000)
+ * @returns Timeout in milliseconds
  */
 function getConfiguredTimeout(): number {
-  const envTimeout = process.env.HTTP_TIMEOUT_MS;
-  if (envTimeout) {
-    const parsed = parseInt(envTimeout, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return 10000; // Default 10 seconds
+  return getRuntimeSettings().httpTimeoutMs;
 }
 
 /**
@@ -81,6 +75,7 @@ export async function httpRequest<T>(
   url: string,
   options: HttpRequestOptions = {}
 ): Promise<HttpResponse<T>> {
+  const { httpRetryBackoffMaxMs } = getRuntimeSettings();
   const {
     method = 'GET',
     headers = {},
@@ -114,7 +109,7 @@ export async function httpRequest<T>(
       
       if (attempt <= retries) {
         // Wait before retry with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt - 1), 5000)));
+        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt - 1), httpRetryBackoffMaxMs)));
       }
     }
   }
@@ -216,7 +211,10 @@ async function makeRequest<T>(
 
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error(`Request timeout after ${options.timeout}ms. The endpoint may be unreachable or slow to respond. Try increasing HTTP_TIMEOUT_MS environment variable if needed.`));
+      reject(new Error(
+        `Request timeout after ${options.timeout}ms. The endpoint may be unreachable or slow to respond. ` +
+        `Try increasing aidome-switchboard.advanced.httpTimeoutMs or HTTP_TIMEOUT_MS if needed.`
+      ));
     });
 
     if (bodyData) {
@@ -270,7 +268,7 @@ export async function isUrlReachable(url: string): Promise<boolean> {
   try {
     await httpRequest(url, {
       method: 'GET',
-      timeout: 5000,
+      timeout: getRuntimeSettings().verifier.healthCheckTimeoutMs,
       retries: 0
     });
     return true;

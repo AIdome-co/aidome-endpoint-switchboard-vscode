@@ -4,6 +4,7 @@
 
 import * as vscode from 'vscode';
 import { redactString } from './redact';
+import { getRuntimeSettings } from '../config/runtimeSettings';
 
 /**
  * Log level enumeration.
@@ -25,9 +26,6 @@ export interface LogEntry {
   /** Optional operation ID linking this entry to a specific lifecycle span. */
   operationId?: string;
 }
-
-/** Maximum number of log entries kept in the in-memory ring buffer. */
-const LOG_BUFFER_MAX = 200;
 
 /**
  * A scoped logger that prepends `[scope]` to every log message.
@@ -112,9 +110,11 @@ export class Logger {
   private outputChannel: vscode.OutputChannel;
   private logLevel: LogLevel = LogLevel.Info;
   private buffer: LogEntry[] = [];
+  private readonly bufferMax: number;
 
   private constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
+    this.bufferMax = getRuntimeSettings().logBufferSize;
   }
 
   static initialize(outputChannel: vscode.OutputChannel): void {
@@ -161,8 +161,8 @@ export class Logger {
   }
 
   /**
-   * Returns a copy of the recent log ring buffer (up to {@link LOG_BUFFER_MAX}
-   * entries, oldest first). Use for diagnostics export.
+   * Returns a copy of the recent log ring buffer (up to the configured
+   * maximum number of entries, oldest first). Use for diagnostics export.
    */
   getBuffer(): readonly LogEntry[] {
     return this.buffer.slice();
@@ -237,7 +237,7 @@ export class Logger {
       }
     }
     this.buffer.push(entry);
-    if (this.buffer.length > LOG_BUFFER_MAX) {
+    if (this.buffer.length > this.bufferMax) {
       this.buffer.shift();
     }
   }

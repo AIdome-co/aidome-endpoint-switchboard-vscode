@@ -9,6 +9,11 @@ import { EndpointProfile } from '../profiles/profileTypes';
 import { RemoteContext } from '../detection/detectRemote';
 import { Logger } from '../../util/log';
 import { CircuitBreaker, withRetry } from '../../util/retry';
+import { getRuntimeSettings } from '../../config/runtimeSettings';
+
+function formatTimeout(timeoutMs: number): string {
+  return timeoutMs % 1_000 === 0 ? `${timeoutMs / 1_000}s` : `${timeoutMs}ms`;
+}
 
 /**
  * Individual verification step result.
@@ -275,6 +280,7 @@ export class Verifier {
    */
   private async stepTlsVerification(baseUrl: string, isHttps: boolean, isLocalhost: boolean): Promise<VerificationStep> {
     const startTime = Date.now();
+    const { tlsTimeoutMs } = getRuntimeSettings().verifier;
     
     if (!isHttps) {
       if (isLocalhost) {
@@ -302,7 +308,7 @@ export class Verifier {
         method: 'GET',
         path: '/',
         rejectUnauthorized: true,
-        timeout: 5000
+        timeout: tlsTimeoutMs
       };
       
       const req = https.request(options, (res) => {
@@ -366,12 +372,13 @@ export class Verifier {
    */
   private async stepEndpointReachability(baseUrl: string): Promise<VerificationStep> {
     const startTime = Date.now();
+    const { endpointReachabilityTimeoutMs } = getRuntimeSettings().verifier;
     
     try {
       const response = await withRetry(
         () => httpRequest(baseUrl, {
           method: 'GET',
-          timeout: 10000
+          timeout: endpointReachabilityTimeoutMs
         }),
         {
           maxAttempts: 2,
@@ -409,7 +416,7 @@ export class Verifier {
       } else if (errorMsg.includes('ECONNREFUSED')) {
         message = 'Connection refused. Check if the server is running and the port is open.';
       } else if (errorMsg.includes('ETIMEDOUT') || errorMsg.includes('timeout')) {
-        message = 'Connection timed out after 10s. Check network/firewall settings.';
+        message = `Connection timed out after ${formatTimeout(endpointReachabilityTimeoutMs)}. Check network/firewall settings.`;
       } else if (errorMsg.includes('proxy')) {
         message = 'Proxy error. Check HTTPS_PROXY environment variable.';
       }
@@ -430,13 +437,14 @@ export class Verifier {
   private async stepHealthCheck(baseUrl: string): Promise<VerificationStep> {
     const startTime = Date.now();
     const healthEndpoints = ['/health', '/v1/health', '/healthz'];
+    const { healthCheckTimeoutMs } = getRuntimeSettings().verifier;
     
     for (const endpoint of healthEndpoints) {
       try {
         const healthUrl = `${baseUrl.replace(/\/$/, '')}${endpoint}`;
         const response = await httpRequest<{ status?: string }>(healthUrl, {
           method: 'GET',
-          timeout: 5000,
+          timeout: healthCheckTimeoutMs,
           retries: 0
         });
         
@@ -478,6 +486,7 @@ export class Verifier {
    */
   private async stepModelList(baseUrl: string, dialect: string): Promise<VerificationStep> {
     const startTime = Date.now();
+    const { modelListTimeoutMs } = getRuntimeSettings().verifier;
     
     if (!this.supportsModelsList(dialect)) {
       return {
@@ -492,7 +501,7 @@ export class Verifier {
       const modelsUrl = `${baseUrl.replace(/\/$/, '')}/v1/models`;
       const response = await httpRequest<{ data?: unknown[] }>(modelsUrl, {
         method: 'GET',
-        timeout: 10000,
+        timeout: modelListTimeoutMs,
         retries: 1
       });
       
@@ -538,12 +547,13 @@ export class Verifier {
    */
   private async stepDialectValidation(baseUrl: string, expectedDialect: string): Promise<VerificationStep> {
     const startTime = Date.now();
+    const { dialectValidationTimeoutMs } = getRuntimeSettings().verifier;
     
     try {
       // Try to detect dialect from response headers
       const response = await httpRequest(baseUrl, {
         method: 'GET',
-        timeout: 5000,
+        timeout: dialectValidationTimeoutMs,
         retries: 0
       });
       
@@ -593,13 +603,14 @@ export class Verifier {
    */
   private async stepTestPrompt(baseUrl: string): Promise<VerificationStep> {
     const startTime = Date.now();
+    const { testPromptTimeoutMs } = getRuntimeSettings().verifier;
     
     try {
       const chatUrl = `${baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
       
       await httpRequest(chatUrl, {
         method: 'POST',
-        timeout: 15000,
+        timeout: testPromptTimeoutMs,
         retries: 0,
         body: {
           model: 'gpt-3.5-turbo',
