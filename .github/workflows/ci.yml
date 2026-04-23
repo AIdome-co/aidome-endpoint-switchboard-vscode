@@ -32,8 +32,14 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Enforce Continue adapter coverage gate
+        run: npm run test:continue:coverage
+
       - name: Enforce Kilo adapter coverage gate
         run: npm run test:kilo:coverage
+
+      - name: Enforce Roo Code adapter coverage gate
+        run: npm run test:roo:coverage
       
       - name: Package extension
         run: npm run package
