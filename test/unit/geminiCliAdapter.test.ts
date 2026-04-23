@@ -7,6 +7,17 @@ import { GeminiCliAdapter } from '../../src/adapters/geminiCli/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 
+vi.mock('vscode', () => ({
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn()
+    }))
+  },
+  window: {
+    showWarningMessage: vi.fn()
+  }
+}));
+
 vi.mock('../../src/core/detection/detectCLIs');
 vi.mock('../../src/util/log', () => ({
   Logger: {
