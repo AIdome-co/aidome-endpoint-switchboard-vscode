@@ -4,6 +4,18 @@ All notable changes to the "LLM Endpoint Switchboard (by AIdome)" extension will
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+---
+
+## [0.3.0] - 2026-04-24
+
+### Added
+
+- E2E test harness using `@vscode/test-cli` with a multi-OS CI matrix (Ubuntu, Windows, macOS)
+
+---
+
 ## [0.2.0] - 2026-03-23
 
 ### Changed

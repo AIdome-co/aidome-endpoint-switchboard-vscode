@@ -58,10 +58,14 @@ pattern, profile management, security model, and supported assistants.
 
 ## Content Type Templates
 
-### CHANGELOG Entry (Keep a Changelog)
+### CHANGELOG Entry (Keep a Changelog — `[Unreleased]` Pattern)
+
+This project uses automated changelog promotion. Contributors add entries under
+`## [Unreleased]`; the `prepare-release.yml` workflow renames the section at release
+time. **Never** write a pre-versioned heading in a PR.
 
 ```markdown
-## [x.y.z] — YYYY-MM-DD
+## [Unreleased]
 
 ### Added
 - New adapter for [assistant name] with full endpoint configuration support
@@ -71,6 +75,12 @@ pattern, profile management, security model, and supported assistants.
 
 ### Changed
 - Upgraded backup-before-modify to use atomic file writes
+```
+
+At release time, `prepare-release.yml` renames this automatically to:
+
+```markdown
+## [x.y.z] - YYYY-MM-DD
 ```
 
 ### Architecture Decision Record (ADR)

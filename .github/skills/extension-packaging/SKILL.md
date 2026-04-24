@@ -30,33 +30,44 @@ files, and `.vscodeignore` correctness. Fix any failures before proceeding.
 
 ## Step 2 — Bump the Version
 
-Update the version in `package.json` following semantic versioning:
+The **Prepare Release** workflow (`prepare-release.yml`) handles the version bump
+automatically when triggered via `workflow_dispatch`. Choose the semver increment:
 
 - **Patch** (`x.x.N`) — Bug fixes, no new features
 - **Minor** (`x.N.x`) — New features, backward compatible
 - **Major** (`N.x.x`) — Breaking changes
 
-Do not forget to update `CHANGELOG.md` with a summary of changes for this version.
-Follow the existing CHANGELOG format (Keep a Changelog convention).
+The workflow calls `npm version <type>` to update `package.json` and
+`package-lock.json`, then commits both alongside the CHANGELOG update (Step 3).
 
-## Step 3 — Update CHANGELOG
+## Step 3 — CHANGELOG Convention (`[Unreleased]`)
 
-Add an entry at the top of `CHANGELOG.md`:
+This project uses the **Keep a Changelog** `[Unreleased]` pattern for fully automated
+changelog management:
+
+**During development (every PR that ships user-visible changes):**
+
+Add a bullet under `## [Unreleased]` in `CHANGELOG.md` — do **not** add a
+pre-versioned heading:
 
 ```markdown
-## [x.y.z] — YYYY-MM-DD
+## [Unreleased]
 
 ### Added
-- ...
+- New Windsurf adapter with full Tier A endpoint configuration
 
 ### Fixed
-- ...
-
-### Changed
-- ...
+- Profile validation now rejects `data:` URL schemes
 ```
 
-Commit the version bump and CHANGELOG update together before tagging.
+**During release (automated by `prepare-release.yml`):**
+
+The workflow finds `## [Unreleased]` and renames it to `## [x.y.z] - YYYY-MM-DD`
+using `sed`. The updated `CHANGELOG.md` is committed alongside the `package.json`
+version bump in the release commit. No manual rename is ever needed.
+
+**If `[Unreleased]` is empty or absent when the workflow runs**, it will fail with a
+clear error asking you to document the changes first.
 
 ## Step 4 — Package with vsce
 
