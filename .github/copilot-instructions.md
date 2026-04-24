@@ -25,6 +25,17 @@ Read every section before suggesting or generating code.
 | `.github/skills/secret-scanning/SKILL.md` | Secret scanning and push protection |
 | `.github/skills/vscode-ext-commands/SKILL.md` | VS Code command contribution |
 | `.github/skills/vscode-ext-localization/SKILL.md` | VS Code extension localization |
+| `.github/skills/qa/SKILL.md` | Agentic QA pipeline (test plan → generate → run → fix) |
+| `.github/references/qa-workflow.md` | Gem-team alignment + imported QA agent roster |
+| `.github/agents/qa.agent.md` | Adversarial QA specialist |
+| `.github/agents/critic.agent.md` | Challenges assumptions, finds edge cases |
+| `.github/agents/critical-thinking.agent.md` | Pre-implementation questioning mode |
+| `.github/agents/test-planner.agent.md` | Phased test implementation planning |
+| `.github/agents/test-researcher.agent.md` | Codebase analysis for testability |
+| `.github/agents/test-generator.agent.md` | Research-Plan-Implement test generation |
+| `.github/agents/test-fixer.agent.md` | Fix compile / test failures |
+| `.github/agents/test-runner.agent.md` | Run tests and report results |
+| `.github/agents/agent-governance-reviewer.agent.md` | Agent config governance review |
 | `.github/agents/github-actions-expert.agent.md` | CI/CD specialist agent |
 | `.github/agents/security-reviewer.agent.md` | Security review specialist |
 | `.github/agents/technical-writer.agent.md` | Documentation specialist |
@@ -100,6 +111,7 @@ For deep details on each layer, see `.github/references/architecture.md`.
 - **CI is failing** → `.github/skills/ci-debugging/SKILL.md`
 - **CodeQL scanning** → `.github/skills/codeql/SKILL.md`
 - **Secret scanning** → `.github/skills/secret-scanning/SKILL.md`
+- **Agentic QA pass / pre-release verification** → `.github/skills/qa/SKILL.md` and `.github/references/qa-workflow.md`
 - **Adding VS Code commands** → `.github/skills/vscode-ext-commands/SKILL.md`
 - **Localizing the extension** → `.github/skills/vscode-ext-localization/SKILL.md`
 - **Security pattern examples** → `.github/references/security-rules.md`
