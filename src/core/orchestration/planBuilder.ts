@@ -16,15 +16,15 @@ export type PlanStepAction =
 /**
  * Typed data shape for `show-guided-steps` plan steps.
  *
- * Adapters that emit this action MUST include a `steps` array so that
- * `applyGuidedSteps` can render a numbered list for the user.  The
- * `message` field is used as a fallback header line.
+ * Adapters that emit this action SHOULD include a `steps` array so that
+ * `applyGuidedSteps` can render a numbered list for the user.  When `steps`
+ * is absent the applier falls back to displaying `message`.
  */
 export interface GuidedStepsData {
-  /** Short summary shown above the numbered list. */
+  /** Short summary shown as a header, and as the fallback when `steps` is absent. */
   message: string;
-  /** Ordered list of actionable instructions shown to the user. */
-  steps: string[];
+  /** Ordered list of actionable instructions shown to the user. Provide this whenever possible. */
+  steps?: string[];
   /** The endpoint URL the user should paste into the setting. */
   baseUrl?: string;
 }
