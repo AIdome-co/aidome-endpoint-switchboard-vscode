@@ -24,9 +24,21 @@ export function createDiagnosticsPanel(): vscode.WebviewPanel {
     'AIdome Diagnostics',
     vscode.ViewColumn.One,
     {
-      enableScripts: true
+      enableScripts: false
     }
   );
+}
+
+/**
+ * Escapes HTML special characters to prevent XSS injection.
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 /**
@@ -35,11 +47,13 @@ export function createDiagnosticsPanel(): vscode.WebviewPanel {
  * @returns HTML string
  */
 export function generateDiagnosticsHtml(diagnostics: unknown): string {
+  const escaped = escapeHtml(JSON.stringify(diagnostics, null, 2));
   return `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
         <title>AIdome Diagnostics</title>
         <style>
           body { font-family: var(--vscode-font-family); padding: 20px; }
@@ -48,7 +62,7 @@ export function generateDiagnosticsHtml(diagnostics: unknown): string {
       </head>
       <body>
         <h1>AIdome Switchboard Diagnostics</h1>
-        <pre>${JSON.stringify(diagnostics, null, 2)}</pre>
+        <pre>${escaped}</pre>
       </body>
     </html>
   `;
