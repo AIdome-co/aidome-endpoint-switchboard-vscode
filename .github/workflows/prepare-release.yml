@@ -101,6 +101,8 @@ jobs:
           elif grep -Eq "^## \[Unreleased\]" CHANGELOG.md; then
             echo "Promoting [Unreleased] → [$TARGET_VERSION] - $TODAY"
             sed -i "s/^## \[Unreleased\]/## [$TARGET_VERSION] - $TODAY/" CHANGELOG.md
+            # Re-insert a fresh [Unreleased] section so the next release cycle works without manual intervention
+            sed -i "s/^## \[$TARGET_VERSION\]/## [Unreleased]\n\n## [$TARGET_VERSION]/" CHANGELOG.md
             echo "updated=true" >> "$GITHUB_OUTPUT"
           else
             echo "::error::CHANGELOG.md has no [Unreleased] section and no [$TARGET_VERSION] entry."
