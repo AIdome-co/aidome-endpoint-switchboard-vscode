@@ -195,3 +195,64 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.changeLogEntry.profileName).toBe('profile');
   });
 });
+
+// ---------- show-guided-steps action ----------
+describe('PlanApplier — show-guided-steps action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordApply.mockResolvedValue(undefined);
+  });
+
+  it('renders a numbered list when data.steps is a string array', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'show-guided-steps',
+      assistantKey: 'kilo-code',
+      reversible: false,
+      data: {
+        message: 'Configure manually',
+        steps: ['Step one', 'Step two', 'Step three'],
+        baseUrl: 'https://example.com',
+      },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'my-profile');
+
+    expect(result.success).toBe(true);
+    expect(mockAppendLine).toHaveBeenCalledWith('1. Step one');
+    expect(mockAppendLine).toHaveBeenCalledWith('2. Step two');
+    expect(mockAppendLine).toHaveBeenCalledWith('3. Step three');
+  });
+
+  it('renders data.message as fallback when data.steps is absent', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'show-guided-steps',
+      assistantKey: 'cline',
+      reversible: false,
+      data: {
+        message: 'Please configure Cline manually',
+      },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'my-profile');
+
+    expect(result.success).toBe(true);
+    expect(mockAppendLine).toHaveBeenCalledWith('Please configure Cline manually');
+  });
+
+  it('renders a default message when neither data.steps nor data.message is present', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'show-guided-steps',
+      assistantKey: 'some-assistant',
+      reversible: false,
+      data: {},
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'my-profile');
+
+    expect(result.success).toBe(true);
+    expect(mockAppendLine).toHaveBeenCalledWith('Manual configuration required for some-assistant');
+  });
+});
