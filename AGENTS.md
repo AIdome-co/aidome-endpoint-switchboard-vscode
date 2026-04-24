@@ -41,6 +41,19 @@ npm run compile      # TypeScript strict mode — zero errors required
 There is **no `console.log`** allowed anywhere in source code. Use the Logger class.
 The pre-release validation tests will fail if any `console.log` slips through.
 
+## Changelog Convention
+
+This project uses the **Keep a Changelog** `[Unreleased]` pattern:
+
+- **When writing code / opening a PR**: add a concise bullet under `## [Unreleased]` in
+  `CHANGELOG.md` describing what changed (feature, fix, or breaking change).
+- **When triggering a release**: run the **Prepare Release** workflow
+  (`prepare-release.yml`). It automatically promotes `## [Unreleased]` →
+  `## [x.y.z] - YYYY-MM-DD`, bumps `package.json`, commits, tags, and kicks off the
+  release. No manual version-rename is required.
+- **Never** add a pre-versioned heading like `## [1.2.3]` in a PR —
+  only `[Unreleased]` belongs there.
+
 ## Where To Find Deeper Guidance
 
 - **Architecture, patterns, ADRs** → `.github/references/architecture.md`

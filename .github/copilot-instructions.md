@@ -118,6 +118,16 @@ For deep details on each layer, see `.github/references/architecture.md`.
 - **Architecture decisions** → `.github/references/architecture.md`
 - **Code quality rules** → `.github/references/coding-guidelines.md`
 
+## Changelog Convention
+
+This project uses the **Keep a Changelog** `[Unreleased]` pattern:
+
+- When merging a PR with user-visible changes, add bullets under `## [Unreleased]`
+  in `CHANGELOG.md`. **Never** add a pre-versioned heading like `## [1.2.3]` in a PR.
+- When triggering a release, the `prepare-release.yml` workflow automatically promotes
+  `## [Unreleased]` → `## [x.y.z] - YYYY-MM-DD` and commits it alongside the
+  `package.json` version bump. No manual rename is required.
+
 ## Working Style
 
 - Be transparent: describe what you're changing and why before making changes.
@@ -125,3 +135,5 @@ For deep details on each layer, see `.github/references/architecture.md`.
 - Write or update tests before (or alongside) implementation changes.
 - If a test is failing, fix the root cause — do not delete or skip the test.
 - When uncertain about an architectural decision, consult the project's ADRs.
+- Every PR with user-visible changes must include a bullet under `## [Unreleased]`
+  in `CHANGELOG.md`.

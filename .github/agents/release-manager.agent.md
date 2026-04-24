@@ -70,10 +70,17 @@ npm test           # All tests pass, including pre-release validation tests
 For VS Code extensions, a "breaking change" typically means dropping support for a
 VS Code engine version or removing a previously supported AI assistant.
 
-### CHANGELOG Format (Keep a Changelog convention)
+### CHANGELOG Convention — `[Unreleased]` Pattern
+
+This project uses the **Keep a Changelog** `[Unreleased]` pattern. Changelog management
+is **fully automated** by `prepare-release.yml`.
+
+#### As a contributor (every PR with user-visible changes)
+
+Add bullets under `## [Unreleased]` in `CHANGELOG.md`. Never pre-version the heading:
 
 ```markdown
-## [x.y.z] — YYYY-MM-DD
+## [Unreleased]
 
 ### Added
 - New AI assistant support or feature description
@@ -85,8 +92,11 @@ VS Code engine version or removing a previously supported AI assistant.
 - Behaviour change description
 ```
 
-Commit the version bump in `package.json` and the CHANGELOG update together in a single
-commit before tagging.
+#### At release time (automated)
+
+The `prepare-release.yml` workflow renames `## [Unreleased]` →
+`## [x.y.z] - YYYY-MM-DD` via `sed`, then commits `CHANGELOG.md` together with the
+`package.json` version bump in a single release commit. No manual action is needed.
 
 ### Packaging
 

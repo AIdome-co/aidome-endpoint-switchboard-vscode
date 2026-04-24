@@ -104,7 +104,9 @@ Run the extension in development mode to test the full end-to-end flow:
 ## Step 7 — Update Documentation
 
 - Update `README.md` to mention the new assistant in the supported assistants section
-- Update `CHANGELOG.md` with the new assistant support
+- Add a bullet under `## [Unreleased]` in `CHANGELOG.md` describing the new assistant
+  support. **Do not** add a pre-versioned heading — the `prepare-release.yml` workflow
+  promotes `[Unreleased]` to the correct version automatically at release time.
 - If the assistant required any architectural decisions, consider adding an ADR
 
 ## Checklist
@@ -117,4 +119,5 @@ Run the extension in development mode to test the full end-to-end flow:
 - [ ] Adapter registered in the adapter index
 - [ ] Unit tests written and passing
 - [ ] Tested in Extension Development Host (F5)
-- [ ] README and CHANGELOG updated
+- [ ] README updated with new assistant
+- [ ] Bullet added under `## [Unreleased]` in `CHANGELOG.md`
