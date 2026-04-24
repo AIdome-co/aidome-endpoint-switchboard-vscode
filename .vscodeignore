@@ -18,5 +18,8 @@ resources/ICON_README.md
 .eslintrc.json
 vsc-extension-quickstart.md
 **/tsconfig.json
+tsconfig.e2e.json
+.vscode-test.mjs
 **/.eslintrc.json
 out/test/**
+out-test/**

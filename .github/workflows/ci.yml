@@ -6,9 +6,16 @@ on:
   push:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     
     steps:
       - name: Checkout code
@@ -32,6 +39,14 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run E2E tests (Extension Development Host)
+        run: xvfb-run -a npm run test:e2e
+        if: runner.os == 'Linux'
+
+      - name: Run E2E tests (Extension Development Host)
+        run: npm run test:e2e
+        if: runner.os != 'Linux'
+
       - name: Enforce Continue adapter coverage gate
         run: npm run test:continue:coverage
 
@@ -46,7 +61,18 @@ jobs:
       
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
         with:
           name: vsix-package
           path: '*.vsix'
+          retention-days: 7
+
+      - name: Upload E2E test logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-test-logs-${{ matrix.os }}
+          path: |
+            .vscode-test/
+            out-test/
           retention-days: 7
