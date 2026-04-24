@@ -302,12 +302,13 @@ export class Verifier {
     
     return new Promise((resolve) => {
       const url = new URL(baseUrl);
+      const tlsVerify = getRuntimeSettings().tlsVerify;
       const options = {
         hostname: url.hostname,
         port: url.port || 443,
         method: 'GET',
         path: '/',
-        rejectUnauthorized: true,
+        rejectUnauthorized: tlsVerify,
         timeout: tlsTimeoutMs
       };
       
@@ -316,11 +317,14 @@ export class Verifier {
         req.destroy();
         
         if (cert && cert.subject) {
+          const message = tlsVerify
+            ? 'TLS certificate is valid'
+            : 'TLS certificate accepted (verification disabled via settings)';
           resolve({
             name: 'tls-verification',
-            status: 'passed',
-            message: 'TLS certificate is valid',
-            details: { issuer: cert.issuer?.O, validTo: cert.valid_to },
+            status: tlsVerify ? 'passed' : 'warning',
+            message,
+            details: { issuer: cert.issuer?.O, validTo: cert.valid_to, tlsVerify },
             duration: Date.now() - startTime
           });
         } else {

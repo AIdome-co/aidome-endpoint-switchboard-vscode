@@ -22,6 +22,28 @@ export interface ConfigHint {
 }
 
 /**
+ * TLS verification support level for an assistant.
+ *
+ * - `native`        — the assistant exposes its own setting/config to toggle TLS verification.
+ * - `env-var`       — TLS can be controlled via an environment variable (e.g. NODE_TLS_REJECT_UNAUTHORIZED).
+ * - `vscode-global` — the assistant inherits VS Code's `http.proxyStrictSSL` global setting.
+ * - `none`          — no known mechanism to control TLS verification.
+ */
+export type TlsVerificationSupport = 'native' | 'env-var' | 'vscode-global' | 'none';
+
+/**
+ * TLS verification metadata for an assistant.
+ */
+export interface TlsVerificationConfig {
+  /** How the assistant supports toggling TLS verification. */
+  support: TlsVerificationSupport;
+  /** Specific setting key, env var, or config field that controls it. */
+  settingHint?: string;
+  /** Human-readable note explaining the TLS story for this assistant. */
+  notes: string;
+}
+
+/**
  * Endpoint switching configuration for an assistant.
  */
 export interface EndpointSwitchingConfig {
@@ -62,6 +84,7 @@ export interface AssistantEntry {
   detection: DetectionConfig;
   dialect: DialectConfig;
   endpointSwitching: EndpointSwitchingConfig;
+  tlsVerification: TlsVerificationConfig;
   sources: string[];
 }
 

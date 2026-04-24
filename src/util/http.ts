@@ -145,7 +145,8 @@ async function makeRequest<T>(
         'User-Agent': 'AIdome-Switchboard-VSCode/1.0',
         ...options.headers
       },
-      timeout: options.timeout
+      timeout: options.timeout,
+      ...(isHttps ? { rejectUnauthorized: getRuntimeSettings().tlsVerify } : {})
     };
 
     // Handle proxy if configured
