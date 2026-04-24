@@ -110,6 +110,8 @@ describe('ClaudeCodeAdapter', () => {
       const mainGuidance = guidedSteps[0];
       expect(mainGuidance.assistantKey).toBe('claude-code');
       expect(mainGuidance.data.limitation).toBe('no-base-url-override');
+      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
+      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should include proxy guidance step', async () => {

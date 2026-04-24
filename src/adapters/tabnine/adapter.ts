@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
 
 /**
@@ -29,24 +29,25 @@ export class TabnineAdapter implements AssistantAdapter {
     let plan = createPlan(profile.id, ['tabnine']);
 
     // Add guided steps explaining the limitation
+    const guidanceData = {
+      message: 'Tabnine uses a proprietary protocol and does not support custom OpenAI-compatible endpoints',
+      steps: [
+        'Tabnine connects to Tabnine cloud or Tabnine Enterprise Server',
+        'It does not support OpenAI-compatible base URL switching',
+        'To use AIdome with Tabnine, you would need:',
+        '  - Tabnine Enterprise Server configured to route through AIdome (enterprise setup)',
+        '  - OR use an alternative assistant that supports custom endpoints',
+        'For most users, consider using Cline, Continue, or Roo Code instead'
+      ],
+      baseUrl: profile.baseUrl,
+      limitation: 'proprietary-protocol',
+      tier: 'C'
+    } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'Tabnine configuration guidance',
       assistantKey: 'tabnine',
-      data: {
-        message: 'Tabnine uses a proprietary protocol and does not support custom OpenAI-compatible endpoints',
-        steps: [
-          'Tabnine connects to Tabnine cloud or Tabnine Enterprise Server',
-          'It does not support OpenAI-compatible base URL switching',
-          'To use AIdome with Tabnine, you would need:',
-          '  - Tabnine Enterprise Server configured to route through AIdome (enterprise setup)',
-          '  - OR use an alternative assistant that supports custom endpoints',
-          'For most users, consider using Cline, Continue, or Roo Code instead'
-        ],
-        baseUrl: profile.baseUrl,
-        limitation: 'proprietary-protocol',
-        tier: 'C'
-      },
+      data: guidanceData,
       reversible: false
     });
 

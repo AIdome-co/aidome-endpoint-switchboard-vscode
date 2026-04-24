@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { Logger } from '../../util/log';
 
@@ -33,41 +33,43 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     let plan = createPlan(profile.id, ['claude-code']);
 
     // Add guided steps since we can't automate this
+    const mainGuidanceData = {
+      message: 'Claude Code does not support custom API base URLs',
+      steps: [
+        'Claude Code connects directly to Anthropic\'s API',
+        'To route through AIdome, you would need to use HTTP_PROXY or HTTPS_PROXY environment variables',
+        'However, this requires AIdome to act as a forward proxy, which may not be supported',
+        'Consider using an alternative assistant that supports custom base URLs for full endpoint switching'
+      ],
+      baseUrl: profile.baseUrl,
+      limitation: 'no-base-url-override'
+    } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'Claude Code configuration guidance',
       assistantKey: 'claude-code',
-      data: { 
-        message: 'Claude Code does not support custom API base URLs',
-        steps: [
-          'Claude Code connects directly to Anthropic\'s API',
-          'To route through AIdome, you would need to use HTTP_PROXY or HTTPS_PROXY environment variables',
-          'However, this requires AIdome to act as a forward proxy, which may not be supported',
-          'Consider using an alternative assistant that supports custom base URLs for full endpoint switching'
-        ],
-        baseUrl: profile.baseUrl,
-        limitation: 'no-base-url-override'
-      },
+      data: mainGuidanceData,
       reversible: false
     });
 
     // Optionally add proxy environment variable steps as guidance
+    const proxyGuidanceData = {
+      message: 'Advanced: Use proxy-based routing',
+      steps: [
+        'If AIdome supports forward proxy mode:',
+        '1. Set HTTPS_PROXY environment variable to AIdome proxy URL',
+        '2. Restart VS Code to apply environment changes',
+        '3. Verify that requests are being routed through AIdome',
+        'Note: This is an advanced configuration and may not work with all setups'
+      ],
+      envVarName: 'HTTPS_PROXY',
+      optional: true
+    } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'Optional: Set HTTPS_PROXY for routing (advanced)',
       assistantKey: 'claude-code',
-      data: { 
-        message: 'Advanced: Use proxy-based routing',
-        steps: [
-          'If AIdome supports forward proxy mode:',
-          '1. Set HTTPS_PROXY environment variable to AIdome proxy URL',
-          '2. Restart VS Code to apply environment changes',
-          '3. Verify that requests are being routed through AIdome',
-          'Note: This is an advanced configuration and may not work with all setups'
-        ],
-        envVarName: 'HTTPS_PROXY',
-        optional: true
-      },
+      data: proxyGuidanceData,
       reversible: false
     });
 
