@@ -14,6 +14,22 @@ export type PlanStepAction =
   | 'show-guided-steps';
 
 /**
+ * Typed data shape for `show-guided-steps` plan steps.
+ *
+ * Adapters that emit this action SHOULD include a `steps` array so that
+ * `applyGuidedSteps` can render a numbered list for the user.  When `steps`
+ * is absent the applier falls back to displaying `message`.
+ */
+export interface GuidedStepsData {
+  /** Short summary shown as a header, and as the fallback when `steps` is absent. */
+  message: string;
+  /** Ordered list of actionable instructions shown to the user. Provide this whenever possible. */
+  steps?: string[];
+  /** The endpoint URL the user should paste into the setting. */
+  baseUrl?: string;
+}
+
+/**
  * Individual step in a configuration plan.
  */
 export interface PlanStep {

@@ -127,6 +127,8 @@ describe('CodeGptAdapter', () => {
       const mainGuidance = guidedSteps[0];
       expect(mainGuidance.assistantKey).toBe('codegpt');
       expect(mainGuidance.data.baseUrl).toBe(mockProfile.baseUrl);
+      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
+      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should include provider setting when discovered', async () => {

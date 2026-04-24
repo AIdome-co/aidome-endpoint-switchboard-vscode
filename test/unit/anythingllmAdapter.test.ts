@@ -80,6 +80,8 @@ describe('AnythingLlmAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('anythingllm');
       expect(mainGuidance.data.tier).toBe('B');
       expect(mainGuidance.data.configurationType).toBe('desktop-app-ui');
+      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
+      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should include base URL in guidance', async () => {

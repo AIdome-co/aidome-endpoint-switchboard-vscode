@@ -92,6 +92,8 @@ describe('GeminiCliAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('gemini-cli');
       expect(mainGuidance.data.limitation).toBe('no-base-url-override');
       expect(mainGuidance.data.tier).toBe('C');
+      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
+      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should include base URL in guidance', async () => {

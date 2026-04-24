@@ -95,6 +95,8 @@ describe('TabnineAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('tabnine');
       expect(mainGuidance.data.limitation).toBe('proprietary-protocol');
       expect(mainGuidance.data.tier).toBe('C');
+      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
+      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
     });
   });
 

@@ -13,7 +13,7 @@
 import * as vscode from 'vscode';
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
 
 interface ExtensionConfiguration {
@@ -57,14 +57,22 @@ export class ClineAdapter implements AssistantAdapter {
     }
 
     if (settingKeys.length === 0) {
+      const guidedData: GuidedStepsData = {
+        message: 'Please configure Cline base URL manually in extension settings',
+        steps: [
+          'Open VS Code Settings (Ctrl+, or Cmd+,)',
+          'Search for "Cline" or "claude-dev"',
+          'Locate the base URL or API endpoint setting (e.g. cline.openAiBaseUrl)',
+          `Set the value to: ${profile.baseUrl}`,
+          'Save the settings and reload Cline if prompted'
+        ],
+        baseUrl: profile.baseUrl
+      };
       plan = addStep(plan, {
         action: 'show-guided-steps',
         description: 'Manual configuration required for Cline',
         assistantKey: 'cline',
-        data: { 
-          message: 'Please configure Cline base URL manually in extension settings',
-          baseUrl: profile.baseUrl 
-        },
+        data: guidedData,
         reversible: false
       });
     }

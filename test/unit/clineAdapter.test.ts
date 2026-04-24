@@ -114,7 +114,7 @@ describe('ClineAdapter', () => {
       expect(baseUrlStep?.newValue).toBe(mockProfile.baseUrl);
     });
 
-    it('should fall back to guided steps when no settings are discovered', async () => {
+    it('should use fallback setting keys when extension is installed but exposes no configuration', async () => {
       const vscode = await import('vscode');
       const noConfigExtension = {
         packageJSON: {}
@@ -124,7 +124,10 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.steps.length).toBeGreaterThan(0);
+      // Extension found but no contributes.configuration → getFallbackKeys() is used, not guided mode
+      const settingSteps = plan.steps.filter((s) => s.action === 'set-vscode-setting');
+      expect(settingSteps.length).toBeGreaterThan(0);
+      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(false);
     });
 
     it('should fall back to default keys when extension is not found', async () => {
@@ -134,8 +137,11 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.profileId).toBe(mockProfile.id);
-      // Should use fallback keys when extension is not found
-      expect(plan.steps.length).toBeGreaterThan(0);
+      // Extension not found → guided steps with steps array
+      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeDefined();
+      expect(Array.isArray(guidedStep?.data?.steps)).toBe(true);
+      expect((guidedStep?.data?.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should handle array configuration format', async () => {

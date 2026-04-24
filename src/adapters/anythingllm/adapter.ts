@@ -4,7 +4,7 @@
 
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
 import * as os from 'os';
 import * as path from 'path';
@@ -75,44 +75,46 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     let plan = createPlan(profile.id, ['anythingllm']);
 
     // Add guided steps for configuring AnythingLLM
+    const configGuidanceData = {
+      message: 'Configure AnythingLLM to use your AIdome endpoint',
+      steps: [
+        'Open AnythingLLM desktop application',
+        'Navigate to Settings → LLM Configuration',
+        'Select "Generic OpenAI" or "OpenAI Compatible" as the provider',
+        `Set the Base URL to: ${profile.baseUrl}`,
+        'Enter your API key if required (may be stored in AIdome profile)',
+        'Select or configure the model name as appropriate',
+        'Test the connection',
+        'Save the configuration'
+      ],
+      baseUrl: profile.baseUrl,
+      tier: 'B',
+      configurationType: 'desktop-app-ui'
+    } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'AnythingLLM configuration guidance',
       assistantKey: 'anythingllm',
-      data: {
-        message: 'Configure AnythingLLM to use your AIdome endpoint',
-        steps: [
-          'Open AnythingLLM desktop application',
-          'Navigate to Settings → LLM Configuration',
-          'Select "Generic OpenAI" or "OpenAI Compatible" as the provider',
-          `Set the Base URL to: ${profile.baseUrl}`,
-          'Enter your API key if required (may be stored in AIdome profile)',
-          'Select or configure the model name as appropriate',
-          'Test the connection',
-          'Save the configuration'
-        ],
-        baseUrl: profile.baseUrl,
-        tier: 'B',
-        configurationType: 'desktop-app-ui'
-      },
+      data: configGuidanceData,
       reversible: false
     });
 
     // Add a step to copy the base URL to clipboard for convenience
+    const clipboardGuidanceData = {
+      message: 'For your convenience',
+      steps: [
+        `AIdome Endpoint URL: ${profile.baseUrl}`,
+        'You can copy this URL from the steps above',
+        'Paste it into AnythingLLM\'s Base URL field'
+      ],
+      baseUrl: profile.baseUrl,
+      action: 'copy-to-clipboard'
+    } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'Copy endpoint URL',
       assistantKey: 'anythingllm',
-      data: {
-        message: 'For your convenience',
-        steps: [
-          `AIdome Endpoint URL: ${profile.baseUrl}`,
-          'You can copy this URL from the steps above',
-          'Paste it into AnythingLLM\'s Base URL field'
-        ],
-        baseUrl: profile.baseUrl,
-        action: 'copy-to-clipboard'
-      },
+      data: clipboardGuidanceData,
       reversible: false
     });
 
