@@ -2,7 +2,7 @@
   "name": "aidome-endpoint-switchboard",
   "displayName": "LLM Endpoint Switchboard (by AIdome)",
   "description": "Configure AI coding assistants to route through enterprise-approved LLM endpoints. Supports Continue, Cline, Roo Code, Kilo Code, Codex CLI, and more.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "aidome",
   "icon": "resources/icon.png",
   "galleryBanner": {
