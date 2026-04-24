@@ -146,3 +146,6 @@ out-test/
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Agent-generated planning artifacts
+docs/plan/
