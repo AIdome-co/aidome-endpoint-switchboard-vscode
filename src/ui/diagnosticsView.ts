@@ -47,7 +47,8 @@ function escapeHtml(text: string): string {
  * @returns HTML string
  */
 export function generateDiagnosticsHtml(diagnostics: unknown): string {
-  const escaped = escapeHtml(JSON.stringify(diagnostics, null, 2));
+  const diagnosticsJson = JSON.stringify(diagnostics, null, 2) ?? 'undefined';
+  const escaped = escapeHtml(diagnosticsJson);
   return `
     <!DOCTYPE html>
     <html>

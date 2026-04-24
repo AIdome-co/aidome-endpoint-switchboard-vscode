@@ -47,4 +47,11 @@ describe('generateDiagnosticsHtml', () => {
     expect(html).toContain('null');
     expect(html).toContain('Content-Security-Policy');
   });
+
+  it('should handle undefined diagnostics', () => {
+    const html = generateDiagnosticsHtml(undefined);
+
+    expect(html).toContain('undefined');
+    expect(html).toContain('Content-Security-Policy');
+  });
 });
