@@ -27,6 +27,20 @@ export interface GuidedStepsData {
   steps?: string[];
   /** The endpoint URL the user should paste into the setting. */
   baseUrl?: string;
+  /** Adapter support tier (e.g. 'B', 'C'). */
+  tier?: string;
+  /** Auxiliary action hint for the applier (e.g. 'copy-to-clipboard'). */
+  action?: string;
+  /** Human-readable reason why full automation is not possible (e.g. 'no-base-url-override'). */
+  limitation?: string;
+  /** Environment variable name referenced in the guidance steps. */
+  envVarName?: string;
+  /** When true, this step is advisory only and may be skipped. */
+  optional?: boolean;
+  /** Describes how the assistant is configured (e.g. 'desktop-app-ui'). */
+  configurationType?: string;
+  /** Allow adapter-specific extension fields while remaining assignable to Record<string, unknown>. */
+  [key: string]: unknown;
 }
 
 /**
