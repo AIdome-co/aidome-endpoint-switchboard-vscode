@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-test",
+    "rootDir": "./test",
+    "module": "commonjs",
+    "types": ["node", "vscode", "mocha"],
+    "sourceMap": true
+  },
+  "include": ["test/e2e/**/*"],
+  "exclude": ["node_modules", "out"]
+}

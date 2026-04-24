@@ -83,6 +83,7 @@ dist
 
 # VS Code extension build output
 out/
+out-test/
 
 # VS Code extension package
 *.vsix

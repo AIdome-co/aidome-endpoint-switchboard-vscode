@@ -32,6 +32,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run E2E tests (Extension Development Host)
+        run: xvfb-run -a npm run test:e2e
+
       - name: Enforce Continue adapter coverage gate
         run: npm run test:continue:coverage
 
