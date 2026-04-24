@@ -12,6 +12,13 @@
  * BYOK model directly in Copilot Chat via workspace settings.  Custom model
  * providers in the official extension are registered via the VS Code
  * `languageModelChatProviders` contribution point, not via a user-settable key.
+ *
+ * ⚠️ RISK: `debug.overrideProxyUrl` is NOT documented in the official GitHub
+ * Copilot extension docs.  It is an internal/undocumented setting discovered via
+ * source inspection.  It may be removed, renamed, or change behaviour in any
+ * future Copilot update.  After major Copilot extension updates, re-verify that
+ * this adapter still functions correctly.
+ * Verified against: Copilot Chat extension source as of 2026-04-24.
  */
 
 import * as vscode from 'vscode';

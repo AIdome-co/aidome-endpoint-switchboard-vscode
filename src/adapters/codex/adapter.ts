@@ -1,5 +1,13 @@
 /**
  * Adapter for OpenAI Codex CLI.
+ *
+ * ⚠️ RISK: OpenAI Codex CLI now ships from the Rust codex-rs codebase.
+ * The config.toml schema and provider configuration format may have changed
+ * significantly from the original Node.js version.  The adapter patches
+ * config.toml with a `[providers.aidome]` section and sets OPENAI_BASE_URL as
+ * an env-var fallback.  After major Codex CLI updates, re-verify that the
+ * config.toml structure is still supported by the Rust binary.
+ * Verified against: openai/codex v0.124.0 repository as of 2026-04-24.
  */
 
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';

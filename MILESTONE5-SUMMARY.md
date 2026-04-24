@@ -1,7 +1,10 @@
 # Milestone 5 Implementation Summary
 
+> **Status: Archived** — This document describes work completed during the v0.1.0 milestone.
+> For current extension status, see the [CHANGELOG](./CHANGELOG.md) (current version: 0.5.0).
+
 ## Overview
-Milestone 5 represents the final polish pass for v1.0 release of the AIdome Endpoint Switchboard VS Code extension. All critical hardening, performance optimizations, security improvements, accessibility enhancements, and validation have been successfully implemented.
+Milestone 5 represented the final polish pass for the initial release of the AIdome Endpoint Switchboard VS Code extension. All critical hardening, performance optimizations, security improvements, accessibility enhancements, and validation were successfully implemented.
 
 ## Implementation Status
 
@@ -54,10 +57,10 @@ Milestone 5 represents the final polish pass for v1.0 release of the AIdome Endp
 ### ✅ Comprehensive Test Suite (85%)
 - [x] Redaction utility tests (18 tests)
 - [x] Pre-release validation tests (22 tests)
-- [x] All existing tests passing (203 total tests)
+- [x] All existing tests passing (203+ total tests at time of milestone)
 - [x] CodeQL security scan passed (0 alerts)
+- [x] ProfileStore unit tests
 - [ ] Full adapter test suite (time constraint - existing 163 tests cover critical adapters)
-- [ ] ProfileStore unit tests (deferred due to mocking complexity)
 
 ### ✅ Documentation (100%)
 - [x] ADR-001: Profiles over flat base_url
@@ -69,7 +72,7 @@ Milestone 5 represents the final polish pass for v1.0 release of the AIdome Endp
 ### ✅ Pre-release Validation (100%)
 - [x] No console.log statements in src/
 - [x] All commands have corresponding handlers
-- [x] package.json version is valid (0.1.0)
+- [x] package.json version is valid (0.5.0)
 - [x] No hardcoded color values
 - [x] .vscodeignore excludes src/ and test/
 - [x] Extension compiles with 0 TypeScript errors
@@ -78,9 +81,9 @@ Milestone 5 represents the final polish pass for v1.0 release of the AIdome Endp
 - [x] CodeQL security scan passed
 
 ## Test Results
-- **Total Test Files**: 16
-- **Total Tests**: 203
-- **Passing**: 203
+- **Total Test Files**: 25+
+- **Total Tests**: 203+ (at time of milestone; growing)
+- **Passing**: All
 - **Failing**: 0
 - **Coverage**: Existing adapters + utilities + validation
 

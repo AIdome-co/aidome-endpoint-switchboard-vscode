@@ -4,6 +4,12 @@ All notable changes to the "LLM Endpoint Switchboard (by AIdome)" extension will
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+- Clarified GitHub Copilot support to document the proxy override path only and added risk notes for Copilot, Cline, and Codex integrations that depend on undocumented or fast-moving upstream behavior.
+- Removed unused generic adapter and wizard screen scaffolds, and replaced placeholder tests with concrete adapter registry and wizard flow coverage.
+- Hardened the diagnostics webview by escaping rendered diagnostics data, disabling scripts, adding a restrictive Content Security Policy, and handling undefined payloads without throwing.
+
 ## [0.5.0] - 2026-04-24
 
 ---
@@ -30,15 +36,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `github.copilot.advanced.debug.overrideProxyUrl` as a reversible VS Code setting,
   routing all Copilot REST traffic (inline completions + chat) through the configured
   gateway endpoint.
-- **Native BYOK support** (VS Code ≥ 1.104): adapter also writes
-  `github.copilot.chat.customOAIModels`, registering the gateway as a custom
-  OpenAI-compatible model entry selectable in the Copilot Chat model picker.
-- Both configuration steps are recorded in the change log and can be undone via
+- Configuration is recorded in the change log and can be undone via
   **AIdome: Reset Switchboard**.
-- `verify()` now checks whether either mechanism is active and reports
-  `proxyOverrideConfigured` / `customModelsConfigured` in its result details.
+- `verify()` now checks whether proxy override is active and reports
+  `proxyOverrideConfigured` in its result details.
 - Registry updated: `endpointSwitching.supported = true`, `tier = "B"`,
-  `configurationModes` expanded to include `proxy-override` and `native-byok`.
+  `configurationModes` set to `proxy-override`.
+- ⚠️ Note: `debug.overrideProxyUrl` is an undocumented internal Copilot setting.
+  It may change or be removed in future Copilot extension updates.
 
 ---
 

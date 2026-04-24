@@ -89,7 +89,7 @@ Different AI providers use different API protocols. The Switchboard understands 
 - **`openai.responses`** — Newer OpenAI format, `/v1/responses` (OpenAI Codex CLI)
 - **`anthropic.messages`** — Anthropic's `/v1/messages` (Claude Code)
 - **`google.gemini.generate_content`** — Google Gemini (Gemini CLI)
-- **`github.copilot`** — Routable via proxy override (`debug.overrideProxyUrl`) or native BYOK (`customOAIModels`, VS Code ≥ 1.104)
+- **`github.copilot`** — Routable via proxy override (`debug.overrideProxyUrl`). ⚠️ This setting is undocumented and may change without notice.
 - **`tabnine.proprietary`** — Proprietary (not switchable)
 
 ---
@@ -213,11 +213,12 @@ Yes. The extension detects remote environments and provides warnings if you conf
 
 ### What about GitHub Copilot?
 
-Copilot is now supported at **Tier B** using two mechanisms:
+Copilot is supported at **Tier B** using the proxy override mechanism:
 - **Proxy Override** (`github.copilot.advanced.debug.overrideProxyUrl`): routes all Copilot REST traffic (inline completions + chat) through your gateway.
-- **Native BYOK** (`github.copilot.chat.customOAIModels`, VS Code ≥ 1.104): registers your gateway as a custom OpenAI-compatible model selectable inside Copilot Chat.
 
-Both settings are applied automatically and are fully reversible.
+> ⚠️ **Note:** `debug.overrideProxyUrl` is an undocumented internal setting and may change or be removed in future Copilot updates. Verify after major Copilot extension updates.
+
+This setting is applied automatically and is fully reversible.
 
 ---
 
