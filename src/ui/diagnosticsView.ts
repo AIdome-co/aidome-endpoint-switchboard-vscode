@@ -10,8 +10,8 @@ import * as vscode from 'vscode';
  * @returns Promise resolving when complete
  */
 export async function showDiagnosticsView(diagnostics: unknown): Promise<void> {
-  // Skeleton implementation
-  throw new Error('Not implemented');
+  const panel = createDiagnosticsPanel();
+  panel.webview.html = generateDiagnosticsHtml(diagnostics);
 }
 
 /**
