@@ -89,12 +89,22 @@ jobs:
             exit 1
           fi
 
-      - name: Validate changelog entry exists
+      - name: Ensure changelog entry
+        id: changelog
         env:
           TARGET_VERSION: ${{ steps.version.outputs.target_version }}
         run: |
-          if ! grep -Eq "^## \[$TARGET_VERSION\]" CHANGELOG.md; then
-            echo "::error::Missing CHANGELOG entry for $TARGET_VERSION. Update CHANGELOG.md before preparing the release."
+          TODAY=$(date +%Y-%m-%d)
+          if grep -Eq "^## \[$TARGET_VERSION\]" CHANGELOG.md; then
+            echo "Changelog entry for $TARGET_VERSION already exists."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          elif grep -Eq "^## \[Unreleased\]" CHANGELOG.md; then
+            echo "Promoting [Unreleased] → [$TARGET_VERSION] - $TODAY"
+            sed -i "s/^## \[Unreleased\]/## [$TARGET_VERSION] - $TODAY/" CHANGELOG.md
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::CHANGELOG.md has no [Unreleased] section and no [$TARGET_VERSION] entry."
+            echo "::error::Add your changes under an '## [Unreleased]' heading in CHANGELOG.md as part of each PR."
             exit 1
           fi
 
@@ -116,7 +126,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
+          git add package.json package-lock.json CHANGELOG.md
 
           if git diff --cached --quiet; then
             echo "No version metadata changes to commit."
