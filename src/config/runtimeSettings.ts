@@ -21,6 +21,8 @@ export interface RuntimeSettings {
   httpRetryBackoffMaxMs: number;
   aidomeClientCacheTtlMs: number;
   logBufferSize: number;
+  /** When false, HTTPS requests skip TLS certificate verification (rejectUnauthorized=false). Default: true. */
+  tlsVerify: boolean;
   verifier: VerifierRuntimeSettings;
 }
 
@@ -30,6 +32,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   httpRetryBackoffMaxMs: 5_000,
   aidomeClientCacheTtlMs: 60_000,
   logBufferSize: 200,
+  tlsVerify: true,
   verifier: {
     tlsTimeoutMs: 5_000,
     endpointReachabilityTimeoutMs: 10_000,
@@ -84,6 +87,52 @@ function readNumberSetting(
 }
 
 /**
+ * Parses a value as a boolean. Accepts native booleans and string representations
+ * (`"true"` / `"1"` → `true`, `"false"` / `"0"` → `false`).
+ * @returns The parsed boolean, or `undefined` if the value is not a recognised boolean.
+ */
+function parseBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase();
+    if (lower === 'true' || lower === '1') {
+      return true;
+    }
+    if (lower === 'false' || lower === '0') {
+      return false;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Reads a boolean setting with precedence: environment variable → VS Code setting → default.
+ * @param settingKey VS Code configuration key (relative to CONFIG_SECTION)
+ * @param defaultValue Value to use when neither env var nor setting is provided
+ * @param envVar Optional environment variable name that overrides the VS Code setting
+ */
+function readBooleanSetting(
+  settingKey: string,
+  defaultValue: boolean,
+  envVar?: string
+): boolean {
+  const envValue = envVar ? parseBoolean(process.env[envVar]) : undefined;
+  if (envValue !== undefined) {
+    return envValue;
+  }
+
+  const configuration = getExtensionConfiguration();
+  const configuredValue = parseBoolean(configuration?.get(settingKey));
+  if (configuredValue !== undefined) {
+    return configuredValue;
+  }
+
+  return defaultValue;
+}
+
+/**
  * Returns the current advanced runtime settings, using extension settings by
  * default and environment variables as optional overrides for automation.
  */
@@ -118,6 +167,11 @@ export function getRuntimeSettings(): RuntimeSettings {
       defaultRuntimeSettings.logBufferSize,
       1,
       'AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE'
+    ),
+    tlsVerify: readBooleanSetting(
+      'advanced.tlsVerify',
+      defaultRuntimeSettings.tlsVerify,
+      'AIDOME_SWITCHBOARD_TLS_VERIFY'
     ),
     verifier: {
       tlsTimeoutMs: readNumberSetting(

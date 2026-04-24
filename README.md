@@ -175,6 +175,37 @@ For slower enterprise networks, proxies, or remote hosts, the extension exposes 
 - Environment variables override the matching setting when present, which is useful for managed shells and automation. Common overrides include `HTTP_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_CLI_DETECTION_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS`, and `AIDOME_SWITCHBOARD_VERIFIER_*`.
 - Keep the defaults unless you are troubleshooting proxy latency, certificate inspection, or remote reachability.
 
+### TLS Certificate Verification
+
+By default the extension verifies TLS certificates on every HTTPS request (including the 7-step verification pipeline). For enterprise gateways that use **self-signed or internal CA certificates**, you can disable strict verification:
+
+```jsonc
+// settings.json
+"aidome-switchboard.advanced.tlsVerify": false
+```
+
+Or via environment variable (useful in CI/automation):
+```bash
+export AIDOME_SWITCHBOARD_TLS_VERIFY=false
+```
+
+> ⚠️ **Security Warning:** Disable TLS verification **only** for trusted internal endpoints. The default is `true` and should remain enabled for production and public-internet endpoints.
+
+When verification is disabled, the verifier TLS step reports a **warning** instead of pass/fail so administrators can audit which endpoints skip certificate checks.
+
+#### Assistant TLS Verification Support
+
+Each AI assistant handles TLS verification differently. The table below summarises how to control TLS verification for each supported assistant (the full data is in `assistants.registry.json`):
+
+| Support Level | Assistants | How to Disable |
+|---|---|---|
+| **Native** | Continue.dev | `requestOptions.rejectUnauthorized: false` in `config.json` per-model |
+| **Env Var** | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` |
+| **Env Var** | Codex CLI | `CODEX_CA_CERTIFICATE` / `SSL_CERT_FILE` (custom CA only) |
+| **Env Var** | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
+| **VS Code Global** | GitHub Copilot, Cline, Roo Code, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` in VS Code settings |
+| **None** | Gemini CLI | No documented TLS control |
+
 ---
 
 ## Generic Scanner

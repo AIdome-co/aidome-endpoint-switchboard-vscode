@@ -42,6 +42,11 @@
           "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting; users should be aware it may change in future Copilot releases."
         ]
       },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL",
+        "notes": "Copilot inherits VS Code's http.proxyStrictSSL setting. No extension-specific TLS toggle."
+      },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot",
         "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat"
@@ -81,6 +86,11 @@
           "Cline supports 'OpenAI Compatible' and also supports a Base URL for OpenAI provider.",
           "Implementation should treat exact setting keys as discoverable by scanning contributes.configuration at runtime."
         ]
+      },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL",
+        "notes": "Cline relies on VS Code's http.proxyStrictSSL. No extension-specific TLS toggle."
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev",
@@ -125,6 +135,11 @@
           "Exact keys may evolve; keep a scan-and-verify path."
         ]
       },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL",
+        "notes": "Roo Code relies on VS Code's http.proxyStrictSSL. No extension-specific TLS toggle."
+      },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline",
         "https://docs.roocode.com/features/api-configuration",
@@ -168,6 +183,11 @@
           "Kilo Code supports OpenAI Base URL config.",
           "Treat settings keys as hints; confirm via contributes.configuration in the installed extension."
         ]
+      },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL",
+        "notes": "No extension-specific TLS setting. Inherits VS Code's http.proxyStrictSSL."
       },
       "sources": [
         "https://docs.naga.ac/kilo-code/extension-settings",
@@ -217,6 +237,11 @@
           "Your extension should back up the file and edit via YAML-aware tooling."
         ]
       },
+      "tlsVerification": {
+        "support": "native",
+        "settingHint": "requestOptions.rejectUnauthorized (config.json); pending for config.yaml",
+        "notes": "Continue supports requestOptions.rejectUnauthorized in legacy config.json per-model. The newer config.yaml does not yet support this field; an upstream feature request is open."
+      },
       "sources": [
         "https://docs.continue.dev/customize/model-providers/more/openai-compatible"
       ]
@@ -256,6 +281,11 @@
           "Official docs do NOT clearly document an Anthropic 'BASE_URL' override.",
           "If AIdome ever offers an explicit forward-proxy mode, HTTPS_PROXY becomes a viable routing lever."
         ]
+      },
+      "tlsVerification": {
+        "support": "env-var",
+        "settingHint": "ANTHROPIC_DISABLE_TLS_VERIFY=true",
+        "notes": "Claude Code supports ANTHROPIC_DISABLE_TLS_VERIFY env var to disable TLS verification. No config file setting."
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code",
@@ -307,6 +337,11 @@
           "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
         ]
       },
+      "tlsVerification": {
+        "support": "env-var",
+        "settingHint": "CODEX_CA_CERTIFICATE or SSL_CERT_FILE (custom CA only; no disable toggle)",
+        "notes": "Codex CLI supports custom CA bundles via CODEX_CA_CERTIFICATE > SSL_CERT_FILE > system certs. There is no documented flag to disable TLS verification entirely."
+      },
       "sources": [
         "https://github.com/openai/codex"
       ]
@@ -336,6 +371,10 @@
           "Official Gemini CLI does not present a general 'base_url' override.",
           "Prefer tools that support OpenAI-compatible endpoints and let AIdome talk to Gemini upstream."
         ]
+      },
+      "tlsVerification": {
+        "support": "none",
+        "notes": "Gemini CLI has no documented mechanism to disable TLS verification or supply custom CA certificates."
       },
       "sources": [
         "https://github.com/google-gemini/gemini-cli"
@@ -376,6 +415,11 @@
           "Automation should either deep-link users into CodeGPT model panel steps, or set settings if keys exist and are discoverable."
         ]
       },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL",
+        "notes": "CodeGPT has no extension-specific TLS toggle. Inherits VS Code's http.proxyStrictSSL."
+      },
       "sources": [
         "https://www.codegpt.co/docs"
       ]
@@ -407,6 +451,11 @@
           "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
         ]
       },
+      "tlsVerification": {
+        "support": "env-var",
+        "settingHint": "NODE_TLS_REJECT_UNAUTHORIZED=0",
+        "notes": "AnythingLLM (Node.js-based) has no built-in TLS toggle. The NODE_TLS_REJECT_UNAUTHORIZED env var is the only workaround."
+      },
       "sources": [
         "https://docs.anythingllm.com/setup/llm-configuration/cloud/openai"
       ]
@@ -435,6 +484,11 @@
           "Tabnine can be pointed to a Tabnine Enterprise Server URL, not an OpenAI-compatible 'base_url' switch.",
           "Unless AIdome emulates Tabnine Enterprise protocol, treat as: detect + explain + guide."
         ]
+      },
+      "tlsVerification": {
+        "support": "vscode-global",
+        "settingHint": "http.proxyStrictSSL / NODE_EXTRA_CA_CERTS",
+        "notes": "Tabnine has no extension-specific TLS toggle. Relies on VS Code's http.proxyStrictSSL and NODE_EXTRA_CA_CERTS for custom CA trust."
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode"

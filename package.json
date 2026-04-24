@@ -54,6 +54,11 @@
           "minimum": 1,
           "markdownDescription": "Maximum number of log entries retained in the in-memory diagnostics buffer. Environment override: `AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE`."
         },
+        "aidome-switchboard.advanced.tlsVerify": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When enabled (default), all HTTPS requests made by the extension verify TLS certificates. Disable **only** for trusted internal endpoints with self-signed certificates. Environment override: `AIDOME_SWITCHBOARD_TLS_VERIFY`."
+        },
         "aidome-switchboard.advanced.verifier.tlsTimeoutMs": {
           "type": "number",
           "default": 5000,

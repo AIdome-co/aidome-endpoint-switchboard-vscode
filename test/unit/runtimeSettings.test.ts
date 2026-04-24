@@ -22,6 +22,7 @@ describe('runtime settings', () => {
     httpRetryBackoffMaxMs: process.env.AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS,
     aidomeClientCacheTtlMs: process.env.AIDOME_SWITCHBOARD_AIDOME_CLIENT_CACHE_TTL_MS,
     logBufferSize: process.env.AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE,
+    tlsVerify: process.env.AIDOME_SWITCHBOARD_TLS_VERIFY,
     tlsTimeoutMs: process.env.AIDOME_SWITCHBOARD_VERIFIER_TLS_TIMEOUT_MS,
     endpointReachabilityTimeoutMs: process.env.AIDOME_SWITCHBOARD_VERIFIER_ENDPOINT_REACHABILITY_TIMEOUT_MS,
     healthCheckTimeoutMs: process.env.AIDOME_SWITCHBOARD_VERIFIER_HEALTH_CHECK_TIMEOUT_MS,
@@ -38,6 +39,7 @@ describe('runtime settings', () => {
     delete process.env.AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS;
     delete process.env.AIDOME_SWITCHBOARD_AIDOME_CLIENT_CACHE_TTL_MS;
     delete process.env.AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE;
+    delete process.env.AIDOME_SWITCHBOARD_TLS_VERIFY;
     delete process.env.AIDOME_SWITCHBOARD_VERIFIER_TLS_TIMEOUT_MS;
     delete process.env.AIDOME_SWITCHBOARD_VERIFIER_ENDPOINT_REACHABILITY_TIMEOUT_MS;
     delete process.env.AIDOME_SWITCHBOARD_VERIFIER_HEALTH_CHECK_TIMEOUT_MS;
@@ -52,6 +54,7 @@ describe('runtime settings', () => {
     process.env.AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS = originalEnv.httpRetryBackoffMaxMs;
     process.env.AIDOME_SWITCHBOARD_AIDOME_CLIENT_CACHE_TTL_MS = originalEnv.aidomeClientCacheTtlMs;
     process.env.AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE = originalEnv.logBufferSize;
+    process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = originalEnv.tlsVerify;
     process.env.AIDOME_SWITCHBOARD_VERIFIER_TLS_TIMEOUT_MS = originalEnv.tlsTimeoutMs;
     process.env.AIDOME_SWITCHBOARD_VERIFIER_ENDPOINT_REACHABILITY_TIMEOUT_MS = originalEnv.endpointReachabilityTimeoutMs;
     process.env.AIDOME_SWITCHBOARD_VERIFIER_HEALTH_CHECK_TIMEOUT_MS = originalEnv.healthCheckTimeoutMs;
@@ -131,5 +134,60 @@ describe('runtime settings', () => {
 
     expect(settings.logBufferSize).toBe(defaultRuntimeSettings.logBufferSize);
     expect(settings.httpRetryBackoffMaxMs).toBe(defaultRuntimeSettings.httpRetryBackoffMaxMs);
+  });
+
+  describe('tlsVerify', () => {
+    it('should default to true', () => {
+      const settings = getRuntimeSettings();
+      expect(settings.tlsVerify).toBe(true);
+    });
+
+    it('should read false from extension settings', () => {
+      mockConfiguration.get.mockImplementation((key: string) => {
+        if (key === 'advanced.tlsVerify') {
+          return false;
+        }
+        return undefined;
+      });
+
+      const settings = getRuntimeSettings();
+      expect(settings.tlsVerify).toBe(false);
+    });
+
+    it('should let AIDOME_SWITCHBOARD_TLS_VERIFY env var override extension setting', () => {
+      mockConfiguration.get.mockImplementation((key: string) => {
+        if (key === 'advanced.tlsVerify') {
+          return true;
+        }
+        return undefined;
+      });
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = 'false';
+
+      const settings = getRuntimeSettings();
+      expect(settings.tlsVerify).toBe(false);
+    });
+
+    it('should parse string "true" and "1" as true from env var', () => {
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = 'true';
+      expect(getRuntimeSettings().tlsVerify).toBe(true);
+
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = '1';
+      expect(getRuntimeSettings().tlsVerify).toBe(true);
+    });
+
+    it('should parse string "false" and "0" as false from env var', () => {
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = 'false';
+      expect(getRuntimeSettings().tlsVerify).toBe(false);
+
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = '0';
+      expect(getRuntimeSettings().tlsVerify).toBe(false);
+    });
+
+    it('should ignore invalid env var values and fall back to default', () => {
+      process.env.AIDOME_SWITCHBOARD_TLS_VERIFY = 'not-a-bool';
+
+      const settings = getRuntimeSettings();
+      expect(settings.tlsVerify).toBe(true);
+    });
   });
 });

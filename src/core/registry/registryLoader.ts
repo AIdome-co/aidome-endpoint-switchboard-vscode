@@ -35,6 +35,10 @@ const FALLBACK_REGISTRY: AssistantRegistry = {
         configurationModes: ['settings'],
         notes: ['Fallback registry entry']
       },
+      tlsVerification: {
+        support: 'native',
+        notes: 'Fallback entry — see full registry for details'
+      },
       sources: []
     },
     {
@@ -53,6 +57,10 @@ const FALLBACK_REGISTRY: AssistantRegistry = {
         tier: 'A',
         configurationModes: ['settings'],
         notes: ['Fallback registry entry']
+      },
+      tlsVerification: {
+        support: 'vscode-global',
+        notes: 'Fallback entry — see full registry for details'
       },
       sources: []
     }
