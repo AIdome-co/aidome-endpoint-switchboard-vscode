@@ -60,12 +60,13 @@ describe('Registry Loader', () => {
 
     it('every assistant should have a tlsVerification entry', async () => {
       const registry = await loadRegistry();
+      const validLevels: string[] = [...VALID_SUPPORT_LEVELS];
 
       for (const assistant of registry.assistants) {
         expect(assistant.tlsVerification, `${assistant.key} missing tlsVerification`).toBeDefined();
         expect(assistant.tlsVerification.support, `${assistant.key} missing support level`).toBeDefined();
         expect(
-          VALID_SUPPORT_LEVELS.includes(assistant.tlsVerification.support as typeof VALID_SUPPORT_LEVELS[number]),
+          validLevels.includes(assistant.tlsVerification.support),
           `${assistant.key} has invalid support level: ${assistant.tlsVerification.support}`
         ).toBe(true);
         expect(

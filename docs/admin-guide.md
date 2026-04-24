@@ -72,7 +72,7 @@ export NO_PROXY=localhost,127.0.0.1
    export AIDOME_SWITCHBOARD_TLS_VERIFY=false
    ```
 
-> ⚠️ When `tlsVerify` is `false` the verifier TLS step reports a **warning** so the configuration is auditable.
+> ⚠️ When `tlsVerify` is `false`, the verifier TLS step reports a **warning** so the configuration is auditable.
 
 **Per-assistant TLS overrides:**
 

@@ -273,8 +273,8 @@ describe('Pre-Release Validation', () => {
           `${assistant.key} missing tlsVerification`
         ).toBeDefined();
         expect(
-          validSupportLevels.includes(assistant.tlsVerification.support),
-          `${assistant.key} has invalid TLS support: ${assistant.tlsVerification.support}`
+          validSupportLevels.includes(assistant.tlsVerification?.support),
+          `${assistant.key} has invalid TLS support: ${assistant.tlsVerification?.support}`
         ).toBe(true);
       }
     });

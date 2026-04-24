@@ -40,7 +40,7 @@ export NO_PROXY=localhost,127.0.0.1
 
 ### Default behaviour
 
-All HTTPS requests made by the extension verify TLS certificates by default (`aidome-switchboard.advanced.tlsVerify: true`). This includes the 7-step verification pipeline and every HTTP call to the configured gateway.
+All HTTPS requests made by the extension verify TLS certificates by default (`aidome-switchboard.advanced.tlsVerify: true`). This includes the 7-step verification pipeline and every HTTPS call to the configured gateway.
 
 ### Internal gateways with self-signed or private-CA certificates
 
