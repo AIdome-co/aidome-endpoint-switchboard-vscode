@@ -12,6 +12,27 @@ interface ExtensionConfiguration {
   properties?: Record<string, unknown>;
 }
 
+interface ConfigurationProperty {
+  type?: string | string[];
+  description?: string;
+}
+
+const URL_SETTING_DESCRIPTION_PATTERN = /\b(?:base[\s_-]*url|endpoint|url)\b/;
+
+function getDiscoveryErrorContext(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      }
+    };
+  }
+
+  return { error: String(error) };
+}
+
 /**
  * Kilo Code assistant adapter.
  */
@@ -68,7 +89,7 @@ export class KiloCodeAdapter implements AssistantAdapter {
     try {
       const extension = vscode.extensions.getExtension('kilocode.kilo-code');
       if (!extension) {
-        return [];
+        return this.getFallbackKeys();
       }
 
       const packageJson = extension.packageJSON;
@@ -76,24 +97,43 @@ export class KiloCodeAdapter implements AssistantAdapter {
       const configuration = contributes?.configuration;
 
       if (!configuration) {
-        return this.getFallbackKeys();
+        // Extension is installed but does not expose configurable keys.
+        // Avoid writing guessed keys that may not be registered.
+        return [];
       }
 
       const properties = Array.isArray(configuration) 
         ? configuration.flatMap((c: ExtensionConfiguration) => Object.keys(c.properties || {}))
         : Object.keys(configuration.properties || {});
 
-      const baseUrlKeys = properties.filter((key: string) => 
-        key.toLowerCase().includes('baseurl') || 
-        key.toLowerCase().includes('base_url') ||
-        (key.toLowerCase().includes('openai') && key.toLowerCase().includes('base')) ||
-        key.toLowerCase().includes('customproviderendpoint')
-      );
+      const propertiesMap = Array.isArray(configuration)
+        ? configuration.reduce<Record<string, ConfigurationProperty>>((acc, c: ExtensionConfiguration) => {
+            for (const [key, value] of Object.entries(c.properties || {})) {
+              acc[key] = value as ConfigurationProperty;
+            }
+            return acc;
+          }, {})
+        : (configuration.properties || {}) as Record<string, ConfigurationProperty>;
 
-      return baseUrlKeys.length > 0 ? baseUrlKeys : this.getFallbackKeys();
+      const baseUrlKeys = properties
+        .filter((key: string) => {
+          const normalizedKey = key.toLowerCase();
+          const property = propertiesMap[key] || {};
+          const description = (property.description || '').toLowerCase();
+          const propertyType = Array.isArray(property.type) ? property.type : [property.type];
+          const isStringLike = propertyType.filter(Boolean).includes('string') || propertyType.length === 0;
+          const keyLooksLikeUrlSetting = /(baseurl|base_url|apibase|endpoint|customproviderendpoint)/.test(normalizedKey);
+          const descMentionsUrl = URL_SETTING_DESCRIPTION_PATTERN.test(description);
+
+          return isStringLike && (keyLooksLikeUrlSetting || descMentionsUrl);
+        })
+        .filter((key) => key.startsWith('kilocode.'));
+
+      // Do not guess unknown keys when extension is installed; use guided mode instead.
+      return [...new Set(baseUrlKeys)];
     } catch (error) {
-      this.logger.warning('Error discovering Kilo Code setting keys', error);
-      return this.getFallbackKeys();
+      this.logger.warning('Error discovering Kilo Code setting keys', getDiscoveryErrorContext(error));
+      return [];
     }
   }
 
@@ -113,6 +153,17 @@ export class KiloCodeAdapter implements AssistantAdapter {
     try {
       const config = vscode.workspace.getConfiguration();
       const settingKeys = await this.discoverSettingKeys();
+
+      if (settingKeys.length === 0) {
+        return {
+          success: false,
+          message: 'No registered Kilo Code URL settings were discovered. Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.',
+          details: {
+            checkedKeys: [],
+            nextStep: 'Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.'
+          }
+        };
+      }
 
       const configuredKeys: Record<string, string> = {};
       for (const key of settingKeys) {

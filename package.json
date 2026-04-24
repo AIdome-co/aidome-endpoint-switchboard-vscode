@@ -21,6 +21,77 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AIdome Endpoint Switchboard",
+      "properties": {
+        "aidome-switchboard.advanced.cliDetectionTimeoutMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for each CLI detection subprocess. Environment override: `AIDOME_SWITCHBOARD_CLI_DETECTION_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.httpTimeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1,
+          "markdownDescription": "Default HTTP request timeout in milliseconds for extension-managed requests. Environment override: `HTTP_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.httpRetryBackoffMaxMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "markdownDescription": "Maximum exponential-backoff delay in milliseconds between HTTP retries. Environment override: `AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS`."
+        },
+        "aidome-switchboard.advanced.aidomeClientCacheTtlMs": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 1,
+          "markdownDescription": "Time-to-live in milliseconds for cached AIdome capabilities responses. Environment override: `AIDOME_SWITCHBOARD_AIDOME_CLIENT_CACHE_TTL_MS`."
+        },
+        "aidome-switchboard.advanced.logBufferSize": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "markdownDescription": "Maximum number of log entries retained in the in-memory diagnostics buffer. Environment override: `AIDOME_SWITCHBOARD_LOG_BUFFER_SIZE`."
+        },
+        "aidome-switchboard.advanced.verifier.tlsTimeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for TLS certificate validation. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_TLS_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.verifier.endpointReachabilityTimeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for the verifier reachability probe. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_ENDPOINT_REACHABILITY_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.verifier.healthCheckTimeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for optional health endpoint checks. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_HEALTH_CHECK_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.verifier.modelListTimeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for model-list validation. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_MODEL_LIST_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.verifier.dialectValidationTimeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for lightweight dialect validation probes. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_DIALECT_VALIDATION_TIMEOUT_MS`."
+        },
+        "aidome-switchboard.advanced.verifier.testPromptTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1,
+          "markdownDescription": "Timeout in milliseconds for the optional test-prompt verification step. Environment override: `AIDOME_SWITCHBOARD_VERIFIER_TEST_PROMPT_TIMEOUT_MS`."
+        }
+      }
+    },
     "commands": [
       {
         "command": "aidome-switchboard.setupSwitchboard",
@@ -103,6 +174,10 @@
     "pretest": "npm run compile",
     "lint": "eslint src",
     "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:continue:coverage": "vitest run test/unit/continueAdapter.test.ts --coverage --coverage.include=src/adapters/continue/adapter.ts --coverage.thresholds.lines=100 --coverage.thresholds.functions=100 --coverage.thresholds.statements=100 --coverage.thresholds.branches=100",
+    "test:kilo:coverage": "vitest run test/unit/kilocodeAdapter.test.ts --coverage --coverage.include=src/adapters/kilocode/adapter.ts --coverage.thresholds.lines=100 --coverage.thresholds.functions=100 --coverage.thresholds.statements=100 --coverage.thresholds.branches=100",
+    "test:roo:coverage": "vitest run test/unit/roocodeAdapter.test.ts --coverage --coverage.include=src/adapters/roocode/adapter.ts --coverage.thresholds.lines=100 --coverage.thresholds.functions=100 --coverage.thresholds.statements=100 --coverage.thresholds.branches=100",
     "package": "vsce package"
   },
   "dependencies": {
@@ -115,6 +190,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",

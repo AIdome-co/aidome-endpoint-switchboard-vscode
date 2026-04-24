@@ -24,6 +24,15 @@
 | CodeGPT | Tier B — verify after | May need manual model selection |
 | Others | Tier C — guided | Follow OutputChannel instructions |
 
+## Tuning Advanced Runtime Settings
+
+For high-latency enterprise gateways, proxy chains, or remote development hosts, tune the extension's advanced runtime settings under `aidome-switchboard.advanced.*`.
+
+- Raise `aidome-switchboard.advanced.httpTimeoutMs` and `aidome-switchboard.advanced.verifier.*` when TLS inspection, health checks, or model-list probes need more time.
+- Raise `aidome-switchboard.advanced.cliDetectionTimeoutMs` if developer shells resolve assistant CLIs from slower network-mounted or remote filesystems.
+- Use environment variable overrides in managed terminals, remote sessions, or CI when VS Code settings are not the right control plane. Common overrides include `HTTP_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_CLI_DETECTION_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS`, and `AIDOME_SWITCHBOARD_VERIFIER_*`.
+- Leave cache and log-buffer defaults in place unless you have a specific operational need to shorten capability refreshes or retain fewer diagnostics entries.
+
 ## Troubleshooting
 
 ### Proxy Issues

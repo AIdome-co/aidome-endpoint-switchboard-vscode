@@ -5,6 +5,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { AssistantRegistry } from '../registry/registryTypes';
+import { getRuntimeSettings } from '../../config/runtimeSettings';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +21,7 @@ export interface DetectedCLI {
 
 /**
  * Detects installed CLI tools from registry.
- * Uses parallel detection with individual 2s timeouts for performance.
+ * Uses parallel detection with configurable per-process timeouts for performance.
  * @param registry The assistant registry
  * @param earlyExitTargets Optional array of assistant keys to find - will exit early if all found
  * @returns Promise resolving to array of detected CLIs
@@ -28,6 +29,7 @@ export interface DetectedCLI {
 export async function detectCLIs(registry: AssistantRegistry, earlyExitTargets?: string[]): Promise<DetectedCLI[]> {
   const isWindows = process.platform === 'win32';
   const whichCommand = isWindows ? 'where' : 'which';
+  const { cliDetectionTimeoutMs } = getRuntimeSettings();
   
   // Build list of detection tasks
   const detectionTasks = registry.assistants.map(async (entry) => {
@@ -37,7 +39,7 @@ export async function detectCLIs(registry: AssistantRegistry, earlyExitTargets?:
       try {
         // Check if command exists with timeout
         const { stdout } = await execFileAsync(whichCommand, [command], {
-          timeout: 2000,
+          timeout: cliDetectionTimeoutMs,
           encoding: 'utf8'
         });
         
@@ -47,7 +49,7 @@ export async function detectCLIs(registry: AssistantRegistry, earlyExitTargets?:
         let version: string | undefined;
         try {
           const { stdout: versionOutput } = await execFileAsync(command, ['--version'], {
-            timeout: 2000,
+            timeout: cliDetectionTimeoutMs,
             encoding: 'utf8'
           });
           version = versionOutput.trim().split('\n')[0];
@@ -100,7 +102,7 @@ export async function detectCli(command: string): Promise<boolean> {
   try {
     const checkCmd = process.platform === 'win32' ? 'where' : 'which';
     const execAsync = promisify(execFile);
-    await execAsync(checkCmd, [command], { timeout: 2000 });
+    await execAsync(checkCmd, [command], { timeout: getRuntimeSettings().cliDetectionTimeoutMs });
     return true;
   } catch {
     return false;

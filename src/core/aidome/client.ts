@@ -7,6 +7,7 @@ import { Logger } from '../../util/log';
 import { AIdomeCapabilities, AIdomeProvider, AIdomeModel, AIdomeWhoAmI } from './types';
 import * as endpoints from './endpoints';
 import { Cache } from './cache';
+import { getRuntimeSettings } from '../../config/runtimeSettings';
 
 /**
  * AIdome API client for communicating with the endpoint gateway.
@@ -22,7 +23,7 @@ export class AIdomeClient {
     this.baseUrl = profile.baseUrl;
     this.authToken = authToken;
     this.profileName = profile.name;
-    this.cache = new Cache(60000); // 60s default TTL
+    this.cache = new Cache(getRuntimeSettings().aidomeClientCacheTtlMs);
     this.logger = Logger.getInstance();
   }
 

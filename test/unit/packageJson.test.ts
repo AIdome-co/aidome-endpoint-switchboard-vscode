@@ -103,6 +103,43 @@ describe('package.json Marketplace Readiness', () => {
     expect(commandIds).toContain('aidome-switchboard.exportDiagnostics');
   });
 
+  it('should contribute advanced runtime configuration settings', () => {
+    expect(packageJson.contributes.configuration).toBeDefined();
+    expect(packageJson.contributes.configuration.title).toBe('AIdome Endpoint Switchboard');
+
+    const properties = packageJson.contributes.configuration.properties;
+    expect(properties['aidome-switchboard.advanced.cliDetectionTimeoutMs'].default).toBe(2000);
+    expect(properties['aidome-switchboard.advanced.httpTimeoutMs'].default).toBe(10000);
+    expect(properties['aidome-switchboard.advanced.httpRetryBackoffMaxMs'].default).toBe(5000);
+    expect(properties['aidome-switchboard.advanced.aidomeClientCacheTtlMs'].default).toBe(60000);
+    expect(properties['aidome-switchboard.advanced.logBufferSize'].default).toBe(200);
+  });
+
+  it('should expose verifier timeout settings with documented defaults', () => {
+    const properties = packageJson.contributes.configuration.properties;
+
+    expect(properties['aidome-switchboard.advanced.verifier.tlsTimeoutMs'].default).toBe(5000);
+    expect(properties['aidome-switchboard.advanced.verifier.endpointReachabilityTimeoutMs'].default).toBe(10000);
+    expect(properties['aidome-switchboard.advanced.verifier.healthCheckTimeoutMs'].default).toBe(5000);
+    expect(properties['aidome-switchboard.advanced.verifier.modelListTimeoutMs'].default).toBe(10000);
+    expect(properties['aidome-switchboard.advanced.verifier.dialectValidationTimeoutMs'].default).toBe(5000);
+    expect(properties['aidome-switchboard.advanced.verifier.testPromptTimeoutMs'].default).toBe(15000);
+  });
+
+  it('should define dedicated adapter coverage gate scripts for Continue, Kilo, and Roo Code', () => {
+    expect(packageJson.scripts['test:continue:coverage']).toContain('test/unit/continueAdapter.test.ts');
+    expect(packageJson.scripts['test:continue:coverage']).toContain('--coverage.include=src/adapters/continue/adapter.ts');
+    expect(packageJson.scripts['test:continue:coverage']).toContain('--coverage.thresholds.branches=100');
+
+    expect(packageJson.scripts['test:kilo:coverage']).toContain('test/unit/kilocodeAdapter.test.ts');
+    expect(packageJson.scripts['test:kilo:coverage']).toContain('--coverage.include=src/adapters/kilocode/adapter.ts');
+    expect(packageJson.scripts['test:kilo:coverage']).toContain('--coverage.thresholds.branches=100');
+
+    expect(packageJson.scripts['test:roo:coverage']).toContain('test/unit/roocodeAdapter.test.ts');
+    expect(packageJson.scripts['test:roo:coverage']).toContain('--coverage.include=src/adapters/roocode/adapter.ts');
+    expect(packageJson.scripts['test:roo:coverage']).toContain('--coverage.thresholds.branches=100');
+  });
+
   it('should have walkthroughs contribution', () => {
     expect(packageJson.contributes.walkthroughs).toBeDefined();
     expect(Array.isArray(packageJson.contributes.walkthroughs)).toBe(true);

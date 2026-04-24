@@ -167,6 +167,14 @@ Use **`AIdome: Manage Profiles`** to:
 - Delete profiles
 - Switch between profiles
 
+### Advanced Runtime Settings
+
+For slower enterprise networks, proxies, or remote hosts, the extension exposes advanced tuning knobs under the VS Code settings prefix `aidome-switchboard.advanced.*`.
+
+- Tune CLI detection, HTTP timeouts, retry backoff, cache TTL, log buffering, and verifier timeouts from the Settings UI or `settings.json`.
+- Environment variables override the matching setting when present, which is useful for managed shells and automation. Common overrides include `HTTP_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_CLI_DETECTION_TIMEOUT_MS`, `AIDOME_SWITCHBOARD_HTTP_RETRY_BACKOFF_MAX_MS`, and `AIDOME_SWITCHBOARD_VERIFIER_*`.
+- Keep the defaults unless you are troubleshooting proxy latency, certificate inspection, or remote reachability.
+
 ---
 
 ## Generic Scanner

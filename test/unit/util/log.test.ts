@@ -6,6 +6,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Logger, LogLevel } from '../../../src/util/log';
 
+const mockConfiguration = {
+  get: vi.fn()
+};
+
+vi.mock('vscode', () => ({
+  workspace: {
+    getConfiguration: vi.fn(() => mockConfiguration)
+  }
+}));
+
 // Reset the singleton between tests by reinitialising it.
 function makeLogger() {
   const appendLine = vi.fn();

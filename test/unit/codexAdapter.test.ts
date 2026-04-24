@@ -8,6 +8,17 @@ import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
 
+vi.mock('vscode', () => ({
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn()
+    }))
+  },
+  window: {
+    showWarningMessage: vi.fn()
+  }
+}));
+
 // Mock the modules
 vi.mock('../../src/core/detection/detectCLIs');
 vi.mock('../../src/util/fsSafe');
