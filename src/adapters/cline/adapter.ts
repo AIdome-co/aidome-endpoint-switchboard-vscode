@@ -63,6 +63,13 @@ export class ClineAdapter implements AssistantAdapter {
         assistantKey: 'cline',
         data: { 
           message: 'Please configure Cline base URL manually in extension settings',
+          steps: [
+            'Open VS Code Settings (Ctrl+, or Cmd+,)',
+            'Search for "Cline" or "claude-dev"',
+            'Locate the base URL or API endpoint setting (e.g. cline.openAiBaseUrl)',
+            `Set the value to: ${profile.baseUrl}`,
+            'Save the settings and reload Cline if prompted'
+          ],
           baseUrl: profile.baseUrl 
         },
         reversible: false

@@ -281,26 +281,29 @@ export class PlanApplier {
   /**
    * Applies guided steps display.
    */
-  private async applyGuidedSteps(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
-    const steps = step.data.steps;
-    if (!Array.isArray(steps)) {
-      throw new Error('steps array is required for show-guided-steps');
-    }
-
+  private async applyGuidedSteps(step: PlanStep, _appliedStep: AppliedStep): Promise<void> {
     const output = getOutputChannel();
     output.appendLine('');
     output.appendLine('=== Manual Configuration Steps ===');
     output.appendLine(`Assistant: ${step.assistantKey}`);
     output.appendLine('');
-    
-    steps.forEach((stepText, index) => {
-      output.appendLine(`${index + 1}. ${stepText}`);
-    });
-    
+
+    const steps = step.data.steps;
+    if (Array.isArray(steps)) {
+      steps.forEach((stepText, index) => {
+        output.appendLine(`${index + 1}. ${stepText}`);
+      });
+      this.logger.info(`Displayed ${steps.length} guided steps for ${step.assistantKey}`);
+    } else {
+      const message = typeof step.data.message === 'string'
+        ? step.data.message
+        : `Manual configuration required for ${step.assistantKey}`;
+      output.appendLine(message);
+      this.logger.info(`Displayed guided message for ${step.assistantKey}`);
+    }
+
     output.appendLine('');
     output.show();
-
-    this.logger.info(`Displayed ${steps.length} guided steps for ${step.assistantKey}`);
   }
 
   /**

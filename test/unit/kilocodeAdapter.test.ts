@@ -146,6 +146,8 @@ describe('KiloCodeAdapter', () => {
       expect(guidedStep).toBeDefined();
       expect(guidedStep?.assistantKey).toBe('kilo-code');
       expect(guidedStep?.data?.baseUrl).toBe(mockProfile.baseUrl);
+      expect(Array.isArray(guidedStep?.data?.steps)).toBe(true);
+      expect((guidedStep?.data?.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('supports array-form extension configuration metadata', async () => {

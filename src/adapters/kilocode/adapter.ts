@@ -76,6 +76,13 @@ export class KiloCodeAdapter implements AssistantAdapter {
         assistantKey: 'kilo-code',
         data: { 
           message: 'Please configure Kilo Code base URL manually in extension settings',
+          steps: [
+            'Open VS Code Settings (Ctrl+, or Cmd+,)',
+            'Search for "Kilo Code" or "kilocode"',
+            'Locate the base URL or endpoint setting (e.g. kilocode.openaiBaseUrl)',
+            `Set the value to: ${profile.baseUrl}`,
+            'Save the settings and reload Kilo Code if prompted'
+          ],
           baseUrl: profile.baseUrl 
         },
         reversible: false

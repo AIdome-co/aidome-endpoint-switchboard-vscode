@@ -134,8 +134,11 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.profileId).toBe(mockProfile.id);
-      // Should use fallback keys when extension is not found
-      expect(plan.steps.length).toBeGreaterThan(0);
+      // Extension not found → guided steps with steps array
+      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeDefined();
+      expect(Array.isArray(guidedStep?.data?.steps)).toBe(true);
+      expect((guidedStep?.data?.steps as string[]).length).toBeGreaterThan(0);
     });
 
     it('should handle array configuration format', async () => {
