@@ -224,5 +224,59 @@ describe('Pre-Release Validation', () => {
       
       expect(statusBarContent).toContain('accessibilityInformation');
     });
+
+    it('should have tlsVerify setting in package.json', () => {
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf-8')
+      );
+
+      const props = packageJson.contributes?.configuration?.properties;
+      expect(props).toBeDefined();
+      const tlsSetting = props['aidome-switchboard.advanced.tlsVerify'];
+      expect(tlsSetting, 'missing tlsVerify setting').toBeDefined();
+      expect(tlsSetting.type).toBe('boolean');
+      expect(tlsSetting.default).toBe(true);
+    });
+
+    it('should have rejectUnauthorized wired in http utility', () => {
+      const httpContent = fs.readFileSync(
+        path.join(ROOT_DIR, 'src/util/http.ts'),
+        'utf-8'
+      );
+
+      expect(httpContent).toContain('rejectUnauthorized');
+      expect(httpContent).toContain('tlsVerify');
+    });
+
+    it('should respect tlsVerify setting in verifier TLS step', () => {
+      const verifierContent = fs.readFileSync(
+        path.join(ROOT_DIR, 'src/core/orchestration/verifier.ts'),
+        'utf-8'
+      );
+
+      expect(verifierContent).toContain('tlsVerify');
+      expect(verifierContent).toContain('rejectUnauthorized');
+      expect(verifierContent).toContain('verification disabled via settings');
+    });
+
+    it('every registry assistant should have tlsVerification field', () => {
+      const registryContent = fs.readFileSync(
+        path.join(ROOT_DIR, 'src/core/registry/assistants.registry.json'),
+        'utf-8'
+      );
+      const registry = JSON.parse(registryContent);
+      const validSupportLevels = ['native', 'env-var', 'vscode-global', 'none'];
+
+      for (const assistant of registry.assistants) {
+        expect(
+          assistant.tlsVerification,
+          `${assistant.key} missing tlsVerification`
+        ).toBeDefined();
+        expect(
+          validSupportLevels.includes(assistant.tlsVerification.support),
+          `${assistant.key} has invalid TLS support: ${assistant.tlsVerification.support}`
+        ).toBe(true);
+      }
+    });
   });
 });

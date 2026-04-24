@@ -53,11 +53,39 @@ export NO_PROXY=localhost,127.0.0.1
 
 ### Self-Signed Certificates
 
-**Symptom**: "TLS certificate error" in verification
+**Symptom**: "TLS certificate error" or "DEPTH_ZERO_SELF_SIGNED_CERT" in verification
 
-**Solution**: 
-- Add the CA certificate to your system's trust store
-- For Node.js: set `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`
+**Solutions** (in order of preference):
+
+1. **Add the CA to the system trust store** — the most secure option.
+2. **Point Node.js to the CA bundle**:
+   ```bash
+   export NODE_EXTRA_CA_CERTS=/path/to/ca.pem
+   ```
+3. **Disable TLS verification for this extension only** (use for trusted internal endpoints):
+   ```jsonc
+   // settings.json
+   "aidome-switchboard.advanced.tlsVerify": false
+   ```
+   Or via environment variable:
+   ```bash
+   export AIDOME_SWITCHBOARD_TLS_VERIFY=false
+   ```
+
+> ⚠️ When `tlsVerify` is `false` the verifier TLS step reports a **warning** so the configuration is auditable.
+
+**Per-assistant TLS overrides:**
+
+If individual assistants also reject TLS connections, configure them separately:
+
+| Assistant | Override |
+|-----------|----------|
+| Continue.dev | `requestOptions.rejectUnauthorized: false` in `config.json` |
+| Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` |
+| Codex CLI | `CODEX_CA_CERTIFICATE=/path/to/ca.pem` |
+| AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
+| VS Code extensions (Cline, Roo Code, Kilo Code, CodeGPT, Copilot, Tabnine) | `"http.proxyStrictSSL": false` in settings |
+| Gemini CLI | No TLS control available |
 
 ### Remote Development
 
