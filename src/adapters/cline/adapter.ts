@@ -1,5 +1,13 @@
 /**
  * Adapter for Cline assistant.
+ *
+ * ⚠️ RISK: Cline stores its API configuration (provider, base URL, model) in
+ * webview globalState, NOT in VS Code settings.json contributions.  The
+ * switchboard writes VS Code settings (e.g. `cline.openAiBaseUrl`) which may
+ * not be read by all Cline versions.  The fallback key discovery in
+ * discoverSettingKeys() mitigates this, but verify after major Cline updates
+ * that the settings-based approach still takes effect.
+ * Verified against: Cline v3.x source (saoudrizwan/claude-dev) as of 2026-04-24.
  */
 
 import * as vscode from 'vscode';
