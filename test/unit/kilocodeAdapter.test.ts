@@ -6,9 +6,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KiloCodeAdapter } from '../../src/adapters/kilocode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 
-const { mockGetExtension, mockConfigGet } = vi.hoisted(() => ({
+const {
+  mockGetExtension,
+  mockConfigGet,
+  mockLoggerError,
+  mockLoggerInfo,
+  mockLoggerWarning
+} = vi.hoisted(() => ({
   mockGetExtension: vi.fn(),
-  mockConfigGet: vi.fn()
+  mockConfigGet: vi.fn(),
+  mockLoggerError: vi.fn(),
+  mockLoggerInfo: vi.fn(),
+  mockLoggerWarning: vi.fn()
 }));
 
 vi.mock('vscode', () => ({
@@ -25,9 +34,9 @@ vi.mock('vscode', () => ({
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: () => ({
-      error: vi.fn(),
-      warning: vi.fn(),
-      info: vi.fn()
+      error: mockLoggerError,
+      warning: mockLoggerWarning,
+      info: mockLoggerInfo
     })
   }
 }));
@@ -41,13 +50,18 @@ describe('KiloCodeAdapter', () => {
     mockProfile = {
       id: 'profile-1',
       name: 'Profile 1',
+      profileType: 'custom',
       baseUrl: 'https://gateway.example.com/v1',
+      dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     mockGetExtension.mockReset();
     mockConfigGet.mockReset();
+    mockLoggerError.mockReset();
+    mockLoggerInfo.mockReset();
+    mockLoggerWarning.mockReset();
   });
 
   describe('detect', () => {
@@ -89,6 +103,8 @@ describe('KiloCodeAdapter', () => {
                 'kilocode.openaiBaseUrl': { type: 'string', description: 'OpenAI base URL' },
                 'kilocode.customProviderEndpoint': { type: 'string', description: 'Custom provider endpoint' },
                 'kilocode.openaiBaseUrlDuplicate': { type: 'string', description: 'another base URL' },
+                'kilocode.baselineLabel': { type: 'string', description: 'Baseline label for snapshots' },
+                'kilocode.databaseLabel': { type: 'string', description: 'Database label for snapshots' },
                 'kilocode.nestedObj': { type: 'object', description: 'endpoint metadata object' },
                 'otherext.baseUrl': { type: 'string', description: 'base url' },
                 'kilocode.model': { type: 'string', description: 'Model name' }
@@ -105,6 +121,8 @@ describe('KiloCodeAdapter', () => {
       expect(keys).toContain('kilocode.openaiBaseUrl');
       expect(keys).toContain('kilocode.customProviderEndpoint');
       expect(keys).toContain('kilocode.openaiBaseUrlDuplicate');
+      expect(keys).not.toContain('kilocode.baselineLabel');
+      expect(keys).not.toContain('kilocode.databaseLabel');
       expect(keys).not.toContain('kilocode.nestedObj');
       expect(keys).not.toContain('otherext.baseUrl');
       expect(keys).not.toContain('kilocode.model');
@@ -232,6 +250,31 @@ describe('KiloCodeAdapter', () => {
 
       expect(plan.steps.some((s) => s.action === 'set-vscode-setting')).toBe(false);
       expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(true);
+      expect(mockLoggerWarning).toHaveBeenCalledWith(
+        'Error discovering Kilo Code setting keys',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            name: 'Error',
+            message: 'boom',
+            stack: expect.any(String)
+          })
+        })
+      );
+    });
+
+    it('logs non-Error discovery failures without dropping the raw detail', async () => {
+      mockGetExtension.mockImplementation(() => {
+        throw 'boom';
+      });
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some((s) => s.action === 'set-vscode-setting')).toBe(false);
+      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(true);
+      expect(mockLoggerWarning).toHaveBeenCalledWith(
+        'Error discovering Kilo Code setting keys',
+        { error: 'boom' }
+      );
     });
   });
 
@@ -285,6 +328,26 @@ describe('KiloCodeAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('No Kilo Code base URL settings configured');
       expect(result.details?.checkedKeys).toEqual(['kilocode.openaiBaseUrl']);
+    });
+
+    it('returns an actionable failure when no registered URL settings are discoverable', async () => {
+      mockGetExtension.mockReturnValue({
+        packageJSON: {
+          contributes: {
+            configuration: {}
+          }
+        }
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('No registered Kilo Code URL settings were discovered');
+      expect(result.message).toContain('Configure the endpoint manually');
+      expect(result.details).toEqual({
+        checkedKeys: [],
+        nextStep: 'Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.'
+      });
     });
 
     it('returns failure with error details when configuration read throws', async () => {
