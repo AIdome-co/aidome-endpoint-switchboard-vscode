@@ -18,6 +18,8 @@
 | `.github/skills/adapter-development/SKILL.md` | How to add a new assistant |
 | `.github/skills/extension-packaging/SKILL.md` | How to package and release |
 | `.github/skills/ci-debugging/SKILL.md` | How to debug CI failures |
+| `.github/skills/qa/SKILL.md` | Agentic QA pipeline (test plan → generate → run → fix) |
+| `.github/references/qa-workflow.md` | Gem-team alignment + imported QA agent roster |
 
 ## Mandatory Rules (Read Before Writing Any Code)
 
