@@ -86,6 +86,11 @@ function readNumberSetting(
   return defaultValue;
 }
 
+/**
+ * Parses a value as a boolean. Accepts native booleans and string representations
+ * (`"true"` / `"1"` → `true`, `"false"` / `"0"` → `false`).
+ * @returns The parsed boolean, or `undefined` if the value is not a recognised boolean.
+ */
 function parseBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') {
     return value;
@@ -102,6 +107,12 @@ function parseBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * Reads a boolean setting with precedence: environment variable → VS Code setting → default.
+ * @param settingKey VS Code configuration key (relative to CONFIG_SECTION)
+ * @param defaultValue Value to use when neither env var nor setting is provided
+ * @param envVar Optional environment variable name that overrides the VS Code setting
+ */
 function readBooleanSetting(
   settingKey: string,
   defaultValue: boolean,
