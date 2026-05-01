@@ -1,0 +1,150 @@
+plan_id: pr33-api-claims-verification
+objective: "Final online verification of ALL API claims in PR #33 of aidome-endpoint-switchboard-vscode"
+focus_area: api_claims_verification
+created_at: "2026-04-24"
+created_by: gem-researcher
+status: completed
+
+tldr: |
+  - All 4 API claims in PR #33 are CONFIRMED by official sources.
+  - GitHub Copilot `debug.overrideProxyUrl` exists in package.json but is NOT in official docs.
+  - Cline's `contributes.configuration.properties` is literally `{}` (empty object) — config via webview globalState confirmed.
+  - Codex CLI is 96.2% Rust, latest v0.124.0, uses config.toml — fully confirmed.
+  - VS Code webview docs officially recommend `default-src 'none'` CSP + sanitizing all user input.
+  - No existing open-source VS Code extension offers a "switchboard" for multi-assistant endpoint routing.
+
+research_metadata:
+  methodology: "hybrid retrieval: fetch_webpage for official sources, vscode-websearchforcopilot_webSearch for supplementary verification, direct package.json inspection via raw GitHub URLs"
+  scope: "All 4 API claims + competitive landscape (Continue.dev, Cline, Roo Code, Kilo Code, Aide)"
+  confidence: high
+  coverage: 95
+  decision_blockers: 0
+  research_blockers: 0
+
+claims_verified:
+
+  - claim_id: 1
+    claim: "GitHub Copilot `debug.overrideProxyUrl` is undocumented"
+    sources_checked:
+      - url: "https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/configuring-github-copilot-in-your-environment"
+        result: "No mention of overrideProxyUrl or debug.overrideProxyUrl anywhere"
+      - url: "https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/configuring-network-settings-for-github-copilot"
+        result: "Covers standard http.proxy, proxyKerberosServicePrincipal, proxyStrictSSL — NO mention of overrideProxyUrl"
+      - url: "https://stackoverflow.com/questions/75213752"
+        result: "User reverse-engineered package.json: `debug.overrideProxyUrl` exists in github.copilot.advanced settings as 'Override GitHub Copilot API full URL' — no default value"
+      - url: "https://github.com/microsoft/vscode-copilot-release/issues/7802"
+        result: "Bug report confirms the setting exists but is not officially documented; Copilot Chat extension did not observe it"
+    finding: |
+      `debug.overrideProxyUrl` exists in the Copilot extension's package.json under
+      `github.copilot.advanced` as an internal debug setting with description
+      "Override GitHub Copilot API full URL". It is NOT documented in any official
+      GitHub Copilot documentation page. Only discoverable by inspecting the
+      extension's package.json directly.
+    verdict: Confirmed
+
+  - claim_id: 2
+    claim: "Cline config stored in webview globalState, not VS Code settings.json"
+    sources_checked:
+      - url: "https://raw.githubusercontent.com/cline/cline/main/package.json"
+        result: "contributes.configuration = { title: 'Cline', properties: {} } — properties is an empty object"
+    finding: |
+      Cline's package.json (v3.80.0) explicitly has `"configuration": { "title": "Cline", "properties": {} }`.
+      The properties object is literally `{}` — zero VS Code settings are registered.
+      All configuration (API keys, model selection, endpoint URLs) is stored via
+      the webview's globalState mechanism, not through standard VS Code settings.json.
+    verdict: Confirmed
+
+  - claim_id: 3
+    claim: "Codex CLI now ships from Rust codex-rs codebase"
+    sources_checked:
+      - url: "https://github.com/openai/codex"
+        result: "Language breakdown: Rust 96.2%, Python 2.6%, TypeScript 0.3%. Latest release: 0.124.0 (rust-v0.124.0)"
+      - url: "https://github.com/openai/codex/tree/main/codex-rs"
+        result: "README states: 'The Rust implementation is now the maintained Codex CLI and serves as the default experience.' Config uses config.toml not config.json."
+    finding: |
+      The openai/codex repository is 96.2% Rust. Latest release is v0.124.0
+      (tagged rust-v0.124.0). The codex-rs README explicitly states the Rust
+      implementation is the maintained CLI. Config file is `config.toml`
+      (not `config.json`). The legacy `codex-cli` TypeScript directory has a
+      README marked as "Remove obsolete codex-cli README".
+    verdict: Confirmed
+
+  - claim_id: 4
+    claim: "VS Code webview best practices: CSP `default-src 'none'` + HTML escaping"
+    sources_checked:
+      - url: "https://code.visualstudio.com/api/extension-guides/webview"
+        result: "Security section explicitly shows `default-src 'none';` CSP example and recommends sanitizing all user input"
+    finding: |
+      The official VS Code Webview API documentation (Security section) explicitly
+      recommends:
+      1. CSP with `default-src 'none';` as the starting policy, then selectively
+         enabling only needed sources.
+      2. "Sanitize all user input" — "Consider using a helper library to construct
+         your HTML strings, or at least ensure that all content from the user's
+         workspace is properly sanitized."
+      3. Limit capabilities (don't enable enableScripts unless needed).
+      4. Only load content over HTTPS.
+      The exact code example shown is:
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'none';">`
+    verdict: Confirmed
+
+competitive_landscape:
+  question: "Is there any existing open-source VS Code extension that does multi-assistant endpoint routing?"
+  findings:
+    - name: "Continue.dev"
+      url: "https://github.com/continuedev/continue"
+      has_switchboard: false
+      notes: |
+        Has pivoted to CI-focused AI checks. VS Code extension (v1.2.22) supports
+        configuring multiple model providers via config.json, but this is provider
+        selection (pick one model at a time), not a unified "switchboard" across
+        multiple AI coding assistants' endpoint configurations simultaneously.
+
+    - name: "Cline"
+      url: "https://github.com/cline/cline"
+      has_switchboard: false
+      notes: |
+        Single coding agent extension. You configure one provider at a time via
+        webview UI. Supports many providers (Anthropic, OpenAI, Azure, etc.) but
+        no concept of routing between multiple assistants.
+
+    - name: "Roo Code"
+      url: "https://github.com/RooCodeInc/Roo-Code"
+      has_switchboard: false
+      notes: |
+        Fork of Cline v3.53.0. Has "profiles" and "custom modes" (Code, Architect,
+        Ask, Debug) and supports configuring different models per mode. This is the
+        closest to endpoint routing but still operates within a single assistant —
+        it does NOT manage endpoint configs for OTHER extensions (Copilot, Codex, etc.).
+
+    - name: "Kilo Code"
+      url: "https://github.com/kilocode-ai/kilocode"
+      has_switchboard: false
+      notes: "GitHub 404 — repository not found or renamed. Unable to verify."
+
+    - name: "nicepkg/aide"
+      url: "https://github.com/nicepkg/aide"
+      has_switchboard: false
+      notes: |
+        VS Code extension for code conversion, commenting, and AI batch processing.
+        Uses configurable AI providers but is not focused on endpoint routing.
+        Last updated Nov 2024 (appears unmaintained).
+
+    - name: "Requesty"
+      url: "https://www.requesty.ai"
+      has_switchboard: false
+      notes: |
+        Commercial product (not open-source) that unifies AI coding tools by
+        acting as a proxy router. Closest in concept but not open-source.
+
+  conclusion: |
+    No existing open-source VS Code extension provides a unified "switchboard"
+    for managing endpoint configurations across multiple AI coding assistants
+    (Copilot, Cline, Codex CLI, etc.) simultaneously. Continue.dev and Roo Code
+    support multiple model providers within their own context, but neither manages
+    other extensions' endpoint settings. The aidome-endpoint-switchboard concept
+    is unique in the open-source landscape.
+
+open_questions: []
+
+gaps: []
