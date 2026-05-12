@@ -109,7 +109,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 
 | Blocker | Impact | Required outcome |
 |---|---|---|
-| `verify-endpoint` production apply behavior | A Claude Code plan may fail during application after earlier settings writes have already occurred. For example, if the verification step throws an exception or returns a failure status, the applier may terminate with partial configuration already committed to disk, leaving the system in an inconsistent state. | Preferred outcome: run verification after transactional writes complete, outside the rollback-requiring write transaction. If verification remains inside apply, it must be idempotent and trigger complete rollback semantics on failure. |
+| `verify-endpoint` production apply behavior | A Claude Code plan may fail during application after earlier settings writes have already occurred. For example, if the verification step throws an exception or returns a failure status, the applier may terminate with partial configuration already committed to disk, leaving the system in an inconsistent state. | Required outcome: verification must not leave partial configuration committed on failure. Acceptable implementations are either running verification after transactional writes complete or keeping verification inside apply only if it is idempotent and triggers complete rollback semantics on failure. |
 | Newly-created settings rollback | If `~/.claude/settings.json` did not exist before apply, rollback can leave a created file behind. | Rollback must delete newly-created files or restore an explicit pre-create state. |
 | Production-path test coverage | Current tests do not fully prove the switchboard/applier path can apply a Claude Code plan end to end. | Add coverage that applies a Claude Code plan through the same path used by the extension. |
 
@@ -210,7 +210,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 | OpenAI Chat Completions API reference | https://platform.openai.com/docs/api-reference/chat |
 | OpenAI Responses API reference | https://platform.openai.com/docs/api-reference/responses |
 
-Security note: if LiteLLM is recommended as a Claude Code gateway, admins should avoid compromised package versions called out by the LiteLLM advisory and rotate any credentials that may have been exposed.
+Security note: if LiteLLM is recommended as a Claude Code gateway, admins should avoid compromised PyPI versions `1.82.7` and `1.82.8` called out by the verified LiteLLM advisory, pin to a verified current release, and rotate credentials from any environment where affected versions were installed.
 
 ### VS Code Extension and Configuration References
 
