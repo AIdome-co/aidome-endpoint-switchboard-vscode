@@ -6,8 +6,10 @@
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot — routable via proxy override (debug.overrideProxyUrl in github.copilot.advanced)",
-    "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server"
+    "github.copilot": "GitHub Copilot \u2014 routable via proxy override (debug.overrideProxyUrl in github.copilot.advanced)",
+    "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server",
+    "bedrock.invoke_model": "Amazon Bedrock InvokeModel pass-through API",
+    "vertex.raw_predict": "Google Vertex AI rawPredict pass-through API"
   },
   "assistants": [
     {
@@ -36,7 +38,7 @@
           "github.copilot.advanced"
         ],
         "notes": [
-          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic — inline completions and chat — through the gateway.",
+          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic \u2014 inline completions and chat \u2014 through the gateway.",
           "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API but is stable across current releases.",
           "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
           "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting; users should be aware it may change in future Copilot releases."
@@ -261,25 +263,46 @@
       "dialect": {
         "primary": "anthropic.messages",
         "alsoPossible": [
-          "openai.chat_completions"
+          "bedrock.invoke_model",
+          "vertex.raw_predict"
         ]
       },
       "endpointSwitching": {
         "supported": "partially",
-        "tier": "C",
+        "tier": "B",
         "preferredGatewayFrontDoor": "anthropic.messages",
         "configurationModes": [
-          "env-vars",
+          "config-file",
+          "vscode-settings",
           "guided"
         ],
         "envVarHints": [
+          "ANTHROPIC_BASE_URL",
+          "ANTHROPIC_AUTH_TOKEN",
           "ANTHROPIC_API_KEY",
-          "HTTPS_PROXY",
-          "HTTP_PROXY"
+          "ANTHROPIC_CUSTOM_HEADERS",
+          "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+          "CLAUDE_CODE_API_KEY_HELPER_TTL_MS"
         ],
         "notes": [
-          "Official docs do NOT clearly document an Anthropic 'BASE_URL' override.",
-          "If AIdome ever offers an explicit forward-proxy mode, HTTPS_PROXY becomes a viable routing lever."
+          "Claude Code supports LLM gateways through shared ~/.claude/settings.json environment variables used by both the CLI and VS Code extension.",
+          "This adapter writes ANTHROPIC_BASE_URL and enables gateway model discovery for Anthropic Messages-compatible gateways, then disables the VS Code login prompt for third-party provider setups.",
+          "Gateway authentication must use ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or apiKeyHelper from a secure environment source; the adapter does not write plaintext secrets to Claude Code settings.",
+          "Tier B rather than A because credential injection cannot be fully automated without violating the extension SecretStorage invariant."
+        ],
+        "configFileHints": [
+          {
+            "path": "~/.claude/settings.json",
+            "format": "json",
+            "fields": [
+              "env.ANTHROPIC_BASE_URL",
+              "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+              "apiKeyHelper"
+            ]
+          }
+        ],
+        "settingKeyHints": [
+          "claudeCode.disableLoginPrompt"
         ]
       },
       "tlsVerification": {
@@ -289,7 +312,9 @@
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code",
-        "https://docs.anthropic.com/en/docs/claude-code/settings"
+        "https://code.claude.com/docs/en/vs-code#use-third-party-providers",
+        "https://code.claude.com/docs/en/llm-gateway",
+        "https://code.claude.com/docs/en/settings"
       ]
     },
     {

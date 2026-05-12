@@ -81,7 +81,7 @@ If individual assistants also reject TLS connections, configure them separately:
 | Assistant | Override |
 |-----------|----------|
 | Continue.dev | `requestOptions.rejectUnauthorized: false` in `config.json` |
-| Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` |
+| Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` (TLS only; gateway routing uses `ANTHROPIC_BASE_URL`) |
 | Codex CLI | `CODEX_CA_CERTIFICATE=/path/to/ca.pem` |
 | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
 | VS Code extensions (Cline, Roo Code, Kilo Code, CodeGPT, Copilot, Tabnine) | `"http.proxyStrictSSL": false` in settings |

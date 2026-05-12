@@ -68,10 +68,12 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | OpenAI Codex CLI | CLI | A — Full | ✅ Yes | OpenAI Responses |
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
-| Claude Code | CLI + Extension | C — Guided | 📋 Guided | Anthropic |
+| Claude Code | CLI + Extension | B — Partial | ⚡ Partial | Anthropic Messages |
 | GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
+
+Claude Code gateway routing is configured in shared `~/.claude/settings.json` using `env.ANTHROPIC_BASE_URL` for Anthropic Messages-compatible gateways. Authentication remains outside plaintext config and should be supplied via `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or Claude Code `apiKeyHelper`.
 
 ### Tier Explanation
 
@@ -200,7 +202,7 @@ Each AI assistant handles TLS verification differently. The table below summaris
 | Support Level | Assistants | How to Disable |
 |---|---|---|
 | **Native** | Continue.dev | `requestOptions.rejectUnauthorized: false` in `config.json` per-model |
-| **Env Var** | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` |
+| **Env Var** | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` (TLS only; gateway routing uses `ANTHROPIC_BASE_URL`) |
 | **Env Var** | Codex CLI | `CODEX_CA_CERTIFICATE` / `SSL_CERT_FILE` (custom CA only) |
 | **Env Var** | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
 | **VS Code Global** | GitHub Copilot, Cline, Roo Code, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` in VS Code settings |

@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClaudeCodeAdapter } from '../../src/adapters/claudeCode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
+import * as fsSafe from '../../src/util/fsSafe';
 
-// Mock vscode module
 const mockExtension = {
   packageJSON: {}
 };
@@ -15,17 +15,30 @@ const mockExtension = {
 vi.mock('vscode', () => ({
   extensions: {
     getExtension: vi.fn()
+  },
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn(),
+      update: vi.fn()
+    }))
+  },
+  ConfigurationTarget: {
+    Global: 1
   }
 }));
 
-// Mock the modules
 vi.mock('../../src/core/detection/detectCLIs');
+vi.mock('../../src/util/fsSafe');
+vi.mock('../../src/util/paths', () => ({
+  expandTilde: (path: string) => path.replace('~', '/home/user')
+}));
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: () => ({
       error: vi.fn(),
       warning: vi.fn(),
       info: vi.fn(),
+      debug: vi.fn(),
     })
   }
 }));
@@ -44,6 +57,10 @@ describe('ClaudeCodeAdapter', () => {
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+    vi.spyOn(fsSafe, 'createBackup').mockResolvedValue('/home/user/.claude/settings.json.backup');
+    vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
   });
 
   describe('detect', () => {
@@ -92,65 +109,95 @@ describe('ClaudeCodeAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('should create a plan with guided steps', async () => {
+    it('should create a plan with backup step when settings exist', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": { "EXISTING_VAR": "kept" } }');
+
       const plan = await adapter.buildPlan(mockProfile);
 
-      expect(plan).toBeDefined();
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('claude-code');
-      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.steps.find(s => s.action === 'backup-file')).toBeDefined();
     });
 
-    it('should include show-guided-steps actions', async () => {
+    it('should create a plan without backup step when settings do not exist', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
-      const guidedSteps = plan.steps.filter(s => s.action === 'show-guided-steps');
-      expect(guidedSteps.length).toBeGreaterThan(0);
-      
-      const mainGuidance = guidedSteps[0];
-      expect(mainGuidance.assistantKey).toBe('claude-code');
-      expect(mainGuidance.data.limitation).toBe('no-base-url-override');
-      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
-      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
+      expect(plan.steps.find(s => s.action === 'backup-file')).toBeUndefined();
     });
 
-    it('should include proxy guidance step', async () => {
+    it('should include patched settings content in edit-config-file step', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
-      const proxyGuidance = plan.steps.find(s => 
-        s.action === 'show-guided-steps' && s.data.optional === true
-      );
-      expect(proxyGuidance).toBeDefined();
-      expect(proxyGuidance?.data.envVarName).toBe('HTTPS_PROXY');
+      const editStep = plan.steps.find(s => s.action === 'edit-config-file');
+      expect(editStep).toBeDefined();
+      expect(editStep?.targetPath).toBe('/home/user/.claude/settings.json');
+      expect(editStep?.data.format).toBe('json');
+
+      const updatedSettings = JSON.parse(editStep?.newValue as string);
+      expect(updatedSettings.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+      expect(updatedSettings.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
+    });
+
+    it('should include VS Code login prompt setting and auth guidance', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const settingStep = plan.steps.find(s => s.action === 'set-vscode-setting');
+      expect(settingStep?.targetPath).toBe('claudeCode.disableLoginPrompt');
+      expect(settingStep?.newValue).toBe(true);
+
+      const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
+      expect(authStep?.data.envVarName).toBe('ANTHROPIC_AUTH_TOKEN');
+    });
+
+    it('should include verify-endpoint step', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const verifyStep = plan.steps.find(s => s.action === 'verify-endpoint');
+      expect(verifyStep?.assistantKey).toBe('claude-code');
+    });
+  });
+
+  describe('apply', () => {
+    it('should create a backup before writing existing settings', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      const plan = await adapter.buildPlan(mockProfile);
+
+      await adapter.apply(plan);
+
+      expect(fsSafe.createBackup).toHaveBeenCalledWith('/home/user/.claude/settings.json');
+      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
+    });
+
+    it('should throw when backup fails', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'createBackup').mockResolvedValue(undefined);
+      const plan = await adapter.buildPlan(mockProfile);
+
+      await expect(adapter.apply(plan)).rejects.toThrow('Failed to create backup');
     });
   });
 
   describe('verify', () => {
-    it('should return success when extension is installed', async () => {
+    it('should return success when installed and base URL is configured', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: mockProfile.baseUrl,
+          CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
+        }
+      }));
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain('installed');
-      expect(result.details?.extension).toBe(true);
+      expect(result.message).toContain('verified');
+      expect(result.details?.baseUrlConfigured).toBe(true);
     });
 
-    it('should return success when CLI is installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('installed');
-      expect(result.details?.cli).toBe(true);
-    });
-
-    it('should return failure when neither is installed', async () => {
+    it('should return failure when neither extension nor CLI is installed', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
@@ -161,27 +208,28 @@ describe('ClaudeCodeAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should detect proxy environment variables', async () => {
+    it('should return failure when settings file does not exist', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
-      
-      // Mock environment variable
-      const originalEnv = process.env.HTTPS_PROXY;
-      process.env.HTTPS_PROXY = 'http://proxy.example.com:8080';
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
-      expect(result.details?.httpsProxy).toBe(true);
-      expect(result.message).toContain('Proxy environment variables detected');
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('settings file not found');
+    });
 
-      // Restore
-      if (originalEnv === undefined) {
-        delete process.env.HTTPS_PROXY;
-      } else {
-        process.env.HTTPS_PROXY = originalEnv;
-      }
+    it('should return failure when base URL is missing', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({ env: {} }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('ANTHROPIC_BASE_URL');
     });
 
     it('should handle errors gracefully', async () => {
@@ -204,8 +252,8 @@ describe('ClaudeCodeAdapter', () => {
   });
 
   describe('getTier', () => {
-    it('should return tier C', () => {
-      expect(adapter.getTier()).toBe('C');
+    it('should return tier B', () => {
+      expect(adapter.getTier()).toBe('B');
     });
   });
 });
