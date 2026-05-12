@@ -7,7 +7,7 @@
 | Issue #38 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues/38 | Claude Code now officially supports third-party providers and LLM gateway routing, so the adapter should move beyond Tier C guided-only behavior. |
 | PR #39 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/pull/39 | Upgrades Claude Code to Tier B automation using shared CLI/VS Code settings in `~/.claude/settings.json`. |
 | Base branch | `origin/main` at `bb4d56482ca701d40f10f3888f9238e67f75acf8` | Previous implementation treated Claude Code as guided-only and suggested proxy-based routing. |
-| Current PR head reviewed | `3d1933a` | Current PR code was reviewed against main and validated locally. |
+| Current PR head reviewed | Latest PR head at the time of the review | Current PR code was reviewed against main and validated locally. |
 
 ## Original Issue Goal
 
@@ -151,7 +151,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 | Local `npm run lint` | Passed | ESLint completed successfully. |
 | Local `npm test` | Passed | 37 test files and 589 tests passed. |
 | Local `npm audit --audit-level=high` | Failed | Existing dependency advisories were reported; dependency files were not changed by this PR. |
-| GitHub Actions latest completed branch run | Success for dynamic Copilot run `25755541047` | CI workflow run `25750531108` was `action_required` with zero jobs, not a build/test failure log. |
+| GitHub Actions latest completed branch run | Latest completed dynamic Copilot run was successful at the time of review. | CI workflow runs on this branch showed `action_required` with zero jobs, not a build/test failure log. |
 
 ## Useful References and URLs
 
@@ -198,7 +198,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 | LiteLLM Anthropic unified endpoint | https://docs.litellm.ai/docs/anthropic_unified |
 | LiteLLM Anthropic pass-through endpoint | https://docs.litellm.ai/docs/pass_through/anthropic_completion |
 | LiteLLM Bedrock pass-through endpoint | https://docs.litellm.ai/docs/pass_through/bedrock |
-| LiteLLM PyPI compromise advisory issue | https://github.com/BerriAI/litellm/issues/24518 |
+| LiteLLM PyPI compromise advisory issue; relevant when recommending LiteLLM as a gateway because admins must avoid compromised package versions and rotate exposed credentials | https://github.com/BerriAI/litellm/issues/24518 |
 | Anthropic Messages API reference | https://docs.anthropic.com/en/api/messages |
 | Anthropic Models API reference | https://docs.anthropic.com/en/api/models |
 | Amazon Bedrock InvokeModel API | https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html |
