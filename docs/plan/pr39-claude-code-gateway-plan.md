@@ -200,7 +200,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 | LiteLLM Anthropic unified endpoint | https://docs.litellm.ai/docs/anthropic_unified |
 | LiteLLM Anthropic pass-through endpoint | https://docs.litellm.ai/docs/pass_through/anthropic_completion |
 | LiteLLM Bedrock pass-through endpoint | https://docs.litellm.ai/docs/pass_through/bedrock |
-| LiteLLM PyPI compromise advisory | https://github.com/BerriAI/litellm/issues/24518 |
+| LiteLLM PyPI compromise advisory, verified public issue | https://github.com/BerriAI/litellm/issues/24518 |
 | Anthropic Messages API reference | https://docs.anthropic.com/en/api/messages |
 | Anthropic Models API reference | https://docs.anthropic.com/en/api/models |
 | Amazon Bedrock InvokeModel API | https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html |
