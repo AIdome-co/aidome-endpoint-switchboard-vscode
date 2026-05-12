@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [main, develop]
-    paths-ignore:
+    paths-ignore: &metadata_only_paths
       - ".github/dependabot.yml"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/PULL_REQUEST_TEMPLATE*"
@@ -15,16 +15,7 @@ on:
       - "CLAUDE.md"
   push:
     branches: [main, develop]
-    paths-ignore:
-      - ".github/dependabot.yml"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/PULL_REQUEST_TEMPLATE*"
-      - ".github/copilot-instructions.md"
-      - ".github/instructions/**"
-      - ".github/references/**"
-      - ".github/skills/**"
-      - "AGENTS.md"
-      - "CLAUDE.md"
+    paths-ignore: *metadata_only_paths
 
 permissions:
   contents: read
