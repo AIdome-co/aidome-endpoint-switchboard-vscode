@@ -2,7 +2,7 @@
 
 ## Source Context
 
-| Source | Link | Key context |
+| Source | Link | Context |
 |---|---|---|
 | Issue #38 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues/38 | Claude Code now officially supports third-party providers and LLM gateway routing, so the adapter should move beyond Tier C guided-only behavior. |
 | PR #39 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/pull/39 | Upgrades Claude Code to Tier B automation using shared CLI/VS Code settings in `~/.claude/settings.json`. |
@@ -53,7 +53,7 @@ Claude Code was originally implemented as Tier C because no documented base URL 
 | Area | What PR did | Alignment | Still needed / risk |
 |---|---|---:|---|
 | Claude docs | Uses `~/.claude/settings.json`, `env.ANTHROPIC_BASE_URL`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`, and `claudeCode.disableLoginPrompt`. | 90% | Add note or version guard: gateway model discovery requires Claude Code v2.1.129+ and only works for Anthropic Messages gateways. |
-| Protocol support | Correctly targets Anthropic Messages gateway routing. | 90% | OpenAI-compatible `/v1/chat/completions` is not directly supported by Claude Code; a gateway must translate or expose Anthropic Messages, Bedrock, or Vertex APIs. |
+| Protocol support | Correctly targets Anthropic Messages gateway routing. | 80% | OpenAI-compatible `/v1/chat/completions` is not directly supported by Claude Code; a gateway must translate or expose Anthropic Messages, Bedrock, or Vertex APIs. |
 | Adapter scope | Keeps Claude-specific logic in `src/adapters/claudeCode` plus registry metadata. | 85% | Minor architecture debt: adapter imports core validator/types; this follows existing patterns but is not ideal layering. |
 | Apply path | Builds config-file, VS Code setting, guided auth, and verify steps. | 45% | `verify-endpoint` should not break executable application flow; production-path coverage should confirm Claude plans apply correctly. |
 | Security | Does not write plaintext auth tokens; validates URLs; redacts config-file change-log content. | 75% | Rollback for newly-created `~/.claude/settings.json` should delete the created file or restore a recorded pre-create state. |
@@ -100,8 +100,16 @@ Rollback / undo                     ██████░░░░ 60%
 Production apply reliability        ████░░░░░░ 45%
 Tests                               ████████░░ 80%
 UX completeness                     █████░░░░░ 55%
-Overall PR aim alignment            ███████░░░ 72%
+Overall PR aim alignment            ██████░░░░ 60%
 ```
+
+## Blocking Issues Before Merge
+
+| Blocker | Impact | Required outcome |
+|---|---|---|
+| `verify-endpoint` production apply behavior | A Claude Code plan may fail during application after earlier settings writes have already occurred. | The production applier path must handle verification steps safely or ensure verification runs outside transactional config writes. |
+| Newly-created settings rollback | If `~/.claude/settings.json` did not exist before apply, rollback can leave a created file behind. | Rollback must delete newly-created files or restore an explicit pre-create state. |
+| Production-path test coverage | Current tests do not fully prove the switchboard/applier path can apply a Claude Code plan end to end. | Add coverage that applies a Claude Code plan through the same path used by the extension. |
 
 ## Official Documentation Alignment
 
@@ -236,4 +244,4 @@ Overall PR aim alignment            ███████░░░ 72%
 
 ## Bottom Line
 
-The PR direction is valid: Claude Code gateway routing through `ANTHROPIC_BASE_URL` in `~/.claude/settings.json` is officially documented, and keeping credentials out of plaintext config aligns with repository security rules. The PR should not be considered ready to merge until production apply behavior for verification steps and rollback behavior for newly-created Claude Code settings files are corrected and covered by tests.
+The PR direction is valid: Claude Code gateway routing through `ANTHROPIC_BASE_URL` in `~/.claude/settings.json` is officially documented, and keeping credentials out of plaintext config aligns with repository security rules. However, the overall readiness score is intentionally capped at 60% because production apply reliability and rollback behavior are merge blockers. The PR should not be considered ready to merge until production apply behavior for verification steps and rollback behavior for newly-created Claude Code settings files are corrected and covered by tests.
