@@ -4,9 +4,10 @@
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
+import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { expandTilde } from '../../util/paths';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
@@ -28,6 +29,10 @@ export function getClaudeCodeSettingsPath(): string {
  * @returns Updated settings JSON content
  */
 export function buildClaudeCodeSettingsContent(profile: EndpointProfile, content?: string): string {
+  if (!validateUrl(profile.baseUrl)) {
+    throw new Error('Invalid Claude Code endpoint URL');
+  }
+
   const settings = parseClaudeCodeSettings(content);
   const env = isStringRecord(settings.env) ? settings.env : {};
 
@@ -51,6 +56,14 @@ export async function patchClaudeCodeConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
+
+  if (await fileExists(configPath)) {
+    const backupPath = await createBackup(configPath);
+    if (!backupPath) {
+      throw new Error(`Failed to create backup of ${configPath}`);
+    }
+  }
+
   const updated = buildClaudeCodeSettingsContent(profile, content);
   await writeFileAtomic(configPath, updated);
 }

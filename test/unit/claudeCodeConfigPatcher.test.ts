@@ -28,6 +28,8 @@ describe('Claude Code Config Patcher', () => {
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+    vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+    vi.spyOn(fsSafe, 'createBackup').mockResolvedValue('/path/to/settings.json.backup');
   });
 
   describe('getClaudeCodeSettingsPath', () => {
@@ -84,6 +86,12 @@ describe('Claude Code Config Patcher', () => {
       expect(updated).not.toContain('ANTHROPIC_AUTH_TOKEN');
       expect(updated).not.toContain('ANTHROPIC_API_KEY');
     });
+
+    it('should reject unsafe endpoint URLs before writing settings', () => {
+      mockProfile.baseUrl = 'javascript:alert(1)';
+
+      expect(() => buildClaudeCodeSettingsContent(mockProfile)).toThrow('Invalid Claude Code endpoint URL');
+    });
   });
 
   describe('patchClaudeCodeConfig', () => {
@@ -98,6 +106,26 @@ describe('Claude Code Config Patcher', () => {
       const parsed = JSON.parse(writtenContent);
       expect(parsed.env.EXISTING_VAR).toBe('kept');
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+    });
+
+
+    it('should create a backup before patching existing settings', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+
+      await patchClaudeCodeConfig(mockProfile, '/path/to/settings.json');
+
+      expect(fsSafe.createBackup).toHaveBeenCalledWith('/path/to/settings.json');
+      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
+    });
+
+    it('should fail when backup of existing settings cannot be created', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'createBackup').mockResolvedValue(undefined);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
+
+      await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).rejects.toThrow('Failed to create backup');
     });
   });
 });

@@ -148,7 +148,9 @@ export class PlanApplier {
       type: step.action,
       target: step.targetPath || '',
       oldValue: step.oldValue,
-      newValue: step.newValue,
+      newValue: step.action === 'edit-config-file'
+        ? '[redacted config-file content]'
+        : step.newValue,
       timestamp: new Date().toISOString()
     };
 

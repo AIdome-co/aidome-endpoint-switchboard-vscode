@@ -184,6 +184,23 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(outcome?.reason).toContain('specific reason');
   });
 
+
+
+  it('redacts config-file contents before recording the change log', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'edit-config-file',
+      targetPath: '/tmp/aidome-nonexistent-settings.json',
+      newValue: '{ "env": { "ANTHROPIC_AUTH_TOKEN": "secret" } }',
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(mockRecordApply).toHaveBeenCalledTimes(1);
+    expect(mockRecordApply.mock.calls[0][0].steps[0].newValue).toBe('[redacted config-file content]');
+  });
+
   it('records a composite changeLogEntry for API compatibility', async () => {
     const applier = new PlanApplier(fakeContext);
     const steps = [
