@@ -9,7 +9,7 @@ This document is a planning and follow-up artifact added to PR #39. It summarize
 | Issue #38 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/issues/38 | Claude Code now officially supports third-party providers and LLM gateway routing, so the adapter should move beyond Tier C guided-only behavior. |
 | PR #39 | https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/pull/39 | Upgrades Claude Code to Tier B automation using shared CLI/VS Code settings in `~/.claude/settings.json`. |
 | Base branch | `origin/main` at `bb4d56482ca701d40f10f3888f9238e67f75acf8` | Previous implementation treated Claude Code as guided-only and suggested proxy-based routing. |
-| Current PR head reviewed | Latest PR head at the time of the review | Current PR code was reviewed against main and validated locally. |
+| Review snapshot | `3d1933a` on 2026-05-12 | Snapshot reviewed against main before this plan document was added. Later commits in this PR refine this documentation artifact. |
 
 ## Original Issue Goal
 
@@ -109,7 +109,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 
 | Blocker | Impact | Required outcome |
 |---|---|---|
-| `verify-endpoint` production apply behavior | A Claude Code plan may fail during application after earlier settings writes have already occurred. For example, if the verification step throws an exception or returns a failure status, the applier may terminate with partial configuration already committed to disk, leaving the system in an inconsistent state. | The production applier path must handle verification steps safely or ensure verification runs outside transactional config writes. |
+| `verify-endpoint` production apply behavior | A Claude Code plan may fail during application after earlier settings writes have already occurred. For example, if the verification step throws an exception or returns a failure status, the applier may terminate with partial configuration already committed to disk, leaving the system in an inconsistent state. | Preferred outcome: run verification after transactional writes complete, outside the rollback-requiring write transaction. If verification remains inside apply, it must be idempotent and trigger complete rollback semantics on failure. |
 | Newly-created settings rollback | If `~/.claude/settings.json` did not exist before apply, rollback can leave a created file behind. | Rollback must delete newly-created files or restore an explicit pre-create state. |
 | Production-path test coverage | Current tests do not fully prove the switchboard/applier path can apply a Claude Code plan end to end. | Add coverage that applies a Claude Code plan through the same path used by the extension. |
 
@@ -200,7 +200,7 @@ Overall PR aim alignment            ██████░░░░ 60%
 | LiteLLM Anthropic unified endpoint | https://docs.litellm.ai/docs/anthropic_unified |
 | LiteLLM Anthropic pass-through endpoint | https://docs.litellm.ai/docs/pass_through/anthropic_completion |
 | LiteLLM Bedrock pass-through endpoint | https://docs.litellm.ai/docs/pass_through/bedrock |
-| LiteLLM PyPI compromise advisory issue; relevant when recommending LiteLLM as a gateway because admins must avoid compromised package versions and rotate exposed credentials | https://github.com/BerriAI/litellm/issues/24518 |
+| LiteLLM PyPI compromise advisory | https://github.com/BerriAI/litellm/issues/24518 |
 | Anthropic Messages API reference | https://docs.anthropic.com/en/api/messages |
 | Anthropic Models API reference | https://docs.anthropic.com/en/api/models |
 | Amazon Bedrock InvokeModel API | https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html |
@@ -209,6 +209,8 @@ Overall PR aim alignment            ██████░░░░ 60%
 | Google Vertex AI streamRawPredict API | https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/streamRawPredict |
 | OpenAI Chat Completions API reference | https://platform.openai.com/docs/api-reference/chat |
 | OpenAI Responses API reference | https://platform.openai.com/docs/api-reference/responses |
+
+Security note: if LiteLLM is recommended as a Claude Code gateway, admins should avoid compromised package versions called out by the LiteLLM advisory and rotate any credentials that may have been exposed.
 
 ### VS Code Extension and Configuration References
 
