@@ -33,13 +33,13 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
       
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -87,7 +87,7 @@ jobs:
         run: npx @vscode/vsce package --out aidome-endpoint-switchboard.vsix
         
       - name: Upload VSIX to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: aidome-endpoint-switchboard.vsix
@@ -97,7 +97,7 @@ jobs:
           generate_release_notes: true
 
       - name: Upload VSIX as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ env.RELEASE_TAG }}
           path: aidome-endpoint-switchboard.vsix
@@ -144,7 +144,7 @@ jobs:
 
     steps:
       - name: Checkout workflow scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
