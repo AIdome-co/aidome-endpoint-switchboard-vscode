@@ -14,6 +14,8 @@ on:
       - "CLAUDE.md"
   push:
     branches: [main, develop]
+    # Keep this list duplicated: GitHub Actions workflow parsing here does not reliably
+    # support YAML anchors/aliases for shared trigger filters.
     paths-ignore:
       - ".github/dependabot.yml"
       - ".github/ISSUE_TEMPLATE/**"
