@@ -8,7 +8,7 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { expandTilde } from '../../util/paths';
-import { validateUrl } from '../../core/profiles/profileValidator';
+import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
@@ -20,12 +20,16 @@ interface ClaudeCodeSettings {
  * @returns Config file path
  */
 export function getClaudeCodeSettingsPath(): string {
+  const defaultPath = expandTilde('~/.claude/settings.json');
   const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
   if (configDir) {
-    return path.join(expandTilde(configDir), 'settings.json');
+    const expandedConfigDir = expandTilde(configDir);
+    if (validatePath(expandedConfigDir)) {
+      return path.join(expandedConfigDir, 'settings.json');
+    }
   }
 
-  return expandTilde('~/.claude/settings.json');
+  return defaultPath;
 }
 
 /**

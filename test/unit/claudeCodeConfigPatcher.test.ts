@@ -18,9 +18,10 @@ vi.mock('../../src/util/paths', () => ({
 
 describe('Claude Code Config Patcher', () => {
   let mockProfile: EndpointProfile;
-  const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  let previousClaudeConfigDir: string | undefined;
 
   beforeEach(() => {
+    previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
     mockProfile = {
       id: 'test-profile',
       name: 'Test Profile',
@@ -34,10 +35,10 @@ describe('Claude Code Config Patcher', () => {
   });
 
   afterEach(() => {
-    if (originalClaudeConfigDir === undefined) {
+    if (previousClaudeConfigDir === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR;
     } else {
-      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+      process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     }
   });
 
@@ -54,6 +55,14 @@ describe('Claude Code Config Patcher', () => {
       const path = getClaudeCodeSettingsPath();
 
       expect(path).toBe('/home/user/custom-claude/settings.json');
+    });
+
+    it('should ignore unsafe CLAUDE_CONFIG_DIR values', () => {
+      process.env.CLAUDE_CONFIG_DIR = '../unsafe';
+
+      const path = getClaudeCodeSettingsPath();
+
+      expect(path).toBe('/home/user/.claude/settings.json');
     });
   });
 

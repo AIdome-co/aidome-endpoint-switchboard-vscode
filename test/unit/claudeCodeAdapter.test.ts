@@ -46,9 +46,10 @@ vi.mock('../../src/util/log', () => ({
 describe('ClaudeCodeAdapter', () => {
   let adapter: ClaudeCodeAdapter;
   let mockProfile: EndpointProfile;
-  const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  let previousClaudeConfigDir: string | undefined;
 
   beforeEach(() => {
+    previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
     adapter = new ClaudeCodeAdapter();
     mockProfile = {
       id: 'test-profile',
@@ -65,10 +66,10 @@ describe('ClaudeCodeAdapter', () => {
   });
 
   afterEach(() => {
-    if (originalClaudeConfigDir === undefined) {
+    if (previousClaudeConfigDir === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR;
     } else {
-      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+      process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     }
   });
 
