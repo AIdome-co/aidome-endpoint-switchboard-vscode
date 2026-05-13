@@ -255,8 +255,12 @@ export class PlanApplier {
   /**
    * Applies a non-mutating endpoint verification marker.
    *
-   * Endpoint verification is deferred to the dedicated verifier command path so
-   * transactional config writes are not failed after they have already committed.
+   * @param step Verification step to acknowledge
+   * @returns Promise that always resolves after logging the deferred verification
+   *
+   * This is intentionally a no-op: endpoint verification is deferred to the
+   * dedicated verifier command path so transactional config writes are not
+   * failed after they have already committed.
    */
   private async applyVerifyEndpoint(step: PlanStep): Promise<void> {
     this.logger.info(
@@ -443,7 +447,6 @@ export class PlanApplier {
           }
         } else if (step.createdFile) {
           try {
-            // AppliedStep.target is the config file path for edit-config-file steps.
             await fs.unlink(step.target);
             this.logger.info(`Removed newly created config file ${step.target}`);
           } catch (error) {

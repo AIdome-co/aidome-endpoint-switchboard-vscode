@@ -11,7 +11,7 @@ import { PlanStepAction } from './planBuilder';
  */
 export interface AppliedStep {
   type: PlanStepAction;
-  target: string;          // setting key or file path
+  target: string;          // setting key, file path, or action-specific target
   oldValue: unknown;
   newValue: unknown;
   backupPath?: string;     // for file-based changes
