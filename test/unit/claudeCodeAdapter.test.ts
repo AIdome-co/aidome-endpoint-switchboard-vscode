@@ -67,10 +67,9 @@ describe('ClaudeCodeAdapter', () => {
   afterEach(() => {
     if (originalClaudeConfigDir === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR;
-      return;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
     }
-
-    process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
   });
 
   describe('detect', () => {
