@@ -2,6 +2,7 @@
  * Unit tests for Claude Code config patcher.
  */
 
+import * as nodePath from 'path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildClaudeCodeSettingsContent,
@@ -54,7 +55,7 @@ describe('Claude Code Config Patcher', () => {
 
       const path = getClaudeCodeSettingsPath();
 
-      expect(path).toBe('/home/user/custom-claude/settings.json');
+      expect(path).toBe(nodePath.join('/home/user/custom-claude', 'settings.json'));
     });
 
     it('should ignore unsafe CLAUDE_CONFIG_DIR values', () => {
