@@ -254,6 +254,9 @@ export class PlanApplier {
 
   /**
    * Applies a non-mutating endpoint verification marker.
+   *
+   * Endpoint verification is deferred to the dedicated verifier command path so
+   * transactional config writes are not failed after they have already committed.
    */
   private async applyVerifyEndpoint(step: PlanStep): Promise<void> {
     this.logger.info(
@@ -465,6 +468,9 @@ export class PlanApplier {
   }
 }
 
+/**
+ * Checks whether a filesystem error means the target path does not exist.
+ */
 function isFileNotFoundError(error: unknown): boolean {
   return typeof error === 'object'
     && error !== null

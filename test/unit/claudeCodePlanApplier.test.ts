@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type * as vscode from 'vscode';
+import { createEnoentError } from './testErrors';
 
 const {
   mockReadFileSafe,
@@ -113,7 +114,7 @@ describe('Claude Code plan application through PlanApplier', () => {
     mockGetConfig.mockReturnValue(undefined);
     mockUpdateConfig.mockResolvedValue(undefined);
     mockRecordApply.mockResolvedValue(undefined);
-    mockAccess.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+    mockAccess.mockRejectedValue(createEnoentError());
     mockReadFile.mockResolvedValue('{}');
     mockUnlink.mockResolvedValue(undefined);
   });

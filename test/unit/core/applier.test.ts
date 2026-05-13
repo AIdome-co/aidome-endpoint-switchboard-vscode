@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createEnoentError } from '../testErrors';
 
 // ---------- hoisted mock variables ----------
 const {
@@ -27,7 +28,7 @@ const {
   mockGetConfig: vi.fn(),
   mockUpdateConfig: vi.fn().mockResolvedValue(undefined),
   mockAppendLine: vi.fn(),
-  mockAccess: vi.fn().mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' })),
+  mockAccess: vi.fn(),
   mockReadFile: vi.fn().mockResolvedValue('{"existing":true}'),
   mockUnlink: vi.fn().mockResolvedValue(undefined),
 }));
@@ -118,7 +119,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     mockCreateBackup.mockResolvedValue('/tmp/backup.json');
     mockUpdateConfig.mockResolvedValue(undefined);
     mockRecordApply.mockResolvedValue(undefined);
-    mockAccess.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+    mockAccess.mockRejectedValue(createEnoentError());
     mockReadFile.mockResolvedValue('{"existing":true}');
     mockUnlink.mockResolvedValue(undefined);
   });
