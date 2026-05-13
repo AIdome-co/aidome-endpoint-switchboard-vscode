@@ -79,6 +79,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       message: 'Claude Code authentication must be supplied outside plaintext config',
       steps: [
         `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
+        'Use an Anthropic Messages-compatible gateway endpoint; raw OpenAI Chat Completions endpoints are not supported by Claude Code.',
         'Provide gateway credentials using a secure environment source such as ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or a Claude Code apiKeyHelper script.',
         'Do not paste API keys into repository files or shared project settings.',
         'Restart Claude Code or VS Code after updating credentials.'

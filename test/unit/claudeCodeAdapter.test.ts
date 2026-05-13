@@ -160,6 +160,10 @@ describe('ClaudeCodeAdapter', () => {
 
       const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
       expect(authStep?.data.envVarName).toBe('ANTHROPIC_AUTH_TOKEN');
+      const guidanceSteps = authStep?.data.steps as string[];
+      expect(guidanceSteps).toContain(
+        'Use an Anthropic Messages-compatible gateway endpoint; raw OpenAI Chat Completions endpoints are not supported by Claude Code.'
+      );
     });
 
     it('should respect CLAUDE_CONFIG_DIR in plan targets and guidance', async () => {

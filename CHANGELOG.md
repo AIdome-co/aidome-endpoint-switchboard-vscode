@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Upgraded Claude Code to Tier B automated gateway configuration using shared `~/.claude/settings.json` for `ANTHROPIC_BASE_URL`, plus VS Code login-prompt suppression and credential guidance.
+- Improved setup UX for guided configurations by surfacing manual follow-up messaging, wiring notification actions to verify routing and open the output channel, and clarifying Claude Code's Anthropic Messages gateway requirement.
 
 ## [1.0.0] - 2026-04-24
 
