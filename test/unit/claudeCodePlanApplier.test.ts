@@ -14,6 +14,7 @@ const {
   mockUpdateConfig,
   mockRecordApply,
   mockAccess,
+  mockReadFile,
   mockUnlink,
 } = vi.hoisted(() => ({
   mockReadFileSafe: vi.fn(),
@@ -24,6 +25,7 @@ const {
   mockUpdateConfig: vi.fn(),
   mockRecordApply: vi.fn(),
   mockAccess: vi.fn(),
+  mockReadFile: vi.fn(),
   mockUnlink: vi.fn(),
 }));
 
@@ -46,7 +48,7 @@ vi.mock('vscode', () => ({
 
 vi.mock('fs/promises', () => ({
   access: mockAccess,
-  readFile: vi.fn(),
+  readFile: mockReadFile,
   unlink: mockUnlink,
 }));
 
@@ -112,6 +114,7 @@ describe('Claude Code plan application through PlanApplier', () => {
     mockUpdateConfig.mockResolvedValue(undefined);
     mockRecordApply.mockResolvedValue(undefined);
     mockAccess.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+    mockReadFile.mockResolvedValue('{}');
     mockUnlink.mockResolvedValue(undefined);
   });
 

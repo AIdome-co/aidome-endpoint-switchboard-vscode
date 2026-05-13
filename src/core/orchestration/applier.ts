@@ -440,6 +440,7 @@ export class PlanApplier {
           }
         } else if (step.createdFile) {
           try {
+            // AppliedStep.target is the config file path for edit-config-file steps.
             await fs.unlink(step.target);
             this.logger.info(`Removed newly created config file ${step.target}`);
           } catch (error) {
