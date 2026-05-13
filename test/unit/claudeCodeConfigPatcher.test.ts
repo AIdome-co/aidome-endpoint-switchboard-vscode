@@ -2,7 +2,7 @@
  * Unit tests for Claude Code config patcher.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildClaudeCodeSettingsContent,
   getClaudeCodeSettingsPath,
@@ -18,8 +18,10 @@ vi.mock('../../src/util/paths', () => ({
 
 describe('Claude Code Config Patcher', () => {
   let mockProfile: EndpointProfile;
+  let previousClaudeConfigDir: string | undefined;
 
   beforeEach(() => {
+    previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
     mockProfile = {
       id: 'test-profile',
       name: 'Test Profile',
@@ -32,8 +34,32 @@ describe('Claude Code Config Patcher', () => {
     vi.spyOn(fsSafe, 'createBackup').mockResolvedValue('/path/to/settings.json.backup');
   });
 
+  afterEach(() => {
+    if (previousClaudeConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    }
+  });
+
   describe('getClaudeCodeSettingsPath', () => {
     it('should return the shared Claude Code settings path', () => {
+      const path = getClaudeCodeSettingsPath();
+
+      expect(path).toBe('/home/user/.claude/settings.json');
+    });
+
+    it('should respect CLAUDE_CONFIG_DIR when set', () => {
+      process.env.CLAUDE_CONFIG_DIR = '~/custom-claude';
+
+      const path = getClaudeCodeSettingsPath();
+
+      expect(path).toBe('/home/user/custom-claude/settings.json');
+    });
+
+    it('should ignore unsafe CLAUDE_CONFIG_DIR values', () => {
+      process.env.CLAUDE_CONFIG_DIR = '../unsafe';
+
       const path = getClaudeCodeSettingsPath();
 
       expect(path).toBe('/home/user/.claude/settings.json');
@@ -126,6 +152,15 @@ describe('Claude Code Config Patcher', () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
 
       await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).rejects.toThrow('Failed to create backup');
+    });
+
+    it('should fail when atomic write returns false', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(false);
+
+      await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).rejects.toThrow(
+        'Failed to write Claude Code settings to /path/to/settings.json'
+      );
     });
   });
 });
