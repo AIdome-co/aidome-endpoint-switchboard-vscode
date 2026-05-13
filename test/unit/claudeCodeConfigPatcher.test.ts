@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as pathModule from 'path';
 import {
   buildClaudeCodeSettingsContent,
   getClaudeCodeSettingsPath,
@@ -54,7 +55,7 @@ describe('Claude Code Config Patcher', () => {
 
       const path = getClaudeCodeSettingsPath();
 
-      expect(path).toBe('/home/user/custom-claude/settings.json');
+      expect(path).toBe(pathModule.join('/home/user/custom-claude', 'settings.json'));
     });
 
     it('should ignore unsafe CLAUDE_CONFIG_DIR values', () => {

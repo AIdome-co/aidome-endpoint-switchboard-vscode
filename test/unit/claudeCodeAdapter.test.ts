@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'path';
 import { ClaudeCodeAdapter } from '../../src/adapters/claudeCode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
@@ -167,11 +168,12 @@ describe('ClaudeCodeAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       const editStep = plan.steps.find(s => s.action === 'edit-config-file');
-      expect(editStep?.targetPath).toBe('/home/user/custom-claude/settings.json');
+      const expectedSettingsPath = path.join('/home/user/custom-claude', 'settings.json');
+      expect(editStep?.targetPath).toBe(expectedSettingsPath);
 
       const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
       const guidanceSteps = authStep?.data.steps as string[];
-      expect(guidanceSteps[0]).toContain('/home/user/custom-claude/settings.json');
+      expect(guidanceSteps[0]).toContain(expectedSettingsPath);
     });
 
     it('should include verify-endpoint step', async () => {
