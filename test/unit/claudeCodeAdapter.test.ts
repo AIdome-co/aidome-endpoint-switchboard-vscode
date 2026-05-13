@@ -2,7 +2,7 @@
  * Unit tests for Claude Code adapter.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClaudeCodeAdapter } from '../../src/adapters/claudeCode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
@@ -46,6 +46,7 @@ vi.mock('../../src/util/log', () => ({
 describe('ClaudeCodeAdapter', () => {
   let adapter: ClaudeCodeAdapter;
   let mockProfile: EndpointProfile;
+  const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 
   beforeEach(() => {
     adapter = new ClaudeCodeAdapter();
@@ -61,6 +62,15 @@ describe('ClaudeCodeAdapter', () => {
     vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
     vi.spyOn(fsSafe, 'createBackup').mockResolvedValue('/home/user/.claude/settings.json.backup');
     vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    if (originalClaudeConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+      return;
+    }
+
+    process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
   });
 
   describe('detect', () => {
@@ -151,6 +161,19 @@ describe('ClaudeCodeAdapter', () => {
       expect(authStep?.data.envVarName).toBe('ANTHROPIC_AUTH_TOKEN');
     });
 
+    it('should respect CLAUDE_CONFIG_DIR in plan targets and guidance', async () => {
+      process.env.CLAUDE_CONFIG_DIR = '~/custom-claude';
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const editStep = plan.steps.find(s => s.action === 'edit-config-file');
+      expect(editStep?.targetPath).toBe('/home/user/custom-claude/settings.json');
+
+      const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
+      const guidanceSteps = authStep?.data.steps as string[];
+      expect(guidanceSteps[0]).toContain('/home/user/custom-claude/settings.json');
+    });
+
     it('should include verify-endpoint step', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
@@ -231,6 +254,22 @@ describe('ClaudeCodeAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('ANTHROPIC_BASE_URL');
+    });
+
+    it('should return failure when configured base URL is invalid', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: 'javascript:alert(1)'
+        }
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('invalid ANTHROPIC_BASE_URL');
     });
 
     it('should handle errors gracefully', async () => {

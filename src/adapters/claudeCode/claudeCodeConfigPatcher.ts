@@ -3,6 +3,7 @@
  * Handles shared Claude Code settings JSON used by both the CLI and VS Code extension.
  */
 
+import * as path from 'path';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
@@ -19,6 +20,11 @@ interface ClaudeCodeSettings {
  * @returns Config file path
  */
 export function getClaudeCodeSettingsPath(): string {
+  const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
+  if (configDir) {
+    return path.join(expandTilde(configDir), 'settings.json');
+  }
+
   return expandTilde('~/.claude/settings.json');
 }
 
@@ -65,7 +71,10 @@ export async function patchClaudeCodeConfig(
   }
 
   const updated = buildClaudeCodeSettingsContent(profile, content);
-  await writeFileAtomic(configPath, updated);
+  const success = await writeFileAtomic(configPath, updated);
+  if (!success) {
+    throw new Error(`Failed to write Claude Code settings to ${configPath}`);
+  }
 }
 
 function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
