@@ -48,7 +48,8 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
       const verifier = new Verifier();
       verificationResults = [];
       for (const profile of profiles) {
-        const result = await verifier.runVerificationPipeline(profile);
+        const authToken = profile.authRef ? await profileSecrets.getSecret(profile.authRef) : undefined;
+        const result = await verifier.runVerificationPipeline(profile, { authToken });
         verificationResults.push(result);
       }
     } catch (error) {

@@ -34,7 +34,7 @@ export async function showModelsProviders(context: vscode.ExtensionContext): Pro
     }
     
     const profileSecrets = new ProfileSecrets(context);
-    const authToken = await profileSecrets.getSecret(activeProfile.name);
+    const authToken = activeProfile.authRef ? await profileSecrets.getSecret(activeProfile.authRef) : undefined;
     
     const client = new AIdomeClient(activeProfile, authToken);
     

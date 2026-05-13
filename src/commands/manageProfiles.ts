@@ -256,7 +256,8 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
     try {
       const report = await verifier.runVerificationPipeline(profile, {
         includeTestPrompt: false,
-        remoteContext
+        remoteContext,
+        authToken: authToken?.trim() || undefined
       });
       
       // Update profile with verification timestamp
@@ -683,6 +684,10 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
 async function testConnection(context: vscode.ExtensionContext, profile: EndpointProfile): Promise<void> {
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
+  const profileSecrets = new ProfileSecrets(context);
+  let completionNotification:
+    | { kind: 'success' | 'warning' | 'error'; message: string }
+    | undefined;
   
   await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
@@ -691,11 +696,13 @@ async function testConnection(context: vscode.ExtensionContext, profile: Endpoin
   }, async () => {
     const verifier = new Verifier();
     const remoteContext = detectRemote(profile.baseUrl);
+    const authToken = profile.authRef ? await profileSecrets.getSecret(profile.authRef) : undefined;
     
     try {
       const report = await verifier.runVerificationPipeline(profile, {
         includeTestPrompt: false,
-        remoteContext
+        remoteContext,
+        authToken
       });
       
       // Update profile with verification timestamp
@@ -706,17 +713,41 @@ async function testConnection(context: vscode.ExtensionContext, profile: Endpoin
       displayVerificationResults(report);
       
       if (report.overallStatus === 'passed') {
-        await showSuccess(`Connection to "${profile.name}" verified successfully!`);
+        completionNotification = {
+          kind: 'success',
+          message: `Connection to "${profile.name}" verified successfully!`
+        };
       } else if (report.overallStatus === 'partial') {
-        await showWarning(`Connection to "${profile.name}" has warnings. Check output for details.`);
+        completionNotification = {
+          kind: 'warning',
+          message: `Connection to "${profile.name}" has warnings. Check output for details.`
+        };
       } else {
-        await showError(`Connection to "${profile.name}" failed. Check output for details.`);
+        completionNotification = {
+          kind: 'error',
+          message: `Connection to "${profile.name}" failed. Check output for details.`
+        };
       }
     } catch (error) {
       logger.error('Verification failed', error instanceof Error ? error : undefined);
-      await showError(`Verification error: ${error instanceof Error ? error.message : String(error)}`);
+      completionNotification = {
+        kind: 'error',
+        message: `Verification error: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   });
+
+  if (!completionNotification) {
+    return;
+  }
+
+  if (completionNotification.kind === 'success') {
+    await showSuccess(completionNotification.message);
+  } else if (completionNotification.kind === 'warning') {
+    await showWarning(completionNotification.message);
+  } else {
+    await showError(completionNotification.message);
+  }
 }
 
 /**

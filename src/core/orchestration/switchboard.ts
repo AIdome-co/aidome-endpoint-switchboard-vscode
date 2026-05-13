@@ -192,7 +192,8 @@ export class Switchboard {
 
     for (const profile of profiles) {
       try {
-        const result = await this.verifier.verifyEndpoint(profile, false);
+        const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
+        const result = await this.verifier.verifyEndpoint(profile, false, authToken);
         results[profile.id] = result;
         
         // Update last verified timestamp
