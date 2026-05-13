@@ -109,7 +109,7 @@ describe('ClaudeCodeAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('should create a plan with backup step when settings exist', async () => {
+    it('should let the applier own backup creation when settings exist', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": { "EXISTING_VAR": "kept" } }');
 
@@ -117,7 +117,8 @@ describe('ClaudeCodeAdapter', () => {
 
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('claude-code');
-      expect(plan.steps.find(s => s.action === 'backup-file')).toBeDefined();
+      expect(plan.steps.find(s => s.action === 'backup-file')).toBeUndefined();
+      expect(plan.steps.find(s => s.action === 'edit-config-file')?.reversible).toBe(true);
     });
 
     it('should create a plan without backup step when settings do not exist', async () => {
