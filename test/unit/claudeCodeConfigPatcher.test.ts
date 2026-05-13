@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as pathModule from 'path';
+import * as path from 'path';
 import {
   buildClaudeCodeSettingsContent,
   getClaudeCodeSettingsPath,
@@ -45,25 +45,25 @@ describe('Claude Code Config Patcher', () => {
 
   describe('getClaudeCodeSettingsPath', () => {
     it('should return the shared Claude Code settings path', () => {
-      const path = getClaudeCodeSettingsPath();
+      const settingsPath = getClaudeCodeSettingsPath();
 
-      expect(path).toBe('/home/user/.claude/settings.json');
+      expect(settingsPath).toBe('/home/user/.claude/settings.json');
     });
 
     it('should respect CLAUDE_CONFIG_DIR when set', () => {
       process.env.CLAUDE_CONFIG_DIR = '~/custom-claude';
 
-      const path = getClaudeCodeSettingsPath();
+      const settingsPath = getClaudeCodeSettingsPath();
 
-      expect(path).toBe(pathModule.join('/home/user/custom-claude', 'settings.json'));
+      expect(settingsPath).toBe(path.join('/home/user/custom-claude', 'settings.json'));
     });
 
     it('should ignore unsafe CLAUDE_CONFIG_DIR values', () => {
       process.env.CLAUDE_CONFIG_DIR = '../unsafe';
 
-      const path = getClaudeCodeSettingsPath();
+      const settingsPath = getClaudeCodeSettingsPath();
 
-      expect(path).toBe('/home/user/.claude/settings.json');
+      expect(settingsPath).toBe('/home/user/.claude/settings.json');
     });
   });
 
