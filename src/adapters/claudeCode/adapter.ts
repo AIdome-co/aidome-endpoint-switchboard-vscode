@@ -45,17 +45,6 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     const updatedContent = buildClaudeCodeSettingsContent(profile, existingContent);
     let plan = createPlan(profile.id, ['claude-code']);
 
-    if (await fileExists(configPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Claude Code settings',
-        assistantKey: 'claude-code',
-        targetPath: configPath,
-        data: { configPath },
-        reversible: true
-      });
-    }
-
     plan = addStep(plan, {
       action: 'edit-config-file',
       description: 'Configure Claude Code gateway environment',

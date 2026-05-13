@@ -287,6 +287,8 @@
         "notes": [
           "Claude Code supports LLM gateways through shared ~/.claude/settings.json environment variables used by both the CLI and VS Code extension.",
           "This adapter writes ANTHROPIC_BASE_URL and enables gateway model discovery for Anthropic Messages-compatible gateways, then disables the VS Code login prompt for third-party provider setups.",
+          "OpenAI Chat Completions endpoints are not directly supported by Claude Code unless the gateway translates them to Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict.",
+          "Gateway model discovery requires Claude Code v2.1.129 or later, runs only for Anthropic Messages gateways, and only adds models whose IDs begin with claude or anthropic.",
           "Gateway authentication must use ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or apiKeyHelper from a secure environment source; the adapter does not write plaintext secrets to Claude Code settings.",
           "Tier B rather than A because credential injection cannot be fully automated without violating the extension SecretStorage invariant."
         ],

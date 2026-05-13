@@ -17,6 +17,9 @@ const {
   mockGetConfig,
   mockUpdateConfig,
   mockAppendLine,
+  mockAccess,
+  mockReadFile,
+  mockUnlink,
 } = vi.hoisted(() => ({
   mockSafeWriteFile: vi.fn().mockResolvedValue(true),
   mockCreateBackup: vi.fn().mockResolvedValue('/tmp/backup.json'),
@@ -24,6 +27,9 @@ const {
   mockGetConfig: vi.fn(),
   mockUpdateConfig: vi.fn().mockResolvedValue(undefined),
   mockAppendLine: vi.fn(),
+  mockAccess: vi.fn().mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' })),
+  mockReadFile: vi.fn().mockResolvedValue('{"existing":true}'),
+  mockUnlink: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../src/util/fsSafe', () => ({
@@ -33,6 +39,12 @@ vi.mock('../../../src/util/fsSafe', () => ({
 
 vi.mock('../../../src/ui/output', () => ({
   getOutputChannel: vi.fn(() => ({ appendLine: mockAppendLine, show: vi.fn(), clear: vi.fn() })),
+}));
+
+vi.mock('fs/promises', () => ({
+  access: mockAccess,
+  readFile: mockReadFile,
+  unlink: mockUnlink,
 }));
 
 vi.mock('../../../src/util/log', () => ({
@@ -106,6 +118,9 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     mockCreateBackup.mockResolvedValue('/tmp/backup.json');
     mockUpdateConfig.mockResolvedValue(undefined);
     mockRecordApply.mockResolvedValue(undefined);
+    mockAccess.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+    mockReadFile.mockResolvedValue('{"existing":true}');
+    mockUnlink.mockResolvedValue(undefined);
   });
 
   it('returns success=true when all steps succeed', async () => {
@@ -210,6 +225,103 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     const result = await applier.applyPlan(makePlan(steps), 'profile');
     expect(result.changeLogEntry).toBeDefined();
     expect(result.changeLogEntry.profileName).toBe('profile');
+  });
+
+  it('treats verify-endpoint as a non-mutating advisory step', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'verify-endpoint',
+      assistantKey: 'claude-code',
+      reversible: false,
+      data: { baseUrl: 'https://gateway.example.com/v1' },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(result.failedSteps).toHaveLength(0);
+    expect(mockRecordApply).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a Claude Code-style plan when verify-endpoint follows writes', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const steps = [
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'claude-code',
+        targetPath: '/home/user/.claude/settings.json',
+        newValue: '{ "env": { "ANTHROPIC_BASE_URL": "https://gateway.example.com/v1" } }',
+        data: { format: 'json' },
+      }),
+      makeStep({
+        action: 'set-vscode-setting',
+        assistantKey: 'claude-code',
+        targetPath: 'claudeCode.disableLoginPrompt',
+        newValue: true,
+        data: { scope: 'global' },
+      }),
+      makeStep({
+        action: 'show-guided-steps',
+        assistantKey: 'claude-code',
+        reversible: false,
+        data: { steps: ['Configure credentials securely'] },
+      }),
+      makeStep({
+        action: 'verify-endpoint',
+        assistantKey: 'claude-code',
+        reversible: false,
+        data: { baseUrl: 'https://gateway.example.com/v1' },
+      }),
+    ];
+
+    const result = await applier.applyPlan(makePlan(steps), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(result.appliedSteps).toHaveLength(4);
+    expect(result.failedSteps).toHaveLength(0);
+    expect(mockRecordApply).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back newly-created config files when a later step fails', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockUpdateConfig.mockRejectedValueOnce(new Error('later step failed'));
+    const steps = [
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'claude-code',
+        targetPath: '/home/user/.claude/settings.json',
+        newValue: '{ "env": { "ANTHROPIC_BASE_URL": "https://gateway.example.com/v1" } }',
+      }),
+      makeStep({
+        action: 'set-vscode-setting',
+        assistantKey: 'claude-code',
+        targetPath: 'claudeCode.disableLoginPrompt',
+        newValue: true,
+      }),
+    ];
+
+    const result = await applier.applyPlan(makePlan(steps), 'profile');
+
+    expect(result.success).toBe(false);
+    expect(mockUnlink).toHaveBeenCalledWith('/home/user/.claude/settings.json');
+    expect(mockRecordApply).not.toHaveBeenCalled();
+  });
+
+  it('does not write an existing config file when backup creation fails', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockResolvedValue(undefined);
+    mockCreateBackup.mockResolvedValueOnce(undefined);
+    const step = makeStep({
+      action: 'edit-config-file',
+      targetPath: '/home/user/.claude/settings.json',
+      newValue: '{}',
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(false);
+    expect(mockSafeWriteFile).not.toHaveBeenCalled();
+    expect(mockRecordApply).not.toHaveBeenCalled();
   });
 });
 

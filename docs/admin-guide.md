@@ -21,6 +21,7 @@
 | Roo Code | Tier A — auto-configure | Sets VS Code settings |
 | Kilo Code | Tier A — auto-configure | Sets VS Code settings |
 | Codex CLI | Tier A — auto-configure | Patches `~/.codex/config.toml` or env vars |
+| Claude Code | Tier B — config file + guided auth | Requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
 | CodeGPT | Tier B — verify after | May need manual model selection |
 | Others | Tier C — guided | Follow OutputChannel instructions |
 
@@ -108,6 +109,7 @@ All assistants point to the same gateway endpoint:
 - Base URL: `https://gateway.yourorg.com`
 - Dialect: `openai.chat_completions`
 - All Tier A assistants auto-configured
+- Claude Code additionally requires the gateway to expose Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict APIs; if your shared gateway is OpenAI-compatible only, publish an Anthropic-compatible front door or model alias for Claude Code.
 
 ### Pattern 2: Different Gateways by Team
 

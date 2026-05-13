@@ -15,6 +15,7 @@ export interface AppliedStep {
   oldValue: unknown;
   newValue: unknown;
   backupPath?: string;     // for file-based changes
+  createdFile?: boolean;   // true when rollback should delete a file created by apply
   timestamp: string;
 }
 

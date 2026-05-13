@@ -174,6 +174,10 @@ export class PlanApplier {
       case 'backup-file':
         await this.applyBackup(step, appliedStep);
         break;
+
+      case 'verify-endpoint':
+        await this.applyVerifyEndpoint(step);
+        break;
       
       default:
         throw new Error(`Unknown action: ${step.action}`);
@@ -215,17 +219,24 @@ export class PlanApplier {
     }
 
     // Create backup first if file exists
+    let fileExists = true;
     try {
       await fs.access(step.targetPath);
-      const backupPath = await createBackup(step.targetPath);
-      if (backupPath) {
-        appliedStep.backupPath = backupPath;
-        this.logger.info(`Created backup at ${backupPath}`);
-      } else {
-        this.logger.warning(`Failed to create backup for ${step.targetPath}`);
+    } catch (error) {
+      if (!isFileNotFoundError(error)) {
+        throw error;
       }
-    } catch {
-      // File doesn't exist, no backup needed
+      fileExists = false;
+      appliedStep.createdFile = true;
+    }
+
+    if (fileExists) {
+      const backupPath = await createBackup(step.targetPath);
+      if (!backupPath) {
+        throw new Error(`Failed to create backup for ${step.targetPath}`);
+      }
+      appliedStep.backupPath = backupPath;
+      this.logger.info(`Created backup at ${backupPath}`);
     }
 
     // Write new content
@@ -239,6 +250,15 @@ export class PlanApplier {
     }
 
     this.logger.info(`Updated config file ${step.targetPath}`);
+  }
+
+  /**
+   * Applies a non-mutating endpoint verification marker.
+   */
+  private async applyVerifyEndpoint(step: PlanStep): Promise<void> {
+    this.logger.info(
+      `[Applier] Deferred endpoint verification for "${step.assistantKey}" to the verifier command path`
+    );
   }
 
   /**
@@ -418,6 +438,16 @@ export class PlanApplier {
               this.logger.info(`Restored file from oldValue`);
             }
           }
+        } else if (step.createdFile) {
+          try {
+            await fs.unlink(step.target);
+            this.logger.info(`Removed newly created config file ${step.target}`);
+          } catch (error) {
+            if (!isFileNotFoundError(error)) {
+              throw error;
+            }
+            this.logger.info(`Newly created config file already absent: ${step.target}`);
+          }
         } else if (step.oldValue && typeof step.oldValue === 'string') {
           await safeWriteFile(step.target, step.oldValue);
           this.logger.info(`Restored file from oldValue`);
@@ -432,4 +462,11 @@ export class PlanApplier {
         break;
     }
   }
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'ENOENT';
 }
