@@ -319,28 +319,37 @@ export class Verifier {
       };
       
       const req = https.request(options, (res) => {
-        const cert = (res.socket as import('tls').TLSSocket).getPeerCertificate();
+        const socket = res.socket as import('tls').TLSSocket;
+        const cert = socket.getPeerCertificate();
+        const hasCertificateDetails = cert && Object.keys(cert).length > 0;
         req.destroy();
         
-        if (cert && cert.subject) {
+        if (socket.authorized || !tlsVerify) {
           const message = tlsVerify
             ? 'TLS certificate is valid'
             : 'TLS certificate accepted (verification disabled via settings)';
           resolve({
             name: 'tls-verification',
             status: tlsVerify ? 'passed' : 'warning',
-            message,
-            details: { issuer: cert.issuer?.O, validTo: cert.valid_to, tlsVerify },
+            message: hasCertificateDetails ? message : `${message} (certificate details unavailable)`,
+            details: {
+              ...(hasCertificateDetails ? { issuer: cert.issuer?.O, validTo: cert.valid_to } : {}),
+              authorized: socket.authorized,
+              authorizationError: socket.authorizationError || undefined,
+              tlsVerify
+            },
             duration: Date.now() - startTime
           });
-        } else {
-          resolve({
-            name: 'tls-verification',
-            status: 'warning',
-            message: 'Could not retrieve certificate details',
-            duration: Date.now() - startTime
-          });
+          return;
         }
+
+        resolve({
+          name: 'tls-verification',
+          status: 'warning',
+          message: 'Could not retrieve certificate details',
+          details: { authorizationError: socket.authorizationError || undefined, tlsVerify },
+          duration: Date.now() - startTime
+        });
       });
       
       req.on('error', (error: NodeJS.ErrnoException) => {
