@@ -7,9 +7,13 @@ import * as https from 'https';
 import { httpRequest, HttpError } from '../../util/http';
 import { EndpointProfile } from '../profiles/profileTypes';
 import { RemoteContext } from '../detection/detectRemote';
+import { getAuthHeadersForDialect } from '../dialects/authSchemes';
+import { Dialect } from '../dialects/dialectTypes';
+import { getDialectRule } from '../dialects/dialectRules';
 import { Logger } from '../../util/log';
 import { CircuitBreaker, withRetry } from '../../util/retry';
 import { getRuntimeSettings } from '../../config/runtimeSettings';
+import { joinApiPath } from '../../util/apiUrl';
 
 function formatTimeout(timeoutMs: number): string {
   return timeoutMs % 1_000 === 0 ? `${timeoutMs / 1_000}s` : `${timeoutMs}ms`;
@@ -114,6 +118,7 @@ export class Verifier {
     options?: {
       includeTestPrompt?: boolean;
       remoteContext?: RemoteContext;
+      authToken?: string;
     }
   ): Promise<VerificationReport> {
     const steps: VerificationStep[] = [];
@@ -152,6 +157,7 @@ export class Verifier {
     const url = new URL(profile.baseUrl);
     const isHttps = url.protocol === 'https:';
     const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    const authHeaders = this.getAuthHeaders(profile.dialect, options?.authToken);
     
     // Step 1: DNS Resolution
     const dnsStep = await this.stepDnsResolution(url.hostname, isLocalhost);
@@ -162,7 +168,7 @@ export class Verifier {
     steps.push(tlsStep);
     
     // Step 3: Endpoint Reachability
-    const reachabilityStep = await this.stepEndpointReachability(profile.baseUrl);
+    const reachabilityStep = await this.stepEndpointReachability(profile.baseUrl, authHeaders);
     steps.push(reachabilityStep);
     
     // If first 3 steps all failed, skip remaining steps
@@ -179,20 +185,20 @@ export class Verifier {
       actionableErrors.push('Cannot connect to endpoint. Check network, DNS, and firewall settings.');
     } else {
       // Step 4: Health Check (optional, don't fail on this)
-      const healthStep = await this.stepHealthCheck(profile.baseUrl);
+      const healthStep = await this.stepHealthCheck(profile.baseUrl, authHeaders);
       steps.push(healthStep);
       
       // Step 5: Model List (if dialect supports it)
-      const modelListStep = await this.stepModelList(profile.baseUrl, profile.dialect);
+      const modelListStep = await this.stepModelList(profile.baseUrl, profile.dialect, authHeaders);
       steps.push(modelListStep);
       
       // Step 6: Dialect Validation
-      const dialectStep = await this.stepDialectValidation(profile.baseUrl, profile.dialect);
+      const dialectStep = await this.stepDialectValidation(profile.baseUrl, profile.dialect, authHeaders);
       steps.push(dialectStep);
       
       // Step 7: Test Prompt (optional, only if explicitly requested)
       if (options?.includeTestPrompt) {
-        const testPromptStep = await this.stepTestPrompt(profile.baseUrl);
+        const testPromptStep = await this.stepTestPrompt(profile.baseUrl, authHeaders);
         steps.push(testPromptStep);
       } else {
         steps.push(this.createSkippedStep('test-prompt', 'Skipped — test prompt not requested'));
@@ -374,7 +380,10 @@ export class Verifier {
   /**
    * Step 3: Endpoint Reachability
    */
-  private async stepEndpointReachability(baseUrl: string): Promise<VerificationStep> {
+  private async stepEndpointReachability(
+    baseUrl: string,
+    headers: Record<string, string>
+  ): Promise<VerificationStep> {
     const startTime = Date.now();
     const { endpointReachabilityTimeoutMs } = getRuntimeSettings().verifier;
     
@@ -382,6 +391,7 @@ export class Verifier {
       const response = await withRetry(
         () => httpRequest(baseUrl, {
           method: 'GET',
+          headers,
           timeout: endpointReachabilityTimeoutMs
         }),
         {
@@ -438,16 +448,20 @@ export class Verifier {
   /**
    * Step 4: Health Check (optional)
    */
-  private async stepHealthCheck(baseUrl: string): Promise<VerificationStep> {
+  private async stepHealthCheck(
+    baseUrl: string,
+    headers: Record<string, string>
+  ): Promise<VerificationStep> {
     const startTime = Date.now();
     const healthEndpoints = ['/health', '/v1/health', '/healthz'];
     const { healthCheckTimeoutMs } = getRuntimeSettings().verifier;
     
     for (const endpoint of healthEndpoints) {
       try {
-        const healthUrl = `${baseUrl.replace(/\/$/, '')}${endpoint}`;
+        const healthUrl = joinApiPath(baseUrl, endpoint);
         const response = await httpRequest<{ status?: string }>(healthUrl, {
           method: 'GET',
+          headers,
           timeout: healthCheckTimeoutMs,
           retries: 0
         });
@@ -488,7 +502,11 @@ export class Verifier {
   /**
    * Step 5: Model List
    */
-  private async stepModelList(baseUrl: string, dialect: string): Promise<VerificationStep> {
+  private async stepModelList(
+    baseUrl: string,
+    dialect: Dialect,
+    headers: Record<string, string>
+  ): Promise<VerificationStep> {
     const startTime = Date.now();
     const { modelListTimeoutMs } = getRuntimeSettings().verifier;
     
@@ -502,9 +520,10 @@ export class Verifier {
     }
     
     try {
-      const modelsUrl = `${baseUrl.replace(/\/$/, '')}/v1/models`;
+      const modelsUrl = joinApiPath(baseUrl, '/v1/models');
       const response = await httpRequest<{ data?: unknown[] }>(modelsUrl, {
         method: 'GET',
+        headers,
         timeout: modelListTimeoutMs,
         retries: 1
       });
@@ -549,14 +568,67 @@ export class Verifier {
   /**
    * Step 6: Dialect Validation
    */
-  private async stepDialectValidation(baseUrl: string, expectedDialect: string): Promise<VerificationStep> {
+  private async stepDialectValidation(
+    baseUrl: string,
+    expectedDialect: Dialect,
+    headers: Record<string, string>
+  ): Promise<VerificationStep> {
     const startTime = Date.now();
     const { dialectValidationTimeoutMs } = getRuntimeSettings().verifier;
+    const rule = getDialectRule(expectedDialect);
+
+    if (rule.requiredEndpoints.length === 0) {
+      return {
+        name: 'dialect-validation',
+        status: 'skipped',
+        message: 'No endpoint probe available for this dialect',
+        duration: Date.now() - startTime
+      };
+    }
+
+    const requiredEndpoint = rule.requiredEndpoints[0];
+    const probe = await this.probeEndpoint(joinApiPath(baseUrl, requiredEndpoint), headers, dialectValidationTimeoutMs);
+
+    if (probe.exists) {
+      return {
+        name: 'dialect-validation',
+        status: 'passed',
+        message: `Validated dialect via ${requiredEndpoint} (HTTP ${probe.status})`,
+        details: { endpoint: requiredEndpoint, status: probe.status },
+        duration: Date.now() - startTime
+      };
+    }
+
+    if (probe.status === 404) {
+      const suggestedDialect = await this.detectAlternativeDialect(baseUrl, expectedDialect, headers, dialectValidationTimeoutMs);
+      if (suggestedDialect) {
+        return {
+          name: 'dialect-validation',
+          status: 'failed',
+          message: `Configured dialect ${expectedDialect} is not available at ${requiredEndpoint}; gateway appears to support ${suggestedDialect} instead.`,
+          details: {
+            endpoint: requiredEndpoint,
+            status: probe.status,
+            suggestedDialect
+          },
+          duration: Date.now() - startTime
+        };
+      }
+
+      return {
+        name: 'dialect-validation',
+        status: 'failed',
+        message: `Configured dialect ${expectedDialect} is not available at ${requiredEndpoint} (HTTP 404).`,
+        details: { endpoint: requiredEndpoint, status: probe.status },
+        duration: Date.now() - startTime
+      };
+    }
     
     try {
       // Try to detect dialect from response headers
       const response = await httpRequest(baseUrl, {
         method: 'GET',
+        headers,
         timeout: dialectValidationTimeoutMs,
         retries: 0
       });
@@ -588,8 +660,12 @@ export class Verifier {
       
       return {
         name: 'dialect-validation',
-        status: 'skipped',
-        message: 'Could not validate dialect (insufficient response data)',
+        status: 'warning',
+        message: `Dialect endpoint probe returned HTTP ${probe.status}, but base URL response did not provide a clear dialect signature.`,
+        details: {
+          endpoint: requiredEndpoint,
+          status: probe.status
+        },
         duration: Date.now() - startTime
       };
     } catch {
@@ -603,17 +679,87 @@ export class Verifier {
   }
 
   /**
+   * Probes an endpoint with a safe GET request to determine whether the route exists.
+   */
+  private async probeEndpoint(
+    url: string,
+    headers: Record<string, string>,
+    timeout: number
+  ): Promise<{ exists: boolean; status: number }> {
+    try {
+      const response = await httpRequest(url, {
+        method: 'GET',
+        headers,
+        timeout,
+        retries: 0
+      });
+
+      return { exists: true, status: response.status };
+    } catch (error) {
+      if (error instanceof HttpError) {
+        if (error.status === 404) {
+          return { exists: false, status: error.status };
+        }
+
+        // 400/401/403/405 still prove the endpoint exists; the request itself
+        // was simply rejected or requires a different method/body.
+        return { exists: true, status: error.status };
+      }
+
+      return { exists: false, status: 0 };
+    }
+  }
+
+  /**
+   * Looks for a likely alternative OpenAI-style dialect when the configured
+   * dialect endpoint is missing.
+   */
+  private async detectAlternativeDialect(
+    baseUrl: string,
+    expectedDialect: Dialect,
+    headers: Record<string, string>,
+    timeout: number
+  ): Promise<Dialect | undefined> {
+    const alternatives: Dialect[] = [];
+
+    if (expectedDialect === 'openai.responses') {
+      alternatives.push('openai.chat_completions');
+    } else if (expectedDialect === 'openai.chat_completions') {
+      alternatives.push('openai.responses');
+    }
+
+    for (const dialect of alternatives) {
+      const rule = getDialectRule(dialect);
+      const endpoint = rule.requiredEndpoints[0];
+      if (!endpoint) {
+        continue;
+      }
+
+      const probe = await this.probeEndpoint(joinApiPath(baseUrl, endpoint), headers, timeout);
+      if (probe.exists) {
+        return dialect;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Step 7: Test Prompt (optional)
    */
-  private async stepTestPrompt(baseUrl: string): Promise<VerificationStep> {
+  private async stepTestPrompt(
+    baseUrl: string,
+    headers: Record<string, string>
+  ): Promise<VerificationStep> {
     const startTime = Date.now();
     const { testPromptTimeoutMs } = getRuntimeSettings().verifier;
     
     try {
-      const chatUrl = `${baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+      const chatUrl = joinApiPath(baseUrl, '/v1/chat/completions');
       
       await httpRequest(chatUrl, {
         method: 'POST',
+        headers,
         timeout: testPromptTimeoutMs,
         retries: 0,
         body: {
@@ -691,10 +837,21 @@ export class Verifier {
   /**
    * Checks if a dialect supports model list endpoint.
    */
-  private supportsModelsList(dialect: string): boolean {
+  private supportsModelsList(dialect: Dialect): boolean {
     // Most OpenAI-compatible dialects support /v1/models
     const supportedDialects = ['openai.chat_completions', 'openai.responses', 'anthropic.messages'];
     return supportedDialects.includes(dialect.toLowerCase());
+  }
+
+  /**
+   * Builds auth headers for verification probes when a profile token is set.
+   */
+  private getAuthHeaders(dialect: Dialect, authToken?: string): Record<string, string> {
+    if (!authToken) {
+      return {};
+    }
+
+    return getAuthHeadersForDialect(dialect, authToken.trim());
   }
 
   /**
@@ -757,9 +914,12 @@ export class Verifier {
    * @param testPrompt Whether to run optional test prompt (default: false)
    * @returns Promise resolving to verification result
    */
-  async verifyEndpoint(profile: EndpointProfile, testPrompt = false): Promise<VerificationResult> {
+  async verifyEndpoint(profile: EndpointProfile, testPrompt = false, authToken?: string): Promise<VerificationResult> {
     // Run new pipeline and convert to legacy format
-    const report = await this.runVerificationPipeline(profile, { includeTestPrompt: testPrompt });
+    const report = await this.runVerificationPipeline(profile, {
+      includeTestPrompt: testPrompt,
+      authToken
+    });
     
     // Convert steps to checks
     const checks: VerificationCheck[] = report.steps.map(step => ({
