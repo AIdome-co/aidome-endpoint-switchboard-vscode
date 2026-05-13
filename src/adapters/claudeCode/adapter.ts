@@ -11,6 +11,7 @@ import { fileExists, readFileSafe, createBackup, writeFileAtomic } from '../../u
 import { Logger } from '../../util/log';
 import { buildClaudeCodeSettingsContent, getClaudeCodeSettingsPath } from './claudeCodeConfigPatcher';
 import { parseJsonc } from '../../util/jsonc';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 const CLAUDE_CODE_EXTENSION_ID = 'anthropic.claude-code';
 const CLAUDE_CODE_DISABLE_LOGIN_SETTING = 'claudeCode.disableLoginPrompt';
@@ -77,7 +78,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     const authGuidanceData = {
       message: 'Claude Code authentication must be supplied outside plaintext config',
       steps: [
-        'Claude Code will read ANTHROPIC_BASE_URL from ~/.claude/settings.json for both the CLI and VS Code extension.',
+        `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
         'Provide gateway credentials using a secure environment source such as ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or a Claude Code apiKeyHelper script.',
         'Do not paste API keys into repository files or shared project settings.',
         'Restart Claude Code or VS Code after updating credentials.'
@@ -160,6 +161,14 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         return {
           success: false,
           message: 'Claude Code settings do not have ANTHROPIC_BASE_URL configured',
+          details: { extension: !!extension, cli: cliDetected, configPath }
+        };
+      }
+
+      if (!validateUrl(baseUrl)) {
+        return {
+          success: false,
+          message: 'Claude Code settings have an invalid ANTHROPIC_BASE_URL',
           details: { extension: !!extension, cli: cliDetected, configPath }
         };
       }

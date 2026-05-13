@@ -3,11 +3,12 @@
  * Handles shared Claude Code settings JSON used by both the CLI and VS Code extension.
  */
 
+import * as path from 'path';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { expandTilde } from '../../util/paths';
-import { validateUrl } from '../../core/profiles/profileValidator';
+import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
@@ -19,7 +20,16 @@ interface ClaudeCodeSettings {
  * @returns Config file path
  */
 export function getClaudeCodeSettingsPath(): string {
-  return expandTilde('~/.claude/settings.json');
+  const defaultPath = expandTilde('~/.claude/settings.json');
+  const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
+  if (configDir) {
+    const expandedConfigDir = expandTilde(configDir);
+    if (validatePath(expandedConfigDir)) {
+      return path.join(expandedConfigDir, 'settings.json');
+    }
+  }
+
+  return defaultPath;
 }
 
 /**
@@ -65,7 +75,10 @@ export async function patchClaudeCodeConfig(
   }
 
   const updated = buildClaudeCodeSettingsContent(profile, content);
-  await writeFileAtomic(configPath, updated);
+  const success = await writeFileAtomic(configPath, updated);
+  if (!success) {
+    throw new Error(`Failed to write Claude Code settings to ${configPath}`);
+  }
 }
 
 function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
