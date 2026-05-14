@@ -73,10 +73,10 @@ vi.mock('vscode', () => ({
 
 // ChangeLog mock — we spy on recordApply to verify it's called correctly
 vi.mock('../../../src/core/orchestration/changeLog', () => ({
-  ChangeLog: vi.fn().mockImplementation(() => ({
-    recordApply: mockRecordApply,
-    getEntries: vi.fn().mockResolvedValue([]),
-  })),
+  ChangeLog: vi.fn().mockImplementation(class {
+    recordApply = mockRecordApply;
+    getEntries = vi.fn().mockResolvedValue([]);
+  }),
 }));
 
 import { PlanApplier } from '../../../src/core/orchestration/applier';
