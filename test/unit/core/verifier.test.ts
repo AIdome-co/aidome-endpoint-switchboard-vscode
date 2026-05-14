@@ -1,5 +1,6 @@
 /**
- * Unit tests for verifier auth propagation and versioned URL handling.
+ * Unit tests for verifier auth propagation, versioned URL handling, and
+ * dialect probe behavior.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -133,5 +134,50 @@ describe('Verifier', () => {
     expect(report.steps.find((step) => step.name === 'model-list')?.status).toBe('passed');
     expect(report.steps.find((step) => step.name === 'dialect-validation')?.status).toBe('failed');
     expect(report.steps.find((step) => step.name === 'dialect-validation')?.message).toContain('openai.chat_completions');
+  });
+
+  it('uses a POST probe for chat-completions dialect validation', async () => {
+    profile.dialect = 'openai.chat_completions';
+
+    httpRequestMock.mockImplementation(async (url: string, options?: { method?: string; body?: unknown; headers?: Record<string, string> }) => {
+      if (url === 'http://localhost:3000/v1') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: {}
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'anthropic/claude-sonnet-4-6' }] }
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/chat/completions') {
+        expect(options?.method).toBe('POST');
+        expect(options?.body).toEqual({});
+        expect(options?.headers).toMatchObject({
+          Authorization: 'Bearer aid_pat_test_token'
+        });
+
+        throw new MockHttpError(400, 'Bad Request', 'HTTP 400: Bad Request');
+      }
+
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'aid_pat_test_token'
+    });
+
+    expect(report.steps.find((step) => step.name === 'dialect-validation')).toMatchObject({
+      status: 'passed',
+      message: 'Validated dialect via /v1/chat/completions (HTTP 400)'
+    });
   });
 });

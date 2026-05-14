@@ -5,6 +5,7 @@
 import * as dns from 'dns/promises';
 import * as https from 'https';
 import { httpRequest, HttpError } from '../../util/http';
+import type { HttpRequestOptions } from '../../util/http';
 import { EndpointProfile } from '../profiles/profileTypes';
 import { RemoteContext } from '../detection/detectRemote';
 import { getAuthHeadersForDialect } from '../dialects/authSchemes';
@@ -57,6 +58,11 @@ export interface VerificationResult {
   status: 'success' | 'partial' | 'failed';
   checks: VerificationCheck[];
   actionableMessage: string;
+}
+
+interface DialectProbeRequest {
+  method: NonNullable<HttpRequestOptions['method']>;
+  body?: unknown;
 }
 
 /**
@@ -596,7 +602,13 @@ export class Verifier {
     }
 
     const requiredEndpoint = rule.requiredEndpoints[0];
-    const probe = await this.probeEndpoint(joinApiPath(baseUrl, requiredEndpoint), headers, dialectValidationTimeoutMs);
+    const probeRequest = this.getDialectProbeRequest(expectedDialect);
+    const probe = await this.probeEndpoint(
+      joinApiPath(baseUrl, requiredEndpoint),
+      headers,
+      dialectValidationTimeoutMs,
+      probeRequest
+    );
 
     if (probe.exists) {
       return {
@@ -688,17 +700,19 @@ export class Verifier {
   }
 
   /**
-   * Probes an endpoint with a safe GET request to determine whether the route exists.
+   * Probes an endpoint with a lightweight request to determine whether the route exists.
    */
   private async probeEndpoint(
     url: string,
     headers: Record<string, string>,
-    timeout: number
+    timeout: number,
+    request: DialectProbeRequest = { method: 'GET' }
   ): Promise<{ exists: boolean; status: number }> {
     try {
       const response = await httpRequest(url, {
-        method: 'GET',
+        method: request.method,
         headers,
+        body: request.body,
         timeout,
         retries: 0
       });
@@ -751,6 +765,30 @@ export class Verifier {
     }
 
     return undefined;
+  }
+
+  /**
+   * Chooses a lightweight probe shape that matches the endpoint's native
+   * request method. POST-based APIs are probed with an intentionally invalid
+   * empty JSON object so the server can reject the payload quickly without
+   * triggering a real completion.
+   */
+  private getDialectProbeRequest(dialect: Dialect): DialectProbeRequest {
+    switch (dialect) {
+      case 'openai.chat_completions':
+      case 'openai.responses':
+      case 'anthropic.messages':
+      case 'google.gemini.generate_content':
+      case 'github.copilot':
+      case 'tabnine.proprietary':
+        return {
+          method: 'POST',
+          body: {}
+        };
+
+      default:
+        return { method: 'GET' };
+    }
   }
 
   /**
