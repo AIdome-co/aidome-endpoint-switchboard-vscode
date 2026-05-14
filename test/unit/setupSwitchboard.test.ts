@@ -115,11 +115,11 @@ vi.mock('../../src/ui/wizard/renderResults', () => ({
 }));
 
 vi.mock('../../src/core/orchestration/switchboard', () => ({
-  Switchboard: vi.fn().mockImplementation(() => ({
-    detectAll: mockDetectAll,
-    buildPlan: mockBuildPlan,
-    applyPlan: mockApplyPlan,
-  })),
+  Switchboard: vi.fn().mockImplementation(class {
+    detectAll = mockDetectAll;
+    buildPlan = mockBuildPlan;
+    applyPlan = mockApplyPlan;
+  }),
 }));
 
 vi.mock('../../src/core/registry/registryLoader', () => ({
@@ -136,20 +136,20 @@ vi.mock('../../src/core/registry/registryLoader', () => ({
 }));
 
 vi.mock('../../src/core/profiles/profileStore', () => ({
-  ProfileStore: vi.fn().mockImplementation(() => ({
-    getProfiles: mockGetProfiles,
-    saveProfile: vi.fn(),
-    getAssistantMappings: vi.fn(async () => []),
-    setActiveProfile: vi.fn(),
-    saveAssistantMapping: vi.fn(),
-  })),
+  ProfileStore: vi.fn().mockImplementation(class {
+    getProfiles = mockGetProfiles;
+    saveProfile = vi.fn();
+    getAssistantMappings = vi.fn(async () => []);
+    setActiveProfile = vi.fn();
+    saveAssistantMapping = vi.fn();
+  }),
 }));
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
-  ProfileSecrets: vi.fn().mockImplementation(() => ({
-    storeSecret: vi.fn(),
-    getSecret: vi.fn(),
-  })),
+  ProfileSecrets: vi.fn().mockImplementation(class {
+    storeSecret = vi.fn();
+    getSecret = vi.fn();
+  }),
 }));
 
 import { setupSwitchboard } from '../../src/commands/setupSwitchboard';

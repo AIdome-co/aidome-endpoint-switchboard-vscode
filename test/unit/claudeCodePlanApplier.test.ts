@@ -86,10 +86,10 @@ vi.mock('../../src/util/log', () => ({
 }));
 
 vi.mock('../../src/core/orchestration/changeLog', () => ({
-  ChangeLog: vi.fn().mockImplementation(() => ({
-    recordApply: mockRecordApply,
-    getEntries: vi.fn().mockResolvedValue([]),
-  })),
+  ChangeLog: vi.fn().mockImplementation(class {
+    recordApply = mockRecordApply;
+    getEntries = vi.fn().mockResolvedValue([]);
+  }),
 }));
 
 import { ClaudeCodeAdapter } from '../../src/adapters/claudeCode/adapter';

@@ -4,6 +4,7 @@
 
 import { httpGet } from '../../util/http';
 import { Logger } from '../../util/log';
+import { joinApiPath } from '../../util/apiUrl';
 import { AIdomeCapabilities, AIdomeProvider, AIdomeModel, AIdomeWhoAmI, AIdomeError } from './types';
 
 /**
@@ -29,7 +30,7 @@ export async function getCapabilities(
   authToken?: string
 ): Promise<AIdomeCapabilities> {
   const logger = Logger.getInstance();
-  const url = `${baseUrl}${AIDOME_ENDPOINTS.CAPABILITIES}`;
+  const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.CAPABILITIES);
   
   try {
     logger.debug(`Fetching capabilities from ${baseUrl}`);
@@ -59,7 +60,7 @@ export async function getProviders(
   authToken?: string
 ): Promise<AIdomeProvider[]> {
   const logger = Logger.getInstance();
-  const url = `${baseUrl}${AIDOME_ENDPOINTS.PROVIDERS}`;
+  const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.PROVIDERS);
   
   try {
     logger.debug(`Fetching providers from ${baseUrl}`);
@@ -89,7 +90,7 @@ export async function getModels(
   authToken?: string
 ): Promise<AIdomeModel[]> {
   const logger = Logger.getInstance();
-  const url = `${baseUrl}${AIDOME_ENDPOINTS.MODELS}`;
+  const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.MODELS);
   
   try {
     logger.debug(`Fetching models from ${baseUrl}`);
@@ -119,7 +120,7 @@ export async function getWhoAmI(
   authToken?: string
 ): Promise<AIdomeWhoAmI> {
   const logger = Logger.getInstance();
-  const url = `${baseUrl}${AIDOME_ENDPOINTS.WHOAMI}`;
+  const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.WHOAMI);
   
   try {
     logger.debug(`Fetching WhoAmI from ${baseUrl}`);
