@@ -27,10 +27,26 @@ interface DialectQuickPickItem extends vscode.QuickPickItem {
  * Handles the manageProfiles command.
  * Opens the profile management interface with full CRUD operations.
  */
-export async function manageProfiles(context: vscode.ExtensionContext): Promise<void> {
+export async function manageProfiles(
+  context: vscode.ExtensionContext,
+  profileId?: string
+): Promise<void> {
   const logger = Logger.getInstance();
   
   try {
+    if (profileId) {
+      const profileStore = new ProfileStore(context);
+      const profiles = await profileStore.getProfiles();
+      const matchedProfile = profiles.find(profile => profile.id === profileId);
+
+      if (matchedProfile) {
+        await showProfileDetails(context, matchedProfile);
+        return;
+      }
+
+      logger.warning(`Requested profile ${profileId} was not found; opening main profile menu instead.`);
+    }
+
     await showMainMenu(context);
   } catch (error) {
     logger.error('Failed to manage profiles', error instanceof Error ? error : undefined);
@@ -105,6 +121,9 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const existingProfiles = await profileStore.getProfiles();
+  let completionNotification:
+    | { kind: 'success' | 'warning' | 'error'; message: string }
+    | undefined;
   
   // Step 1: Profile name
   const name = await vscode.window.showInputBox({
@@ -268,17 +287,37 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
       displayVerificationResults(report);
       
       if (report.overallStatus === 'passed') {
-        await showSuccess(`Profile "${profile.name}" created and verified successfully!`);
+        completionNotification = {
+          kind: 'success',
+          message: `Profile "${profile.name}" created and verified successfully!`
+        };
       } else if (report.overallStatus === 'partial') {
-        await showWarning(`Profile "${profile.name}" created with warnings. Check output for details.`);
+        completionNotification = {
+          kind: 'warning',
+          message: `Profile "${profile.name}" created with warnings. Check output for details.`
+        };
       } else {
-        await showError(`Profile "${profile.name}" created but verification failed. Check output for details.`);
+        completionNotification = {
+          kind: 'error',
+          message: `Profile "${profile.name}" created but verification failed. Check output for details.`
+        };
       }
     } catch (error) {
       logger.error('Verification failed', error instanceof Error ? error : undefined);
-      await showWarning(`Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`);
+      completionNotification = {
+        kind: 'warning',
+        message: `Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   });
+
+  if (completionNotification?.kind === 'success') {
+    await showSuccess(completionNotification.message);
+  } else if (completionNotification?.kind === 'warning') {
+    await showWarning(completionNotification.message);
+  } else if (completionNotification?.kind === 'error') {
+    await showError(completionNotification.message);
+  }
   
   // Return to main menu
   await showMainMenu(context);

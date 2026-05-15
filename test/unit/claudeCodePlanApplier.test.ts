@@ -99,7 +99,9 @@ import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 const profile: EndpointProfile = {
   id: 'claude-profile',
   name: 'Claude Profile',
+  profileType: 'custom',
   baseUrl: 'https://gateway.example.com/v1',
+  dialect: 'anthropic.messages',
   createdAt: '2026-05-13T00:00:00.000Z',
   updatedAt: '2026-05-13T00:00:00.000Z',
 };

@@ -400,7 +400,9 @@ describe('setupSwitchboard', () => {
     const profile: EndpointProfile = {
       id: 'profile-1',
       name: 'Gateway Profile',
+      profileType: 'custom',
       baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -464,7 +466,9 @@ describe('setupSwitchboard', () => {
     const profile: EndpointProfile = {
       id: 'profile-2',
       name: 'Gateway Profile',
+      profileType: 'custom',
       baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

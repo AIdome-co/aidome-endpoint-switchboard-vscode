@@ -153,9 +153,13 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         await profileStore.setActiveProfile(profile.id);
         updateStatusBar(profile.name);
         logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
+        const guidedAssistantCount = getGuidedAssistantCount(plan);
         const selectedAction = await showError(
           `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
-          `${failed.length} failed: ${failed.join(', ')}. Check the output channel for details.`,
+          `${failed.length} failed: ${failed.join(', ')}.` +
+          `${guidedAssistantCount > 0
+            ? ` Manual follow-up is open in the AIdome setup panel for ${guidedAssistantCount} assistant${guidedAssistantCount === 1 ? '' : 's'}.`
+            : ' Check the output channel for details.'}`,
           VIEW_OUTPUT_ACTION
         );
         await handleSetupAction(selectedAction);
@@ -200,7 +204,7 @@ async function showSetupSuccess(
     return await showWarning(
       `Successfully configured ${appliedAssistantCount} assistant(s) to use ${profileName}, ` +
       `but ${guidedAssistantCount} assistant${guidedAssistantCount === 1 ? '' : 's'} still ` +
-      `require manual follow-up in the output channel before verification.`,
+      `require manual follow-up in the AIdome Control Center before verification.`,
       VIEW_OUTPUT_ACTION,
       VERIFY_ROUTING_ACTION
     );

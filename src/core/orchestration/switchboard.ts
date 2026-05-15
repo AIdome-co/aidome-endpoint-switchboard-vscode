@@ -220,6 +220,32 @@ export class Switchboard {
   }
 
   /**
+   * Verifies a single configured profile.
+   * @param profileId The profile ID to verify
+   * @returns Promise resolving to verification result for that profile
+   */
+  async verifyProfile(profileId: string): Promise<VerificationResult> {
+    this.logger.info(`Verifying profile ${profileId}`);
+
+    const profiles = await this.profileStore.getProfiles();
+    const profile = profiles.find(item => item.id === profileId);
+
+    if (!profile) {
+      throw new Error(`Profile ${profileId} not found`);
+    }
+
+    const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
+    const result = await this.verifier.verifyEndpoint(profile, false, authToken);
+
+    if (result.status === 'success') {
+      profile.lastVerified = new Date().toISOString();
+      await this.profileStore.saveProfile(profile);
+    }
+
+    return result;
+  }
+
+  /**
    * Rolls back a configuration plan.
    * @param plan The plan to roll back
    */

@@ -84,6 +84,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         'Do not paste API keys into repository files or shared project settings.',
         'Restart Claude Code or VS Code after updating credentials.'
       ],
+      configPath,
       baseUrl: profile.baseUrl,
       tier: 'B',
       optional: false,
