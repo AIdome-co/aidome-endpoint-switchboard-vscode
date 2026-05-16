@@ -69,8 +69,16 @@ describe('Claude Code Config Patcher', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile);
       const parsed = JSON.parse(updated);
 
-      expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+      expect(parsed.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com');
       expect(parsed.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
+    });
+
+    it('should write ANTHROPIC_API_KEY when a profile secret is provided', () => {
+      const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, '  aid_pat_test  ');
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
+      expect(updated).not.toContain('ANTHROPIC_AUTH_TOKEN');
     });
 
     it('should preserve existing settings and env vars', () => {
@@ -84,7 +92,18 @@ describe('Claude Code Config Patcher', () => {
 
       expect(parsed.permissions.allow).toEqual(['Bash(git status)']);
       expect(parsed.env.EXISTING_VAR).toBe('kept');
-      expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+      expect(parsed.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com');
+    });
+
+    it('should clear an existing ANTHROPIC_API_KEY when the target profile has no secret', () => {
+      const existing = JSON.stringify({
+        env: { ANTHROPIC_API_KEY: 'existing-key' }
+      });
+
+      const updated = buildClaudeCodeSettingsContent(mockProfile, existing);
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBeUndefined();
     });
 
     it('should replace non-object env with a valid env object', () => {
@@ -92,7 +111,7 @@ describe('Claude Code Config Patcher', () => {
       const parsed = JSON.parse(updated);
 
       expect(parsed.env).toEqual({
-        ANTHROPIC_BASE_URL: mockProfile.baseUrl,
+        ANTHROPIC_BASE_URL: 'https://aidome.example.com',
         CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
       });
     });
@@ -101,14 +120,22 @@ describe('Claude Code Config Patcher', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile, 'not valid json');
       const parsed = JSON.parse(updated);
 
-      expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+      expect(parsed.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com');
     });
 
-    it('should not write plaintext auth tokens', () => {
+    it('should preserve non-versioned base URLs as-is', () => {
+      mockProfile.baseUrl = 'https://aidome.example.com/proxy/anthropic';
+
       const updated = buildClaudeCodeSettingsContent(mockProfile);
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com/proxy/anthropic');
+    });
+
+    it('should not write ANTHROPIC_AUTH_TOKEN into Claude settings', () => {
+      const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, 'aid_pat_test');
 
       expect(updated).not.toContain('ANTHROPIC_AUTH_TOKEN');
-      expect(updated).not.toContain('ANTHROPIC_API_KEY');
     });
 
     it('should reject unsafe endpoint URLs before writing settings', () => {
@@ -123,13 +150,14 @@ describe('Claude Code Config Patcher', () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": { "EXISTING_VAR": "kept" } }');
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
-      await patchClaudeCodeConfig(mockProfile, '/path/to/settings.json');
+      await patchClaudeCodeConfig(mockProfile, '/path/to/settings.json', 'aid_pat_test');
 
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       const parsed = JSON.parse(writtenContent);
       expect(parsed.env.EXISTING_VAR).toBe('kept');
-      expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+      expect(parsed.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com');
+      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
     });
 
 

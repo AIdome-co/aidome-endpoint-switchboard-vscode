@@ -109,8 +109,12 @@ export class Switchboard {
       }
 
       try {
+        const buildContext = assistantKey === 'claude-code'
+          ? { authSecret: await this.resolveProfileAuthSecret(profile) }
+          : undefined;
+
         // Build plan for this assistant
-        const assistantPlan = await adapter.buildPlan(profile);
+        const assistantPlan = await adapter.buildPlan(profile, buildContext);
         
         // Merge steps into main plan
         for (const step of assistantPlan.steps) {
@@ -192,7 +196,7 @@ export class Switchboard {
 
     for (const profile of profiles) {
       try {
-        const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
+        const authToken = await this.resolveProfileAuthSecret(profile);
         const result = await this.verifier.verifyEndpoint(profile, false, authToken);
         results[profile.id] = result;
         
@@ -234,7 +238,7 @@ export class Switchboard {
       throw new Error(`Profile ${profileId} not found`);
     }
 
-    const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
+    const authToken = await this.resolveProfileAuthSecret(profile);
     const result = await this.verifier.verifyEndpoint(profile, false, authToken);
 
     if (result.status === 'success') {
@@ -271,5 +275,22 @@ export class Switchboard {
       default:
         return 'settings';
     }
+  }
+
+  private async resolveProfileAuthSecret(profile: EndpointProfile): Promise<string | undefined> {
+    const refs = new Set(
+      [profile.authRef?.trim(), profile.name.trim()].filter(
+        (value): value is string => Boolean(value)
+      )
+    );
+
+    for (const ref of refs) {
+      const secret = await this.profileSecrets.getSecret(ref);
+      if (secret?.trim()) {
+        return secret.trim();
+      }
+    }
+
+    return undefined;
   }
 }

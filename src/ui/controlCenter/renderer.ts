@@ -354,6 +354,10 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
             vscode.postMessage({ type: 'select-profile', profileId: target.getAttribute('data-profile') });
             return;
           }
+          if (kind === 'activate-profile') {
+            vscode.postMessage({ type: 'activate-profile', profileId: target.getAttribute('data-profile') });
+            return;
+          }
           if (kind === 'copy') {
             vscode.postMessage({
               type: 'copy',
@@ -624,7 +628,7 @@ function renderProfilesPage(state: ControlCenterState): string {
         <div class="section-head">
           <div>
             <h3>Profiles</h3>
-            <p>Endpoint profiles are the product anchors for all assistant routing.</p>
+            <p>Endpoint profiles are the product anchors for all assistant routing. Click a profile to inspect it, then use Set Active in the detail panel.</p>
           </div>
           <button class="primary-button" data-kind="command" data-command="aidome-switchboard.manageProfiles">Manage Profiles</button>
         </div>
@@ -887,7 +891,10 @@ function renderProfileDetail(profile: ProfileSurfaceState): string {
         ${profile.assistantNames.length > 0 ? `<div class="chips" style="margin-top:8px;">${profile.assistantNames.map(name => `<span class="chip">${escapeHtml(name)}</span>`).join('')}</div>` : '<div class="empty-state" style="margin-top:10px;">No assistant mappings point at this profile yet.</div>'}
       </div>
       <div class="button-row">
-        <button class="primary-button" data-kind="command" data-command="aidome-switchboard.manageProfiles" data-command-arg="${escapeAttribute(profile.id)}">Manage Profile</button>
+        ${profile.isActive
+          ? '<span class="chip">Currently Active</span>'
+          : `<button class="primary-button" data-kind="activate-profile" data-profile="${escapeAttribute(profile.id)}">Set Active</button>`}
+        <button class="outline-button" data-kind="command" data-command="aidome-switchboard.manageProfiles" data-command-arg="${escapeAttribute(profile.id)}">Manage Profile</button>
         ${profile.profileType === 'aidome'
           ? `<button class="outline-button" data-kind="command" data-command="aidome-switchboard.showModelsProviders" data-command-arg="${escapeAttribute(profile.id)}">Show Models & Providers</button>
              <button class="outline-button" data-kind="command" data-command="aidome-switchboard.showModels" data-command-arg="${escapeAttribute(profile.id)}">Show Models</button>`

@@ -885,8 +885,10 @@ export class Verifier {
    * Checks if a dialect supports model list endpoint.
    */
   private supportsModelsList(dialect: Dialect): boolean {
-    // Most OpenAI-compatible dialects support /v1/models
-    const supportedDialects = ['openai.chat_completions', 'openai.responses', 'anthropic.messages'];
+    // Only check /v1/models for dialects where the inventory route is part of
+    // the normal compatibility surface. Anthropic-style runtimes can expose
+    // /v1/messages without also exposing a normalized model inventory route.
+    const supportedDialects = ['openai.chat_completions', 'openai.responses'];
     return supportedDialects.includes(dialect.toLowerCase());
   }
 

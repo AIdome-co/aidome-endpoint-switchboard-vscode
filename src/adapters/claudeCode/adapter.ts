@@ -3,7 +3,7 @@
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
+import { AssistantAdapter, AssistantBuildContext, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { detectCli } from '../../core/detection/detectCLIs';
@@ -40,10 +40,14 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     }
   }
 
-  async buildPlan(profile: EndpointProfile): Promise<Plan> {
+  async buildPlan(profile: EndpointProfile, context: AssistantBuildContext = {}): Promise<Plan> {
     const configPath = getClaudeCodeSettingsPath();
     const existingContent = await readFileSafe(configPath);
-    const updatedContent = buildClaudeCodeSettingsContent(profile, existingContent);
+    const authSecret = context.authSecret?.trim();
+    const updatedContent = buildClaudeCodeSettingsContent(profile, existingContent, authSecret);
+    const envVars = authSecret
+      ? ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY']
+      : ['ANTHROPIC_BASE_URL', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'];
     let plan = createPlan(profile.id, ['claude-code']);
 
     plan = addStep(plan, {
@@ -57,10 +61,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         profileId: profile.id,
         baseUrl: profile.baseUrl,
         format: 'json',
-        envVars: [
-          'ANTHROPIC_BASE_URL',
-          'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'
-        ]
+        envVars
       },
       reversible: true
     });
@@ -75,28 +76,29 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       reversible: true
     });
 
-    const authGuidanceData = {
-      message: 'Claude Code authentication must be supplied outside plaintext config',
-      steps: [
-        `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
-        'Use an Anthropic Messages-compatible gateway endpoint; raw OpenAI Chat Completions endpoints are not supported by Claude Code.',
-        'Provide gateway credentials using a secure environment source such as ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or a Claude Code apiKeyHelper script.',
-        'Do not paste API keys into repository files or shared project settings.',
-        'Restart Claude Code or VS Code after updating credentials.'
-      ],
-      configPath,
-      baseUrl: profile.baseUrl,
-      tier: 'B',
-      optional: false,
-      envVarName: 'ANTHROPIC_AUTH_TOKEN'
-    } satisfies GuidedStepsData;
-    plan = addStep(plan, {
-      action: 'show-guided-steps',
-      description: 'Configure Claude Code gateway authentication',
-      assistantKey: 'claude-code',
-      data: authGuidanceData,
-      reversible: false
-    });
+    if (!authSecret) {
+      const authGuidanceData = {
+        message: 'Claude Code profile has no stored gateway API key',
+        steps: [
+          `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
+          'Save a gateway API key on this profile to have AIdome write ANTHROPIC_API_KEY into Claude Code settings automatically, or set ANTHROPIC_API_KEY manually.',
+          'Use an Anthropic Messages-compatible gateway endpoint; raw OpenAI Chat Completions endpoints are not supported by Claude Code.',
+          'Restart Claude Code or VS Code after updating credentials.'
+        ],
+        configPath,
+        baseUrl: profile.baseUrl,
+        tier: 'B',
+        optional: false,
+        envVarName: 'ANTHROPIC_API_KEY'
+      } satisfies GuidedStepsData;
+      plan = addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Configure Claude Code gateway authentication',
+        assistantKey: 'claude-code',
+        data: authGuidanceData,
+        reversible: false
+      });
+    }
 
     plan = addStep(plan, {
       action: 'verify-endpoint',
@@ -183,6 +185,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
           cli: cliDetected,
           configPath,
           baseUrlConfigured: true,
+          apiKeyConfigured: typeof env.ANTHROPIC_API_KEY === 'string' && env.ANTHROPIC_API_KEY.trim().length > 0,
           gatewayModelDiscovery: env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY === '1'
         }
       };

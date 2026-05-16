@@ -14,6 +14,7 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showError, showSuccess, showWarning } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
+import { activateProfileAndReapplyMappings, getProfileActivationNotice } from './profileActivation';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -90,9 +91,9 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   if (profiles.length > 0) {
     items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
     items.push({
-      label: '$(star) Set Default Profile',
+      label: '$(star) Set Active Profile',
       description: '',
-      detail: 'Set the active default profile'
+      detail: 'Switch mapped assistants to a different active profile'
     });
   }
   
@@ -107,7 +108,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   if (selected.label.includes('Create New Profile')) {
     await createProfileFlow(context);
-  } else if (selected.label.includes('Set Default Profile')) {
+  } else if (selected.label.includes('Set Active Profile')) {
     await setDefaultProfile(context, profileStore, profiles);
   } else if ('profile' in selected) {
     await showProfileDetails(context, selected.profile);
@@ -808,8 +809,8 @@ async function setDefaultProfile(
   }));
   
   const selected = await vscode.window.showQuickPick(items, {
-    title: 'Set Default Profile',
-    placeHolder: 'Select the default active profile'
+    title: 'Set Active Profile',
+    placeHolder: 'Select the profile to apply to configured assistants'
   });
   
   if (!selected) {
@@ -817,11 +818,18 @@ async function setDefaultProfile(
     return;
   }
   
-  await profileStore.setActiveProfile(selected.profile.id);
-  updateStatusBar(selected.profile.name);
-  
-  await showSuccess(`Default profile set to "${selected.profile.name}"`);
-  logger.info(`Default profile set: ${selected.profile.name}`);
+  const activation = await activateProfileAndReapplyMappings(context, selected.profile.id);
+  const notice = getProfileActivationNotice(activation);
+
+  if (notice.kind === 'success') {
+    await showSuccess(notice.message);
+  } else if (notice.kind === 'warning') {
+    await showWarning(notice.message);
+  } else {
+    await showError(notice.message);
+  }
+
+  logger.info(`Profile activation requested from Manage Profiles: ${selected.profile.name}`);
   
   await showMainMenu(context);
 }

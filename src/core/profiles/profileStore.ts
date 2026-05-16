@@ -14,7 +14,14 @@ const MAPPINGS_KEY = 'aidome.switchboard.mappings';
  * Profile store for managing endpoint profiles.
  */
 export class ProfileStore {
+  private static readonly changeEmitter = new vscode.EventEmitter<void>();
+  static readonly onDidChange = ProfileStore.changeEmitter.event;
+
   constructor(private context: vscode.ExtensionContext) {}
+
+  private static fireDidChange(): void {
+    ProfileStore.changeEmitter.fire();
+  }
 
   /**
    * Gets all stored profiles.
@@ -81,6 +88,7 @@ export class ProfileStore {
     
     await this.context.globalState.update(PROFILES_KEY, profiles);
     await this.updateMetadata();
+    ProfileStore.fireDidChange();
   }
 
   /**
@@ -92,6 +100,7 @@ export class ProfileStore {
     const filtered = profiles.filter(p => p.id !== profileId);
     await this.context.globalState.update(PROFILES_KEY, filtered);
     await this.updateMetadata();
+    ProfileStore.fireDidChange();
   }
 
   /**
@@ -122,6 +131,7 @@ export class ProfileStore {
    */
   async setActiveProfile(profileId: string): Promise<void> {
     await this.updateMetadata(profileId);
+    ProfileStore.fireDidChange();
   }
 
   /**
@@ -147,6 +157,7 @@ export class ProfileStore {
     }
     
     await this.context.globalState.update(MAPPINGS_KEY, mappings);
+    ProfileStore.fireDidChange();
   }
 
   /**
@@ -177,5 +188,6 @@ export class ProfileStore {
     await this.context.globalState.update(PROFILES_KEY, undefined);
     await this.context.globalState.update(METADATA_KEY, undefined);
     await this.context.globalState.update(MAPPINGS_KEY, undefined);
+    ProfileStore.fireDidChange();
   }
 }
