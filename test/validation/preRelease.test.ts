@@ -45,22 +45,19 @@ describe('Pre-Release Validation', () => {
       
       const commands = packageJson.contributes?.commands || [];
       const commandIds = commands.map((c: any) => c.command);
-      
-      // Check that command files exist
-      const commandDir = path.join(ROOT_DIR, 'src/commands');
-      const commandFiles = fs.readdirSync(commandDir);
+      const extensionContent = fs.readFileSync(
+        path.join(ROOT_DIR, 'src/extension.ts'),
+        'utf-8'
+      );
       
       for (const cmd of commandIds) {
-        const cmdName = cmd.replace('aidome-switchboard.', '');
-        
-        // Special case for statusBarAction - handled in extension.ts
-        if (cmdName === 'statusBarAction') {
-          continue;
-        }
-        
-        // Check if command file exists
-        const expectedFile = `${cmdName}.ts`;
-        expect(commandFiles, `Missing handler for command: ${cmdName}`).toContain(expectedFile);
+        const escapedCommand = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const registrationPattern = new RegExp(`registerCommand\\(\\s*['\"]${escapedCommand}['\"]`);
+
+        expect(
+          extensionContent,
+          `Missing handler registration for command: ${cmd}`
+        ).toMatch(registrationPattern);
       }
     });
 

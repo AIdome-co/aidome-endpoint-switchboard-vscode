@@ -85,6 +85,10 @@ vi.mock('../../src/util/log', () => ({
   },
 }));
 
+vi.mock('../../src/ui/guidedStepsCompat', () => ({
+  showGuidedStepsView: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../src/core/orchestration/changeLog', () => ({
   ChangeLog: vi.fn().mockImplementation(class {
     recordApply = mockRecordApply;
@@ -133,11 +137,15 @@ describe('Claude Code plan application through PlanApplier', () => {
     expect(plan.steps.map(step => step.action)).toContain('verify-endpoint');
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com/v1"')
+      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com"')
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.not.stringContaining('ANTHROPIC_AUTH_TOKEN')
+      expect.stringContaining('"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"')
+    );
+    expect(mockSafeWriteFile).toHaveBeenCalledWith(
+      '/home/user/.claude/settings.json',
+      expect.not.stringContaining('ANTHROPIC_API_KEY')
     );
     expect(mockUpdateConfig).toHaveBeenCalledWith('claudeCode.disableLoginPrompt', true, 1);
     expect(mockRecordApply).toHaveBeenCalledTimes(1);

@@ -144,11 +144,11 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
           background: color-mix(in srgb, var(--vscode-textBlockQuote-background) 70%, transparent);
           color: var(--vscode-descriptionForeground);
         }
-        .status-pill.configured { background: color-mix(in srgb, #2ea043 24%, transparent); }
-        .status-pill.needs-manual { background: color-mix(in srgb, #d29922 24%, transparent); }
-        .status-pill.ready { background: color-mix(in srgb, #58a6ff 24%, transparent); }
-        .status-pill.info-only { background: color-mix(in srgb, #8b949e 26%, transparent); }
-        .status-pill.not-detected { background: color-mix(in srgb, #f85149 18%, transparent); }
+          .status-pill.configured { background: color-mix(in srgb, var(--vscode-terminal-ansiGreen) 24%, transparent); }
+          .status-pill.needs-manual { background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 24%, transparent); }
+          .status-pill.ready { background: color-mix(in srgb, var(--vscode-editorInfo-foreground) 24%, transparent); }
+          .status-pill.info-only { background: color-mix(in srgb, var(--vscode-descriptionForeground) 26%, transparent); }
+          .status-pill.not-detected { background: color-mix(in srgb, var(--vscode-editorError-foreground) 18%, transparent); }
         .header-actions,
         .button-row,
         .section-actions,
