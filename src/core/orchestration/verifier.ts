@@ -567,7 +567,16 @@ export class Verifier {
       let message = 'Failed to retrieve model list';
       
       if (error instanceof HttpError && error.status === 401) {
-        message = 'Could not retrieve models. Check authentication.';
+        const authFailure = this.extractGatewayAuthFailure(errorMsg);
+        if (authFailure?.code === 'missing_pat') {
+          message = 'Could not retrieve models. Gateway reports missing PAT authentication.';
+        } else if (authFailure?.code === 'pat_auth_failed') {
+          message = 'Could not retrieve models. Gateway rejected the PAT for this endpoint.';
+        } else if (authFailure?.message) {
+          message = `Could not retrieve models. ${authFailure.message}`;
+        } else {
+          message = 'Could not retrieve models. Check authentication.';
+        }
       }
       
       return {
@@ -577,6 +586,22 @@ export class Verifier {
         details: { error: errorMsg },
         duration: Date.now() - startTime
       };
+    }
+  }
+
+  private extractGatewayAuthFailure(errorMessage: string): { message?: string; code?: string } | undefined {
+    const jsonStart = errorMessage.indexOf('{');
+    if (jsonStart < 0) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(errorMessage.slice(jsonStart)) as {
+        error?: { message?: string; code?: string };
+      };
+      return parsed.error;
+    } catch {
+      return undefined;
     }
   }
 

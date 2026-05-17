@@ -225,4 +225,72 @@ describe('Verifier', () => {
       message: 'Validated dialect via /v1/messages (HTTP 422)'
     });
   });
+
+  it('surfaces missing_pat from the gateway on model-list failures', async () => {
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://localhost:3000/v1') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: {}
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/models') {
+        throw new MockHttpError(
+          401,
+          'Unauthorized',
+          'HTTP 401: Unauthorized\n{"error":{"message":"Missing PAT authentication. Include Authorization or x-api-key.","code":"missing_pat"}}'
+        );
+      }
+
+      if (url === 'http://localhost:3000/v1/responses') {
+        throw new MockHttpError(401, 'Unauthorized', 'HTTP 401: Unauthorized');
+      }
+
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile);
+
+    expect(report.steps.find((step) => step.name === 'model-list')).toMatchObject({
+      status: 'failed',
+      message: 'Could not retrieve models. Gateway reports missing PAT authentication.'
+    });
+  });
+
+  it('surfaces pat_auth_failed from the gateway on model-list failures', async () => {
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://localhost:3000/v1') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: {}
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/models') {
+        throw new MockHttpError(
+          401,
+          'Unauthorized',
+          'HTTP 401: Unauthorized\n{"error":{"message":"PAT authentication failed. Verify your token and try again.","code":"pat_auth_failed"}}'
+        );
+      }
+
+      if (url === 'http://localhost:3000/v1/responses') {
+        throw new MockHttpError(401, 'Unauthorized', 'HTTP 401: Unauthorized');
+      }
+
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile);
+
+    expect(report.steps.find((step) => step.name === 'model-list')).toMatchObject({
+      status: 'failed',
+      message: 'Could not retrieve models. Gateway rejected the PAT for this endpoint.'
+    });
+  });
 });
