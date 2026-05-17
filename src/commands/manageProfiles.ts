@@ -14,6 +14,7 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showError, showSuccess, showWarning } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
+import { activateProfileAndReapplyMappings, getProfileActivationNotice } from './profileActivation';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -27,10 +28,26 @@ interface DialectQuickPickItem extends vscode.QuickPickItem {
  * Handles the manageProfiles command.
  * Opens the profile management interface with full CRUD operations.
  */
-export async function manageProfiles(context: vscode.ExtensionContext): Promise<void> {
+export async function manageProfiles(
+  context: vscode.ExtensionContext,
+  profileId?: string
+): Promise<void> {
   const logger = Logger.getInstance();
   
   try {
+    if (profileId) {
+      const profileStore = new ProfileStore(context);
+      const profiles = await profileStore.getProfiles();
+      const matchedProfile = profiles.find(profile => profile.id === profileId);
+
+      if (matchedProfile) {
+        await showProfileDetails(context, matchedProfile);
+        return;
+      }
+
+      logger.warning(`Requested profile ${profileId} was not found; opening main profile menu instead.`);
+    }
+
     await showMainMenu(context);
   } catch (error) {
     logger.error('Failed to manage profiles', error instanceof Error ? error : undefined);
@@ -74,9 +91,9 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   if (profiles.length > 0) {
     items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
     items.push({
-      label: '$(star) Set Default Profile',
+      label: '$(star) Set Active Profile',
       description: '',
-      detail: 'Set the active default profile'
+      detail: 'Switch mapped assistants to a different active profile'
     });
   }
   
@@ -91,7 +108,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   if (selected.label.includes('Create New Profile')) {
     await createProfileFlow(context);
-  } else if (selected.label.includes('Set Default Profile')) {
+  } else if (selected.label.includes('Set Active Profile')) {
     await setDefaultProfile(context, profileStore, profiles);
   } else if ('profile' in selected) {
     await showProfileDetails(context, selected.profile);
@@ -105,6 +122,9 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const existingProfiles = await profileStore.getProfiles();
+  let completionNotification:
+    | { kind: 'success' | 'warning' | 'error'; message: string }
+    | undefined;
   
   // Step 1: Profile name
   const name = await vscode.window.showInputBox({
@@ -268,17 +288,37 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
       displayVerificationResults(report);
       
       if (report.overallStatus === 'passed') {
-        await showSuccess(`Profile "${profile.name}" created and verified successfully!`);
+        completionNotification = {
+          kind: 'success',
+          message: `Profile "${profile.name}" created and verified successfully!`
+        };
       } else if (report.overallStatus === 'partial') {
-        await showWarning(`Profile "${profile.name}" created with warnings. Check output for details.`);
+        completionNotification = {
+          kind: 'warning',
+          message: `Profile "${profile.name}" created with warnings. Check output for details.`
+        };
       } else {
-        await showError(`Profile "${profile.name}" created but verification failed. Check output for details.`);
+        completionNotification = {
+          kind: 'error',
+          message: `Profile "${profile.name}" created but verification failed. Check output for details.`
+        };
       }
     } catch (error) {
       logger.error('Verification failed', error instanceof Error ? error : undefined);
-      await showWarning(`Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`);
+      completionNotification = {
+        kind: 'warning',
+        message: `Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   });
+
+  if (completionNotification?.kind === 'success') {
+    await showSuccess(completionNotification.message);
+  } else if (completionNotification?.kind === 'warning') {
+    await showWarning(completionNotification.message);
+  } else if (completionNotification?.kind === 'error') {
+    await showError(completionNotification.message);
+  }
   
   // Return to main menu
   await showMainMenu(context);
@@ -769,8 +809,8 @@ async function setDefaultProfile(
   }));
   
   const selected = await vscode.window.showQuickPick(items, {
-    title: 'Set Default Profile',
-    placeHolder: 'Select the default active profile'
+    title: 'Set Active Profile',
+    placeHolder: 'Select the profile to apply to configured assistants'
   });
   
   if (!selected) {
@@ -778,11 +818,18 @@ async function setDefaultProfile(
     return;
   }
   
-  await profileStore.setActiveProfile(selected.profile.id);
-  updateStatusBar(selected.profile.name);
-  
-  await showSuccess(`Default profile set to "${selected.profile.name}"`);
-  logger.info(`Default profile set: ${selected.profile.name}`);
+  const activation = await activateProfileAndReapplyMappings(context, selected.profile.id);
+  const notice = getProfileActivationNotice(activation);
+
+  if (notice.kind === 'success') {
+    await showSuccess(notice.message);
+  } else if (notice.kind === 'warning') {
+    await showWarning(notice.message);
+  } else {
+    await showError(notice.message);
+  }
+
+  logger.info(`Profile activation requested from Manage Profiles: ${selected.profile.name}`);
   
   await showMainMenu(context);
 }

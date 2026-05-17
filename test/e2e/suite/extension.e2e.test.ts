@@ -17,9 +17,12 @@ const DECLARED_COMMANDS: readonly string[] = [
   'aidome-switchboard.setupSwitchboard',
   'aidome-switchboard.verifyRouting',
   'aidome-switchboard.showModelsProviders',
+  'aidome-switchboard.showModels',
   'aidome-switchboard.manageProfiles',
   'aidome-switchboard.resetSwitchboard',
-  'aidome-switchboard.exportDiagnostics'
+  'aidome-switchboard.exportDiagnostics',
+  'aidome-switchboard.openControlCenter',
+  'aidome-switchboard.openGuidedSetup'
 ];
 
 // `aidome-switchboard.statusBarAction` is registered programmatically during
