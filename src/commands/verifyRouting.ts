@@ -29,10 +29,10 @@ export async function verifyRouting(
     logger.info('Starting routing verification');
     
     const profileStore = new ProfileStore(context);
-    const activeProfile = await profileStore.getActiveProfile();
+    const profiles = await profileStore.getProfiles();
 
-    if (!activeProfile && !profileId) {
-      await showWarning('No active profile found. Please configure a profile first.', 'Setup');
+    if (profiles.length === 0) {
+      await showWarning('No profiles found. Please configure a profile first.', 'Setup');
       return;
     }
     

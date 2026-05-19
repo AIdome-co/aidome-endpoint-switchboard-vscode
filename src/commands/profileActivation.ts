@@ -5,7 +5,6 @@ import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { loadRegistry } from '../core/registry/registryLoader';
-import { updateStatusBar } from '../ui/statusBar';
 import { Logger } from '../util/log';
 
 const AUTOMATED_REAPPLY_ACTIONS = new Set<PlanStepAction>([
@@ -54,12 +53,14 @@ export async function activateProfileAndReapplyMappings(
   }
 
   const mappings = await profileStore.getAssistantMappings();
-  const mappedAssistantKeys = [...new Set(mappings.map(mapping => mapping.assistantKey))];
+  const mappedAssistantKeys = [...new Set(
+    mappings
+      .filter(mapping => mapping.profileId === profile.id)
+      .map(mapping => mapping.assistantKey)
+  )];
 
   if (mappedAssistantKeys.length === 0) {
-    await profileStore.setActiveProfile(profile.id);
-    updateStatusBar(profile.name);
-    logger.info(`Activated profile ${profile.name} with no configured assistants to reapply`);
+    logger.info(`Profile ${profile.name} has no assigned assistants to reapply`);
     return {
       status: 'active-only',
       profile,
@@ -73,11 +74,11 @@ export async function activateProfileAndReapplyMappings(
   return await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: `Switching assistants to ${profile.name}...`,
+      title: `Reapplying ${profile.name}...`,
       cancellable: false
     },
     async progress => {
-      progress.report({ message: `Preparing ${mappedAssistantKeys.length} mapped assistant(s)...` });
+      progress.report({ message: `Preparing ${mappedAssistantKeys.length} assigned assistant(s)...` });
 
       try {
         const registry = await loadRegistry();
@@ -89,10 +90,8 @@ export async function activateProfileAndReapplyMappings(
         const skippedAssistantKeys = mappedAssistantKeys.filter(key => !actionableAssistantKeys.includes(key));
 
         if (reapplyPlan.steps.length === 0) {
-          await profileStore.setActiveProfile(profile.id);
-          updateStatusBar(profile.name);
           logger.info(
-            `Activated profile ${profile.name} but no mapped assistants had automatic reapply steps: ${skippedAssistantKeys.join(', ') || 'none'}`
+            `Profile ${profile.name} has no automatic reapply steps for assigned assistants: ${skippedAssistantKeys.join(', ') || 'none'}`
           );
           return {
             status: 'active-only' as const,
@@ -104,7 +103,7 @@ export async function activateProfileAndReapplyMappings(
           };
         }
 
-        progress.report({ message: `Applying ${actionableAssistantKeys.length} assistant configuration(s)...` });
+        progress.report({ message: `Applying ${actionableAssistantKeys.length} assigned assistant configuration(s)...` });
 
         const applyResult = await switchboard.applyPlan(reapplyPlan);
         const failedAssistantKeys = [...applyResult.assistantResults.entries()]
@@ -113,9 +112,7 @@ export async function activateProfileAndReapplyMappings(
         const appliedAssistantKeys = actionableAssistantKeys.filter(key => !failedAssistantKeys.includes(key));
 
         if (applyResult.success) {
-          await profileStore.setActiveProfile(profile.id);
-          updateStatusBar(profile.name);
-          logger.info(`Activated profile ${profile.name} and reapplied ${appliedAssistantKeys.join(', ')}`);
+          logger.info(`Reapplied profile ${profile.name} to ${appliedAssistantKeys.join(', ')}`);
           return {
             status: 'success' as const,
             profile,
@@ -127,10 +124,8 @@ export async function activateProfileAndReapplyMappings(
         }
 
         if (appliedAssistantKeys.length > 0) {
-          await profileStore.setActiveProfile(profile.id);
-          updateStatusBar(profile.name);
           logger.warning(
-            `Activated profile ${profile.name} with partial assistant reapply success`,
+            `Reapplied profile ${profile.name} with partial assistant success`,
             undefined,
             {
               appliedAssistantKeys,
@@ -149,7 +144,7 @@ export async function activateProfileAndReapplyMappings(
         }
 
         logger.error(
-          `Failed to reapply mapped assistants for profile ${profile.name}`,
+          `Failed to reapply assigned assistants for profile ${profile.name}`,
           undefined,
           { failedAssistantKeys, skippedAssistantKeys }
         );
@@ -164,7 +159,7 @@ export async function activateProfileAndReapplyMappings(
         };
       } catch (error) {
         logger.error(
-          `Failed to activate profile ${profile.name}`,
+          `Failed to reapply profile ${profile.name}`,
           error instanceof Error ? error : undefined
         );
         return {
@@ -189,7 +184,7 @@ export function getProfileActivationNotice(
   if (result.status === 'failed') {
     return {
       kind: 'error',
-      message: result.errorMessage || `Failed to switch assistants to "${profileName}".`
+      message: result.errorMessage || `Failed to reapply "${profileName}" to its assigned assistants.`
     };
   }
 
@@ -197,13 +192,13 @@ export function getProfileActivationNotice(
     if (result.skippedAssistantKeys.length > 0) {
       return {
         kind: 'warning',
-        message: `Active profile set to "${profileName}", but these assistants require manual switching: ${result.skippedAssistantKeys.join(', ')}.`
+        message: `"${profileName}" is assigned only to manual-switch assistants: ${result.skippedAssistantKeys.join(', ')}.`
       };
     }
 
     return {
       kind: 'success',
-      message: `Active profile set to "${profileName}". No configured assistants needed reapplying.`
+      message: `"${profileName}" is not assigned to any automatically reconfigurable assistants.`
     };
   }
 
@@ -213,20 +208,20 @@ export function getProfileActivationNotice(
       : '';
     return {
       kind: 'warning',
-      message: `Active profile switched to "${profileName}". Reapplied ${result.appliedAssistantKeys.length} assistant(s), but ${result.failedAssistantKeys.length} failed.${skippedSuffix}`
+      message: `Reapplied "${profileName}" to ${result.appliedAssistantKeys.length} assigned assistant(s), but ${result.failedAssistantKeys.length} failed.${skippedSuffix}`
     };
   }
 
   if (result.skippedAssistantKeys.length > 0) {
     return {
       kind: 'warning',
-      message: `Active profile switched to "${profileName}". Reapplied ${result.appliedAssistantKeys.length} assistant(s). Manual-only assistants not updated automatically: ${result.skippedAssistantKeys.join(', ')}.`
+      message: `Reapplied "${profileName}" to ${result.appliedAssistantKeys.length} assigned assistant(s). Manual-only assistants not updated automatically: ${result.skippedAssistantKeys.join(', ')}.`
     };
   }
 
   return {
     kind: 'success',
-    message: `Active profile switched to "${profileName}". Reapplied ${result.appliedAssistantKeys.length} assistant(s).`
+    message: `Reapplied "${profileName}" to ${result.appliedAssistantKeys.length} assigned assistant(s).`
   };
 }
 

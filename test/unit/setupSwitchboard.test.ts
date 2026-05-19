@@ -18,6 +18,7 @@ const {
   mockShowQuickPick,
   mockShowInputBox,
   mockWindowShowInformationMessage,
+  mockWindowShowWarningMessage,
   mockLoggerInfo,
   mockLoggerWarning,
   mockLoggerError,
@@ -37,6 +38,7 @@ const {
   mockShowQuickPick: vi.fn(),
   mockShowInputBox: vi.fn(),
   mockWindowShowInformationMessage: vi.fn(),
+  mockWindowShowWarningMessage: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn(),
   mockLoggerError: vi.fn(),
@@ -56,11 +58,33 @@ const {
 
 // ---------- vscode mock ----------
 vi.mock('vscode', () => ({
+  EventEmitter: class<T> {
+    private listeners = new Set<(value: T) => void>();
+
+    event = (listener: (value: T) => void) => {
+      this.listeners.add(listener);
+      return {
+        dispose: () => {
+          this.listeners.delete(listener);
+        },
+      };
+    };
+
+    fire(value: T) {
+      for (const listener of this.listeners) {
+        listener(value);
+      }
+    }
+
+    dispose() {
+      this.listeners.clear();
+    }
+  },
   window: {
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
     showInformationMessage: mockWindowShowInformationMessage,
-    showWarningMessage: vi.fn(),
+    showWarningMessage: mockWindowShowWarningMessage,
     showErrorMessage: vi.fn(),
     createOutputChannel: vi.fn(() => ({
       appendLine: mockOutputAppendLine,
@@ -394,6 +418,30 @@ describe('setupSwitchboard', () => {
       expect.stringContaining('Failed to setup'),
       expect.anything()
     );
+  });
+
+  it('shows an actionable warning when setup is invoked while already running', async () => {
+    let resolveDetectAll: ((value: unknown) => void) | undefined;
+    mockDetectAll.mockImplementation(() => new Promise(resolve => {
+      resolveDetectAll = resolve;
+    }));
+
+    const firstRun = setupSwitchboard(makeContext());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockWindowShowWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Look for the AIdome Setup prompt at the top of VS Code')
+    );
+
+    resolveDetectAll?.({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockResolvedValueOnce(undefined);
+    await firstRun;
   });
 
   it('shows guided follow-up messaging and opens output when manual steps remain', async () => {

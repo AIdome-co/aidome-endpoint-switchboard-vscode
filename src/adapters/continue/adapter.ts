@@ -3,12 +3,13 @@
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
+import { AssistantAdapter, AssistantBuildContext, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { getContinueConfigPath } from './paths';
 import { readFileSafe } from '../../util/fsSafe';
 import { Logger } from '../../util/log';
+import { parseContinueConfigContent } from './continueConfigPatcher';
 
 /**
  * Continue.dev assistant adapter.
@@ -26,18 +27,9 @@ export class ContinueAdapter implements AssistantAdapter {
     }
   }
 
-  async buildPlan(profile: EndpointProfile): Promise<Plan> {
+  async buildPlan(profile: EndpointProfile, context?: AssistantBuildContext): Promise<Plan> {
     const configPath = getContinueConfigPath();
     let plan = createPlan(profile.id, ['continue']);
-
-    plan = addStep(plan, {
-      action: 'backup-file',
-      description: 'Backup Continue.dev config file',
-      assistantKey: 'continue',
-      targetPath: configPath,
-      data: { configPath },
-      reversible: true
-    });
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -45,10 +37,13 @@ export class ContinueAdapter implements AssistantAdapter {
       assistantKey: 'continue',
       targetPath: configPath,
       newValue: profile.baseUrl,
-      data: { 
-        configPath, 
+      data: {
+        configPath,
         profileId: profile.id,
-        baseUrl: profile.baseUrl 
+        baseUrl: profile.baseUrl,
+        dialect: profile.dialect,
+        authSecret: context?.authSecret,
+        format: configPath.endsWith('.yaml') ? 'yaml' : 'json'
       },
       reversible: true
     });
@@ -81,33 +76,31 @@ export class ContinueAdapter implements AssistantAdapter {
         };
       }
 
-      let config;
       try {
-        config = JSON.parse(content);
+        const config = parseContinueConfigContent(content, configPath);
+        const models = Array.isArray(config.models) ? config.models : [];
+        const hasApiBase = models.some((m: { apiBase?: string }) => m.apiBase);
+
+        if (!hasApiBase) {
+          return {
+            success: false,
+            message: 'Continue.dev config does not have apiBase set',
+            details: { configPath, models }
+          };
+        }
+
+        return {
+          success: true,
+          message: 'Continue.dev configuration verified',
+          details: { configPath, models }
+        };
       } catch {
         return {
           success: false,
-          message: 'Continue.dev config file is not valid JSON',
+          message: `Continue.dev config file is not valid ${configPath.endsWith('.yaml') ? 'YAML' : 'JSON'}`,
           details: { configPath }
         };
       }
-
-      const models = config.models || [];
-      const hasApiBase = models.some((m: { apiBase?: string }) => m.apiBase);
-
-      if (!hasApiBase) {
-        return {
-          success: false,
-          message: 'Continue.dev config does not have apiBase set',
-          details: { configPath, models }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Continue.dev configuration verified',
-        details: { configPath, models }
-      };
     } catch (error) {
       return {
         success: false,

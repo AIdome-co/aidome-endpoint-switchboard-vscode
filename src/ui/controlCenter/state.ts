@@ -7,6 +7,7 @@ import { loadRegistry } from '../../core/registry/registryLoader';
 import { AssistantEntry } from '../../core/registry/registryTypes';
 import { getRuntimeSettings } from '../../config/runtimeSettings';
 import { Logger } from '../../util/log';
+import { getSetupWizardState } from '../../commands/setupSwitchboard';
 import {
   AssistantSurfaceState,
   ChangeEntrySurfaceState,
@@ -37,7 +38,6 @@ export async function buildControlCenterState(
     detectCLIs(registry)
   ]);
   const detectedExtensions = detectExtensions(registry);
-  const activeProfile = await profileStore.getActiveProfile();
   const guidedSectionsByAssistant = getGuidedSectionsByAssistant();
   const page = normalizePage(preferences.page);
 
@@ -69,7 +69,7 @@ export async function buildControlCenterState(
   const profilesState = profiles
     .map(profile => {
       const assistantNames = mappings
-        .filter(mapping => mapping.profileName === profile.id || mapping.profileName === profile.name)
+        .filter(mapping => mapping.profileId === profile.id)
         .map(mapping => assistants.find(assistant => assistant.key === mapping.assistantKey)?.displayName || mapping.assistantKey);
 
       return {
@@ -78,21 +78,22 @@ export async function buildControlCenterState(
         baseUrl: profile.baseUrl,
         dialect: profile.dialect,
         profileType: profile.profileType,
-        isActive: activeProfile?.id === profile.id,
+        isInUse: assistantNames.length > 0,
         lastVerified: profile.lastVerified,
         assistantCount: assistantNames.length,
         assistantNames
       } satisfies ProfileSurfaceState;
     })
     .sort((left, right) => {
-      if (left.isActive && !right.isActive) {
+      if (left.isInUse && !right.isInUse) {
         return -1;
       }
-      if (!left.isActive && right.isActive) {
+      if (!left.isInUse && right.isInUse) {
         return 1;
       }
       return left.name.localeCompare(right.name);
     });
+  const inUseProfiles = profilesState.filter(profile => profile.isInUse);
 
   const manualAssistants = assistants.filter(assistant => assistant.guidedSections.length > 0);
   const guidedItems = manualAssistants.length > 0
@@ -103,8 +104,11 @@ export async function buildControlCenterState(
   const selectedAssistantKey = resolveAssistantSelection(preferences.selectedAssistantKey, assistants, guidedItems, page);
   const selectedAssistant = assistants.find(assistant => assistant.key === selectedAssistantKey);
   const selectedGuidedAssistant = guidedItems.find(assistant => assistant.key === selectedAssistantKey) || guidedItems[0];
-  const selectedProfileId = resolveProfileSelection(preferences.selectedProfileId, profilesState, activeProfile?.id);
+  const selectedProfileId = resolveProfileSelection(preferences.selectedProfileId, profilesState);
   const selectedProfile = profilesState.find(profile => profile.id === selectedProfileId) || profilesState[0];
+  const configuredAssistantCount = assistants.filter(assistant => assistant.status === 'configured').length;
+  const profileUsageSummary = summarizeProfileUsage(inUseProfiles);
+  const setupWizard = getSetupWizardState();
 
   const recentChanges: ChangeEntrySurfaceState[] = changeEntries
     .slice(-8)
@@ -125,15 +129,16 @@ export async function buildControlCenterState(
     selectedAssistantKey: selectedAssistant?.key,
     selectedProfileId: selectedProfile?.id,
     generatedAt: new Date().toISOString(),
-    activeProfileName: activeProfile?.name,
+    profileUsageSummary,
     navigation: buildNavigation(profilesState.length, assistants, manualAssistants.length, recentChanges.length),
     overview: {
       profileCount: profilesState.length,
       detectedAssistantCount: assistants.filter(assistant => assistant.detected).length,
-      configuredAssistantCount: assistants.filter(assistant => assistant.status === 'configured').length,
+      configuredAssistantCount,
       manualFollowUpCount: manualAssistants.length,
-      activeProfileName: activeProfile?.name,
-      activeProfileBaseUrl: activeProfile?.baseUrl,
+      profileUsageSummary,
+      mappedAssistantCount: configuredAssistantCount,
+      inUseProfiles,
       pendingAssistants: manualAssistants.slice(0, 5),
       configuredAssistants: assistants.filter(assistant => assistant.status === 'configured').slice(0, 6),
       detectedAssistants: assistants.filter(assistant => assistant.detected).slice(0, 6)
@@ -155,12 +160,12 @@ export async function buildControlCenterState(
       profiles: profilesState
     },
     models: {
-      activeProfile: activeProfile ? profilesState.find(profile => profile.id === activeProfile.id) : undefined,
-      note: activeProfile
-        ? activeProfile.profileType === 'aidome'
-          ? 'Models & Providers can query the active AIdome profile directly.'
-          : 'Models & Providers currently targets AIdome profiles. Switch to an AIdome profile or use Verify Routing for custom endpoints.'
-        : 'No active profile selected yet. Choose or create a profile before querying models and providers.'
+      selectedProfile,
+      note: selectedProfile
+        ? selectedProfile.profileType === 'aidome'
+          ? 'Models & Providers can query the selected AIdome profile directly.'
+          : 'Models & Providers currently target AIdome profiles. Select an AIdome profile or use Verify Routing for custom endpoints.'
+        : 'No profile selected yet. Choose or create a profile before querying models and providers.'
     },
     diagnostics: {
       recentLogs,
@@ -198,7 +203,8 @@ export async function buildControlCenterState(
           description: 'Maximum in-memory log entries retained for diagnostics.'
         }
       ]
-    }
+    },
+    setupWizard
   };
 }
 
@@ -206,13 +212,13 @@ function buildAssistantState(
   entry: AssistantEntry,
   detectedExtensions: Array<{ version: string; extensionId: string; isActive: boolean }>,
   detectedClis: Array<{ command: string; version?: string; path?: string }>,
-  mappings: Array<{ assistantKey: string; profileName: string; appliedMode: string }>,
+  mappings: Array<{ assistantKey: string; profileId: string; appliedMode?: string }>,
   profiles: Array<{ id: string; name: string }>,
   guidedSections: GuidedSection[]
 ): AssistantSurfaceState {
   const mapped = mappings.find(mapping => mapping.assistantKey === entry.key);
   const mappedProfile = mapped
-    ? profiles.find(profile => profile.id === mapped.profileName || profile.name === mapped.profileName)
+    ? profiles.find(profile => profile.id === mapped.profileId)
     : undefined;
   const detectionDetails: string[] = [
     ...detectedExtensions.map(extension => `${extension.extensionId} v${extension.version}${extension.isActive ? ' (active)' : ''}`),
@@ -283,18 +289,13 @@ function resolveAssistantSelection(
 
 function resolveProfileSelection(
   preferredId: string | undefined,
-  profiles: ProfileSurfaceState[],
-  activeProfileId?: string
+  profiles: ProfileSurfaceState[]
 ): string | undefined {
   if (preferredId && profiles.some(profile => profile.id === preferredId)) {
     return preferredId;
   }
 
-  if (activeProfileId && profiles.some(profile => profile.id === activeProfileId)) {
-    return activeProfileId;
-  }
-
-  return profiles[0]?.id;
+  return profiles.find(profile => profile.isInUse)?.id || profiles[0]?.id;
 }
 
 function buildNavigation(
@@ -357,4 +358,16 @@ function getStatusLabel(status: AssistantSurfaceState['status']): string {
     default:
       return 'Not detected';
   }
+}
+
+function summarizeProfileUsage(inUseProfiles: ProfileSurfaceState[]): string {
+  if (inUseProfiles.length === 0) {
+    return 'No profiles in use';
+  }
+
+  if (inUseProfiles.length === 1) {
+    return inUseProfiles[0].name;
+  }
+
+  return `${inUseProfiles.length} profiles in use`;
 }

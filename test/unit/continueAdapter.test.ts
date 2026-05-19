@@ -84,24 +84,28 @@ describe('ContinueAdapter', () => {
 
   describe('buildPlan', () => {
     it('should create config-file steps that set the Continue apiBase', async () => {
-      const plan = await adapter.buildPlan(mockProfile);
+      const plan = await adapter.buildPlan(mockProfile, { authSecret: 'aid_pat_test' });
 
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('continue');
-      expect(plan.steps).toHaveLength(3);
-
-      const backupStep = plan.steps.find(step => step.action === 'backup-file');
-      expect(backupStep).toBeDefined();
-      expect(backupStep?.targetPath).toBe('/tmp/continue/config.json');
+      expect(plan.steps).toHaveLength(2);
 
       const editStep = plan.steps.find(step => step.action === 'edit-config-file');
       expect(editStep).toBeDefined();
       expect(editStep?.newValue).toBe(mockProfile.baseUrl);
       expect(editStep?.data.baseUrl).toBe(mockProfile.baseUrl);
+      expect(editStep?.data.dialect).toBe(mockProfile.dialect);
+      expect(editStep?.data.authSecret).toBe('aid_pat_test');
 
       const verifyStep = plan.steps.find(step => step.action === 'verify-endpoint');
       expect(verifyStep).toBeDefined();
       expect(verifyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
+    });
+
+    it('does not emit an explicit backup step', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.find(step => step.action === 'backup-file')).toBeUndefined();
     });
   });
 
@@ -144,6 +148,22 @@ describe('ContinueAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('not valid JSON');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
+    });
+
+    it('should succeed when a YAML config defines model apiBase', async () => {
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue([
+        'models:',
+        '  - provider: openai',
+        '    model: gpt-4o-mini',
+        '    apiBase: https://aidome.example.com/v1',
+      ].join('\n'));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('verified');
+      expect(result.details?.configPath).toBe('/tmp/continue/config.yaml');
     });
 
     it('should fail when the Continue config omits the models array', async () => {

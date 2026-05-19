@@ -13,17 +13,20 @@ import { ControlCenterPageId, ControlCenterPreferences } from './types';
 import { ProfileStore } from '../../core/profiles/profileStore';
 import { showError, showSuccess, showWarning } from '../notifications';
 import { activateProfileAndReapplyMappings, getProfileActivationNotice } from '../../commands/profileActivation';
+import { onDidChangeSetupWizardState } from '../../commands/setupSwitchboard';
 
 let extensionContext: vscode.ExtensionContext | undefined;
 let controlCenterPanel: vscode.WebviewPanel | undefined;
 let controlCenterState: ControlCenterPreferences = { page: 'overview' };
 let profileChangeListenerRegistered = false;
+let setupWizardListenerRegistered = false;
+let configurationChangeListenerRegistered = false;
 
 type ControlCenterMessage =
   | { type: 'navigate'; page: ControlCenterPageId }
   | { type: 'select-assistant'; assistantKey: string }
   | { type: 'select-profile'; profileId: string }
-  | { type: 'activate-profile'; profileId: string }
+  | { type: 'reapply-profile'; profileId: string }
   | { type: 'copy'; value: string; label?: string }
   | { type: 'open-file'; path: string }
   | { type: 'run-command'; command: string; args?: string[] }
@@ -39,6 +42,22 @@ export function initializeControlCenter(context: vscode.ExtensionContext): void 
       void renderControlCenter();
     }));
     profileChangeListenerRegistered = true;
+  }
+
+  if (!setupWizardListenerRegistered) {
+    context.subscriptions.push(onDidChangeSetupWizardState(() => {
+      void renderControlCenter();
+    }));
+    setupWizardListenerRegistered = true;
+  }
+
+  if (!configurationChangeListenerRegistered) {
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('aidome-switchboard')) {
+        void renderControlCenter();
+      }
+    }));
+    configurationChangeListenerRegistered = true;
   }
 }
 
@@ -124,7 +143,7 @@ async function handleMessage(message: ControlCenterMessage): Promise<void> {
       await renderControlCenter();
       return;
 
-    case 'activate-profile':
+    case 'reapply-profile':
       if (!extensionContext) {
         return;
       }
@@ -162,6 +181,15 @@ async function handleMessage(message: ControlCenterMessage): Promise<void> {
     }
 
     case 'run-command':
+      if (message.command === 'aidome-switchboard.setupSwitchboard') {
+        void Promise.resolve(vscode.commands.executeCommand(message.command, ...(message.args || [])))
+          .finally(() => {
+            void renderControlCenter();
+          });
+        await renderControlCenter();
+        return;
+      }
+
       await vscode.commands.executeCommand(message.command, ...(message.args || []));
       await renderControlCenter();
       return;

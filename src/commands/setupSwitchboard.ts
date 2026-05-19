@@ -9,7 +9,6 @@ import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
-import { updateStatusBar } from '../ui/statusBar';
 import { getOutputChannel, showOutput, showPlan } from '../ui/output';
 import { renderDetectionSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
@@ -23,6 +22,19 @@ const VERIFY_ROUTING_ACTION = 'Verify Routing';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
+const setupWizardStateEmitter = new vscode.EventEmitter<SetupWizardState>();
+let setupWizardState: SetupWizardState = { isRunning: false };
+
+export interface SetupWizardState {
+  isRunning: boolean;
+  currentStep?: string;
+}
+
+export const onDidChangeSetupWizardState = setupWizardStateEmitter.event;
+
+export function getSetupWizardState(): SetupWizardState {
+  return setupWizardState;
+}
 
 /**
  * Handles the setupSwitchboard command.
@@ -33,11 +45,17 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   
   // Check if wizard is already running
   if (wizardRunning) {
-    vscode.window.showWarningMessage('Setup wizard is already running. Please wait for it to complete.');
+    const stepSuffix = setupWizardState.currentStep
+      ? ` Current step: ${setupWizardState.currentStep}.`
+      : '';
+    await vscode.window.showWarningMessage(
+      `Setup wizard is already running.${stepSuffix} Look for the AIdome Setup prompt at the top of VS Code or press Escape to cancel it.`
+    );
     return;
   }
   
   wizardRunning = true;
+  updateSetupWizardState({ isRunning: true, currentStep: 'Starting setup' });
   const wizardTimer = startTimer();
   
   try {
@@ -49,6 +67,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
     
     // Step 1/5 — Detection
+    updateSetupWizardState({ isRunning: true, currentStep: 'Detecting assistants' });
     logger.info('Setup wizard step 1/5: Detection');
     const detected = await withProgress(
       'Detecting installed assistants...',
@@ -85,6 +104,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     ];
 
     // Step 2/5 — Assistant selection
+    updateSetupWizardState({ isRunning: true, currentStep: 'Waiting for assistant selection' });
     logger.info('Setup wizard step 2/5: Assistant selection');
     const selectedAssistants = await selectAssistants(switchableKeys);
     if (!selectedAssistants || selectedAssistants.length === 0) {
@@ -93,6 +113,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     }
     
     // Step 3/5 — Profile selection
+    updateSetupWizardState({ isRunning: true, currentStep: 'Waiting for profile selection' });
     logger.info('Setup wizard step 3/5: Profile selection');
     const profile = await getOrCreateProfile(context, profileStore, profileSecrets);
     if (!profile) {
@@ -101,6 +122,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     }
     
     // Step 4/5 — Plan and apply
+    updateSetupWizardState({ isRunning: true, currentStep: 'Building configuration plan' });
     logger.info('Setup wizard step 4/5: Building and applying plan');
     const plan = await withProgress(
       'Building configuration plan...',
@@ -108,6 +130,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     );
     
     showPlan(plan);
+    updateSetupWizardState({ isRunning: true, currentStep: 'Waiting for apply confirmation' });
     
     const proceed = await vscode.window.showInformationMessage(
       `Configuration plan ready with ${plan.steps.length} steps. Review the plan in the output channel.\n\nProceed with configuration?`,
@@ -121,19 +144,18 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       return;
     }
     
+    updateSetupWizardState({ isRunning: true, currentStep: 'Applying configuration' });
     const result = await withProgress(
       'Applying configuration...',
       async () => await switchboard.applyPlan(plan)
     );
     
     // Step 5/5 — Verify and report
+    updateSetupWizardState({ isRunning: true, currentStep: 'Finalizing setup results' });
     logger.info('Setup wizard step 5/5: Reporting result');
     const elapsed = wizardTimer.stop();
 
     if (result.success) {
-      await profileStore.setActiveProfile(profile.id);
-      updateStatusBar(profile.name);
-      
       const selectedAction = await showSetupSuccess(plan, profile.name, result.appliedSteps.length);
       await handleSetupAction(selectedAction);
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
@@ -148,10 +170,6 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
 
       if (succeeded.length > 0) {
-        // At least some assistants were configured — activate the profile so
-        // the successfully configured ones start routing through it.
-        await profileStore.setActiveProfile(profile.id);
-        updateStatusBar(profile.name);
         logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
         const guidedAssistantCount = getGuidedAssistantCount(plan);
         const selectedAction = await showError(
@@ -191,7 +209,13 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   } finally {
     // Reset wizard running flag
     wizardRunning = false;
+    updateSetupWizardState({ isRunning: false });
   }
+}
+
+function updateSetupWizardState(nextState: SetupWizardState): void {
+  setupWizardState = nextState;
+  setupWizardStateEmitter.fire(setupWizardState);
 }
 
 async function showSetupSuccess(

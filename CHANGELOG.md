@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Added assistant-specific profile assignment, improved profile auth resolution and status updates, and expanded Continue configuration support to handle YAML and API key wiring.
+
 ## [1.2.0] - 2026-05-17
 
 ## [1.1.0] - 2026-05-14

@@ -5,10 +5,8 @@ const {
   mockWithProgress,
   mockGetProfiles,
   mockGetAssistantMappings,
-  mockSetActiveProfile,
   mockBuildPlan,
   mockApplyPlan,
-  mockUpdateStatusBar,
   mockLoggerInfo,
   mockLoggerWarning,
   mockLoggerError,
@@ -17,10 +15,8 @@ const {
   mockWithProgress: vi.fn(),
   mockGetProfiles: vi.fn(),
   mockGetAssistantMappings: vi.fn(),
-  mockSetActiveProfile: vi.fn(),
   mockBuildPlan: vi.fn(),
   mockApplyPlan: vi.fn(),
-  mockUpdateStatusBar: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn(),
   mockLoggerError: vi.fn(),
@@ -38,7 +34,6 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
   ProfileStore: vi.fn().mockImplementation(class {
     getProfiles = mockGetProfiles;
     getAssistantMappings = mockGetAssistantMappings;
-    setActiveProfile = mockSetActiveProfile;
   })
 }));
 
@@ -55,10 +50,6 @@ vi.mock('../../src/core/orchestration/switchboard', () => ({
 
 vi.mock('../../src/core/registry/registryLoader', () => ({
   loadRegistry: mockLoadRegistry
-}));
-
-vi.mock('../../src/ui/statusBar', () => ({
-  updateStatusBar: mockUpdateStatusBar
 }));
 
 vi.mock('../../src/util/log', () => ({
@@ -89,7 +80,6 @@ describe('activateProfileAndReapplyMappings', () => {
     mockWithProgress.mockImplementation(async (_options, task) => task({ report: vi.fn() }));
     mockLoadRegistry.mockResolvedValue({ assistants: [], dialectCatalog: {} });
     mockGetProfiles.mockResolvedValue([profile]);
-    mockSetActiveProfile.mockResolvedValue(undefined);
     mockApplyPlan.mockResolvedValue({
       success: true,
       appliedSteps: [],
@@ -103,7 +93,8 @@ describe('activateProfileAndReapplyMappings', () => {
     mockGetAssistantMappings.mockResolvedValue([
       {
         assistantKey: 'claude-code',
-        profileName: 'old-profile',
+        profileId: profile.id,
+        profileName: profile.name,
         appliedMode: 'settings',
         appliedAt: '2026-05-16T00:00:00.000Z'
       }
@@ -154,8 +145,6 @@ describe('activateProfileAndReapplyMappings', () => {
         ]
       })
     );
-    expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
-    expect(mockUpdateStatusBar).toHaveBeenCalledWith(profile.name);
     expect(result.status).toBe('success');
     expect(result.appliedAssistantKeys).toEqual(['claude-code']);
     expect(result.skippedAssistantKeys).toEqual([]);
@@ -168,8 +157,6 @@ describe('activateProfileAndReapplyMappings', () => {
 
     expect(mockBuildPlan).not.toHaveBeenCalled();
     expect(mockApplyPlan).not.toHaveBeenCalled();
-    expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
-    expect(mockUpdateStatusBar).toHaveBeenCalledWith(profile.name);
     expect(result.status).toBe('active-only');
     expect(result.appliedAssistantKeys).toEqual([]);
   });
@@ -178,7 +165,8 @@ describe('activateProfileAndReapplyMappings', () => {
     mockGetAssistantMappings.mockResolvedValue([
       {
         assistantKey: 'anythingllm',
-        profileName: 'old-profile',
+        profileId: profile.id,
+        profileName: profile.name,
         appliedMode: 'guided',
         appliedAt: '2026-05-16T00:00:00.000Z'
       }
@@ -204,7 +192,6 @@ describe('activateProfileAndReapplyMappings', () => {
     const result = await activateProfileAndReapplyMappings({} as any, profile.id);
 
     expect(mockApplyPlan).not.toHaveBeenCalled();
-    expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
     expect(result.status).toBe('active-only');
     expect(result.skippedAssistantKeys).toEqual(['anythingllm']);
   });

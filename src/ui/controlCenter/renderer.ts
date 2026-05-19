@@ -158,6 +158,13 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
         .outline-button { padding: 10px 14px; }
         .primary-button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
         .outline-button { background: transparent; border-color: color-mix(in srgb, var(--vscode-panel-border) 75%, transparent); }
+        .primary-button[disabled],
+        .outline-button[disabled] {
+          cursor: not-allowed;
+          opacity: 0.6;
+          background: color-mix(in srgb, var(--vscode-disabledForeground) 18%, transparent);
+          border-color: color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
+        }
         .sidebar-actions .primary-button,
         .sidebar-actions .outline-button {
           width: 100%;
@@ -322,9 +329,9 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
     <body>
       <div class="shell">
         <aside class="sidebar">
-          ${renderSidebar(state.navigation, state.page, state.activeProfileName)}
+          ${renderSidebar(state.navigation, state.page, state.profileUsageSummary, state.overview.configuredAssistantCount, state.setupWizard)}
           <div class="sidebar-actions">
-            <button class="primary-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup Wizard</button>
+            ${renderSetupButton(state.setupWizard, 'primary-button', 'Run Setup Wizard')}
             <button class="outline-button" data-kind="command" data-command="aidome-switchboard.verifyRouting">Verify Routing</button>
           </div>
         </aside>
@@ -354,8 +361,8 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
             vscode.postMessage({ type: 'select-profile', profileId: target.getAttribute('data-profile') });
             return;
           }
-          if (kind === 'activate-profile') {
-            vscode.postMessage({ type: 'activate-profile', profileId: target.getAttribute('data-profile') });
+          if (kind === 'reapply-profile') {
+            vscode.postMessage({ type: 'reapply-profile', profileId: target.getAttribute('data-profile') });
             return;
           }
           if (kind === 'copy') {
@@ -391,7 +398,9 @@ export function renderControlCenterHtml(state: ControlCenterState): string {
 function renderSidebar(
   navigation: ControlCenterNavigationItem[],
   currentPage: ControlCenterPageId,
-  activeProfileName?: string
+  profileUsageSummary: string,
+  configuredAssistantCount: number,
+  setupWizard: ControlCenterState['setupWizard']
 ): string {
   return `
     <div class="brand">
@@ -400,13 +409,14 @@ function renderSidebar(
       <p class="muted">Profiles, assistants, guided setup, verification, and diagnostics in one place.</p>
     </div>
     <div class="active-profile-card">
-      <div class="summary-label">Active profile</div>
+      <div class="summary-label">Profiles in use</div>
       <div class="sidebar-profile-row">
-        <div class="title-line">${escapeHtml(activeProfileName || 'No active profile')}</div>
-        <span class="badge">${activeProfileName ? 'Live' : 'None'}</span>
+        <div class="title-line">${escapeHtml(profileUsageSummary)}</div>
+        <span class="badge">${configuredAssistantCount > 0 ? configuredAssistantCount : 'None'}</span>
       </div>
-      <div class="meta">Managed from Profiles or Setup Wizard.</div>
+      <div class="meta">Assistant mappings define which profiles are currently in use.</div>
     </div>
+    ${setupWizard.isRunning ? `<div class="chip">Setup running: ${escapeHtml(setupWizard.currentStep || 'Working')}</div>` : ''}
     <nav class="nav">
       ${navigation.map(item => `
         <button class="nav-button ${item.id === currentPage ? 'active' : ''}" data-kind="navigate" data-page="${item.id}">
@@ -432,15 +442,16 @@ function renderHeader(
           <h2>${escapeHtml(pageTitle.title)}</h2>
           <p>${escapeHtml(pageTitle.description)}</p>
         </div>
-        ${renderHeaderActions(state.page)}
+        ${renderHeaderActions(state)}
       </div>
+      ${state.setupWizard.isRunning ? `<div class="chip">Setup wizard running: ${escapeHtml(state.setupWizard.currentStep || 'Working')}</div>` : ''}
       ${isOverview ? renderOverviewSummaryGrid(state) : ''}
     </section>
   `;
 }
 
-function renderHeaderActions(page: ControlCenterPageId): string {
-  switch (page) {
+function renderHeaderActions(state: ControlCenterState): string {
+  switch (state.page) {
     case 'profiles':
       return `
         <div class="header-actions">
@@ -451,14 +462,14 @@ function renderHeaderActions(page: ControlCenterPageId): string {
     case 'assistants':
       return `
         <div class="header-actions">
-          <button class="primary-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup</button>
+          ${renderSetupButton(state.setupWizard, 'primary-button', 'Run Setup')}
           <button class="outline-button" data-kind="command" data-command="aidome-switchboard.openGuidedSetup">Guided Setup</button>
         </div>
       `;
     case 'guided-setup':
       return `
         <div class="header-actions">
-          <button class="primary-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup Wizard</button>
+          ${renderSetupButton(state.setupWizard, 'primary-button', 'Run Setup Wizard')}
           <button class="outline-button" data-kind="command" data-command="aidome-switchboard.verifyRouting">Verify Routings</button>
         </div>
       `;
@@ -562,7 +573,7 @@ function renderOverviewPage(state: ControlCenterState): string {
         <div class="section-head">
           <div>
             <h3>Overview</h3>
-            <p>This page answers the basic product questions: what profile is active, which assistants are configured, and what still needs attention.</p>
+            <p>This page answers the basic product questions: which profiles are in use, which assistants are configured, and what still needs attention.</p>
           </div>
           <div class="button-row">
             <button class="primary-button" data-kind="navigate" data-page="guided-setup">Review Guided Setup</button>
@@ -571,14 +582,17 @@ function renderOverviewPage(state: ControlCenterState): string {
         </div>
         <div class="key-value-grid">
           <div class="key-value">
-            <strong>Active profile</strong>
-            <span>${escapeHtml(state.overview.activeProfileName || 'No active profile')}</span>
+            <strong>Profiles in use</strong>
+            <span>${escapeHtml(state.overview.profileUsageSummary)}</span>
           </div>
           <div class="key-value">
-            <strong>Endpoint</strong>
-            <span>${state.overview.activeProfileBaseUrl ? `<code>${escapeHtml(state.overview.activeProfileBaseUrl)}</code>` : 'No active endpoint'}</span>
+            <strong>Assigned assistants</strong>
+            <span>${state.overview.mappedAssistantCount}</span>
           </div>
         </div>
+        ${state.overview.inUseProfiles.length > 0
+          ? `<div class="chips" style="margin-top: 14px;">${state.overview.inUseProfiles.map(profile => `<span class="chip">${escapeHtml(profile.name)}</span>`).join('')}</div>`
+          : ''}
       </div>
       <div class="split-grid">
         <section class="content-card">
@@ -628,7 +642,7 @@ function renderProfilesPage(state: ControlCenterState): string {
         <div class="section-head">
           <div>
             <h3>Profiles</h3>
-            <p>Endpoint profiles are the product anchors for all assistant routing. Click a profile to inspect it, then use Set Active in the detail panel.</p>
+            <p>Endpoint profiles are the product anchors for assistant routing. Click a profile to inspect it, assign assistants to it, or reapply the assistants already using it.</p>
           </div>
           <button class="primary-button" data-kind="command" data-command="aidome-switchboard.manageProfiles">Manage Profiles</button>
         </div>
@@ -653,14 +667,14 @@ function renderAssistantsPage(state: ControlCenterState): string {
             <h3>Assistants</h3>
             <p>Every supported assistant, whether fully automated, guided, or informational.</p>
           </div>
-          <button class="outline-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup</button>
+          ${renderSetupButton(state.setupWizard, 'outline-button', 'Run Setup')}
         </div>
         <div class="stack">
           ${state.assistants.items.map(assistant => renderAssistantTile(assistant, 'assistants', assistant.key === state.selectedAssistantKey)).join('')}
         </div>
       </section>
       <section class="detail-card">
-        ${selected ? renderAssistantDetail(selected) : '<div class="empty-state">Select an assistant to inspect its detection, configuration mode, and next actions.</div>'}
+        ${selected ? renderAssistantDetail(selected, state.setupWizard) : '<div class="empty-state">Select an assistant to inspect its detection, configuration mode, and next actions.</div>'}
       </section>
     </section>
   `;
@@ -681,7 +695,7 @@ function renderGuidedSetupPage(state: ControlCenterState): string {
               ? 'No persisted manual tasks exist yet, so this page is showing preview assistants that demonstrate the guided workspace.'
               : 'Assistants still requiring manual follow-up after automation or partial automation.'}</p>
           </div>
-          <button class="outline-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup Wizard</button>
+          ${renderSetupButton(state.setupWizard, 'outline-button', 'Run Setup Wizard')}
         </div>
         <div class="stack">
           ${state.guidedSetup.items.map(assistant => renderAssistantTile(assistant, 'guided-setup', assistant.key === state.selectedAssistantKey)).join('')}
@@ -736,7 +750,7 @@ function renderModelsPage(state: ControlCenterState): string {
         <div class="section-head">
           <div>
             <h3>Models & Providers</h3>
-            <p>This page is the inventory surface for model and provider visibility through the current endpoint profile.</p>
+            <p>This page is the inventory surface for model and provider visibility through the selected endpoint profile.</p>
           </div>
           <div class="button-row">
             <button class="primary-button" data-kind="command" data-command="aidome-switchboard.showModelsProviders">Show Models & Providers</button>
@@ -745,16 +759,16 @@ function renderModelsPage(state: ControlCenterState): string {
         </div>
         <div class="key-value-grid">
           <div class="key-value">
-            <strong>Active profile</strong>
-            <span>${escapeHtml(state.models.activeProfile?.name || 'No active profile')}</span>
+            <strong>Selected profile</strong>
+            <span>${escapeHtml(state.models.selectedProfile?.name || 'No profile selected')}</span>
           </div>
           <div class="key-value">
             <strong>Profile type</strong>
-            <span>${escapeHtml(state.models.activeProfile?.profileType || 'N/A')}</span>
+            <span>${escapeHtml(state.models.selectedProfile?.profileType || 'N/A')}</span>
           </div>
           <div class="key-value">
             <strong>Base URL</strong>
-            <span>${state.models.activeProfile ? `<code>${escapeHtml(state.models.activeProfile.baseUrl)}</code>` : 'N/A'}</span>
+            <span>${state.models.selectedProfile ? `<code>${escapeHtml(state.models.selectedProfile.baseUrl)}</code>` : 'N/A'}</span>
           </div>
         </div>
         <p class="muted">${escapeHtml(state.models.note)}</p>
@@ -859,7 +873,7 @@ function renderProfileTile(profile: ProfileSurfaceState, selected: boolean): str
     <button class="profile-tile ${selected ? 'active' : ''}" data-kind="profile" data-profile="${escapeAttribute(profile.id)}">
       <div class="row">
         <span class="title-line">${escapeHtml(profile.name)}</span>
-        ${profile.isActive ? '<span class="badge">Active</span>' : ''}
+        ${profile.isInUse ? '<span class="badge">In Use</span>' : ''}
       </div>
       <div class="meta">${escapeHtml(profile.dialect)} · ${escapeHtml(profile.profileType)}</div>
       <div class="meta">${profile.assistantCount} mapped assistant${profile.assistantCount === 1 ? '' : 's'}</div>
@@ -876,7 +890,7 @@ function renderProfileDetail(profile: ProfileSurfaceState): string {
           <p>Profile detail is the anchor for endpoint, dialect, and assignment state.</p>
         </div>
         <div class="chips">
-          ${profile.isActive ? '<span class="badge">Active</span>' : ''}
+          ${profile.isInUse ? '<span class="badge">In Use</span>' : ''}
           <span class="chip">${escapeHtml(profile.dialect)}</span>
           <span class="chip">${escapeHtml(profile.profileType)}</span>
         </div>
@@ -891,9 +905,10 @@ function renderProfileDetail(profile: ProfileSurfaceState): string {
         ${profile.assistantNames.length > 0 ? `<div class="chips" style="margin-top:8px;">${profile.assistantNames.map(name => `<span class="chip">${escapeHtml(name)}</span>`).join('')}</div>` : '<div class="empty-state" style="margin-top:10px;">No assistant mappings point at this profile yet.</div>'}
       </div>
       <div class="button-row">
-        ${profile.isActive
-          ? '<span class="chip">Currently Active</span>'
-          : `<button class="primary-button" data-kind="activate-profile" data-profile="${escapeAttribute(profile.id)}">Set Active</button>`}
+        <button class="primary-button" data-kind="command" data-command="aidome-switchboard.assignProfileAssistants" data-command-arg="${escapeAttribute(profile.id)}">Assign Assistants</button>
+        ${profile.assistantCount > 0
+          ? `<button class="outline-button" data-kind="reapply-profile" data-profile="${escapeAttribute(profile.id)}">Reapply Assigned Assistants</button>`
+          : '<span class="chip">No assigned assistants yet</span>'}
         <button class="outline-button" data-kind="command" data-command="aidome-switchboard.manageProfiles" data-command-arg="${escapeAttribute(profile.id)}">Manage Profile</button>
         ${profile.profileType === 'aidome'
           ? `<button class="outline-button" data-kind="command" data-command="aidome-switchboard.showModelsProviders" data-command-arg="${escapeAttribute(profile.id)}">Show Models & Providers</button>
@@ -935,7 +950,10 @@ function renderCompactAssistantCard(assistant: AssistantSurfaceState): string {
   `;
 }
 
-function renderAssistantDetail(assistant: AssistantSurfaceState): string {
+function renderAssistantDetail(
+  assistant: AssistantSurfaceState,
+  setupWizard: ControlCenterState['setupWizard']
+): string {
   return `
     <div class="stack">
       <div class="section-head">
@@ -984,11 +1002,27 @@ function renderAssistantDetail(assistant: AssistantSurfaceState): string {
       </section>
       <div class="button-row">
         <button class="primary-button" data-kind="navigate" data-page="guided-setup">Open Guided Setup</button>
-        <button class="outline-button" data-kind="command" data-command="aidome-switchboard.setupSwitchboard">Run Setup</button>
+        ${renderSetupButton(setupWizard, 'outline-button', 'Run Setup')}
         <button class="outline-button" data-kind="command" data-command="aidome-switchboard.verifyRouting">Verify Routing</button>
       </div>
     </div>
   `;
+}
+
+function renderSetupButton(
+  setupWizard: ControlCenterState['setupWizard'],
+  className: 'primary-button' | 'outline-button',
+  label: string
+): string {
+  const title = setupWizard.isRunning
+    ? `Setup is already running${setupWizard.currentStep ? `: ${setupWizard.currentStep}` : ''}`
+    : label;
+
+  if (setupWizard.isRunning) {
+    return `<button class="${className}" disabled title="${escapeAttribute(title)}">Setup Running...</button>`;
+  }
+
+  return `<button class="${className}" data-kind="command" data-command="aidome-switchboard.setupSwitchboard" title="${escapeAttribute(title)}">${escapeHtml(label)}</button>`;
 }
 
 function renderGuidedSection(section: GuidedSection): string {
@@ -1025,7 +1059,7 @@ function renderVerificationCard(profile: ProfileSurfaceState): string {
     <div class="content-card">
       <div class="row">
         <strong>${escapeHtml(profile.name)}</strong>
-        ${profile.isActive ? '<span class="badge">Active</span>' : ''}
+        ${profile.isInUse ? '<span class="badge">In Use</span>' : ''}
       </div>
       <div class="meta">${escapeHtml(profile.dialect)} · ${escapeHtml(profile.profileType)}</div>
       <div class="meta">${profile.lastVerified ? `Last verified ${escapeHtml(formatDate(profile.lastVerified))}` : 'Not yet verified from the current profile history'}</div>
@@ -1070,7 +1104,7 @@ function pageTitleFor(page: ControlCenterPageId): { kicker: string; title: strin
       return {
         kicker: 'Profiles',
         title: 'Endpoint profiles as first-class objects',
-        description: 'Profiles anchor the rest of the product. Each profile captures the base URL, dialect, active state, and assistant assignments.'
+        description: 'Profiles anchor the rest of the product. Each profile captures the base URL, dialect, usage state, and assistant assignments.'
       };
     case 'assistants':
       return {
@@ -1093,8 +1127,8 @@ function pageTitleFor(page: ControlCenterPageId): { kicker: string; title: strin
     case 'models':
       return {
         kicker: 'Models & Providers',
-        title: 'Inventory surface for the active endpoint',
-        description: 'Use this area to inspect the provider inventory and model visibility for the active profile.'
+        title: 'Inventory surface for the selected endpoint',
+        description: 'Use this area to inspect the provider inventory and model visibility for the selected profile.'
       };
     case 'diagnostics':
       return {

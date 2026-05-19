@@ -17,6 +17,13 @@ export class ProfileStore {
   private static readonly changeEmitter = new vscode.EventEmitter<void>();
   static readonly onDidChange = ProfileStore.changeEmitter.event;
 
+  private static readonly VALID_APPLIED_MODES = new Set<NonNullable<AssistantMapping['appliedMode']>>([
+    'settings',
+    'configFile',
+    'env',
+    'guided'
+  ]);
+
   constructor(private context: vscode.ExtensionContext) {}
 
   private static fireDidChange(): void {
@@ -98,8 +105,13 @@ export class ProfileStore {
   async deleteProfile(profileId: string): Promise<void> {
     const profiles = await this.getProfiles();
     const filtered = profiles.filter(p => p.id !== profileId);
+    const mappings = await this.getAssistantMappings();
+    const remainingMappings = mappings.filter(mapping => mapping.profileId !== profileId);
+    const activeProfileId = await this.getActiveProfileId();
+
     await this.context.globalState.update(PROFILES_KEY, filtered);
-    await this.updateMetadata();
+    await this.context.globalState.update(MAPPINGS_KEY, remainingMappings);
+    await this.updateMetadata({ clearActiveProfile: activeProfileId === profileId });
     ProfileStore.fireDidChange();
   }
 
@@ -130,7 +142,7 @@ export class ProfileStore {
    * @param profileId The profile ID to activate
    */
   async setActiveProfile(profileId: string): Promise<void> {
-    await this.updateMetadata(profileId);
+    await this.updateMetadata({ activeProfileId: profileId });
     ProfileStore.fireDidChange();
   }
 
@@ -139,7 +151,23 @@ export class ProfileStore {
    * @returns Promise resolving to array of mappings
    */
   async getAssistantMappings(): Promise<AssistantMapping[]> {
-    return this.context.globalState.get<AssistantMapping[]>(MAPPINGS_KEY, []);
+    const profiles = await this.getProfiles();
+    const storedMappings = this.context.globalState.get<unknown[]>(MAPPINGS_KEY, []);
+
+    if (!Array.isArray(storedMappings)) {
+      await this.context.globalState.update(MAPPINGS_KEY, []);
+      return [];
+    }
+
+    const normalizedMappings = storedMappings
+      .map(mapping => this.normalizeStoredAssistantMapping(mapping, profiles))
+      .filter((mapping): mapping is AssistantMapping => Boolean(mapping));
+
+    if (!this.areMappingsEqual(storedMappings, normalizedMappings)) {
+      await this.context.globalState.update(MAPPINGS_KEY, normalizedMappings);
+    }
+
+    return normalizedMappings;
   }
 
   /**
@@ -147,16 +175,50 @@ export class ProfileStore {
    * @param mapping The mapping to save
    */
   async saveAssistantMapping(mapping: AssistantMapping): Promise<void> {
+    const profiles = await this.getProfiles();
+    const normalizedMapping = this.normalizeAssistantMappingForSave(mapping, profiles);
     const mappings = await this.getAssistantMappings();
-    const index = mappings.findIndex(m => m.assistantKey === mapping.assistantKey);
+    const index = mappings.findIndex(m => m.assistantKey === normalizedMapping.assistantKey);
     
     if (index >= 0) {
-      mappings[index] = mapping;
+      mappings[index] = normalizedMapping;
     } else {
-      mappings.push(mapping);
+      mappings.push(normalizedMapping);
     }
     
     await this.context.globalState.update(MAPPINGS_KEY, mappings);
+    ProfileStore.fireDidChange();
+  }
+
+  /**
+   * Deletes a single assistant mapping.
+   * @param assistantKey The assistant key to clear
+   */
+  async deleteAssistantMapping(assistantKey: string): Promise<void> {
+    const mappings = await this.getAssistantMappings();
+    const filtered = mappings.filter(mapping => mapping.assistantKey !== assistantKey);
+
+    if (filtered.length === mappings.length) {
+      return;
+    }
+
+    await this.context.globalState.update(MAPPINGS_KEY, filtered);
+    ProfileStore.fireDidChange();
+  }
+
+  /**
+   * Deletes all mappings that point at a profile.
+   * @param profileId The profile ID to clear from mappings
+   */
+  async deleteMappingsForProfile(profileId: string): Promise<void> {
+    const mappings = await this.getAssistantMappings();
+    const filtered = mappings.filter(mapping => mapping.profileId !== profileId);
+
+    if (filtered.length === mappings.length) {
+      return;
+    }
+
+    await this.context.globalState.update(MAPPINGS_KEY, filtered);
     ProfileStore.fireDidChange();
   }
 
@@ -170,15 +232,81 @@ export class ProfileStore {
   /**
    * Updates storage metadata.
    */
-  private async updateMetadata(activeProfileId?: string): Promise<void> {
+  private async updateMetadata(options?: { activeProfileId?: string; clearActiveProfile?: boolean }): Promise<void> {
     const currentMetadata = await this.getMetadata();
     const metadata: ProfileMetadata = {
       version: '1.0.0',
       lastSync: new Date().toISOString(),
-      activeProfileId: activeProfileId ?? currentMetadata?.activeProfileId
+      activeProfileId: options?.clearActiveProfile
+        ? undefined
+        : options?.activeProfileId ?? currentMetadata?.activeProfileId
     };
     
     await this.context.globalState.update(METADATA_KEY, metadata);
+  }
+
+  private normalizeStoredAssistantMapping(mapping: unknown, profiles: EndpointProfile[]): AssistantMapping | undefined {
+    if (!mapping || typeof mapping !== 'object') {
+      return undefined;
+    }
+
+    const candidate = mapping as Partial<AssistantMapping> & { assistantKey?: unknown; profileId?: unknown; profileName?: unknown; appliedMode?: unknown; appliedAt?: unknown };
+    const assistantKey = typeof candidate.assistantKey === 'string' ? candidate.assistantKey.trim() : '';
+    if (!assistantKey) {
+      return undefined;
+    }
+
+    const profileIdValue = typeof candidate.profileId === 'string' ? candidate.profileId.trim() : '';
+    const profileNameValue = typeof candidate.profileName === 'string' ? candidate.profileName.trim() : '';
+    const resolvedProfile = profiles.find(profile =>
+      (profileIdValue && profile.id === profileIdValue) ||
+      (profileNameValue && (profile.id === profileNameValue || profile.name === profileNameValue))
+    );
+
+    const profileId = resolvedProfile?.id || profileIdValue;
+    if (!profileId) {
+      return undefined;
+    }
+
+    const appliedMode = this.normalizeAppliedMode(candidate.appliedMode);
+    const appliedAt = typeof candidate.appliedAt === 'string' && candidate.appliedAt.trim()
+      ? candidate.appliedAt.trim()
+      : undefined;
+
+    return {
+      assistantKey,
+      profileId,
+      profileName: resolvedProfile?.name || profileNameValue || undefined,
+      appliedMode,
+      appliedAt
+    };
+  }
+
+  private normalizeAssistantMappingForSave(mapping: AssistantMapping, profiles: EndpointProfile[]): AssistantMapping {
+    const assistantKey = mapping.assistantKey.trim();
+    const profileIdValue = mapping.profileId.trim();
+    const resolvedProfile = profiles.find(profile =>
+      profile.id === profileIdValue ||
+      (mapping.profileName ? profile.name === mapping.profileName : false)
+    );
+
+    return {
+      assistantKey,
+      profileId: resolvedProfile?.id || profileIdValue,
+      profileName: resolvedProfile?.name || mapping.profileName,
+      appliedMode: this.normalizeAppliedMode(mapping.appliedMode),
+      appliedAt: mapping.appliedAt?.trim() || undefined
+    };
+  }
+
+  private normalizeAppliedMode(value: unknown): AssistantMapping['appliedMode'] | undefined {
+    return typeof value === 'string' && ProfileStore.VALID_APPLIED_MODES.has(value as NonNullable<AssistantMapping['appliedMode']>)
+      ? value as NonNullable<AssistantMapping['appliedMode']>
+      : undefined;
+  }
+
+  private areMappingsEqual(storedMappings: unknown[], normalizedMappings: AssistantMapping[]): boolean {
+    return JSON.stringify(storedMappings) === JSON.stringify(normalizedMappings);
   }
 
   /**

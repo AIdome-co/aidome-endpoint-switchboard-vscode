@@ -7,7 +7,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildClaudeCodeSettingsContent,
   getClaudeCodeSettingsPath,
-  patchClaudeCodeConfig
+  patchClaudeCodeConfig,
+  readClaudeCodeGatewayConfig,
 } from '../../src/adapters/claudeCode/claudeCodeConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
@@ -142,6 +143,32 @@ describe('Claude Code Config Patcher', () => {
       mockProfile.baseUrl = 'javascript:alert(1)';
 
       expect(() => buildClaudeCodeSettingsContent(mockProfile)).toThrow('Invalid Claude Code endpoint URL');
+    });
+  });
+
+  describe('readClaudeCodeGatewayConfig', () => {
+    it('should read normalized Claude gateway settings from the shared settings file', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: 'https://aidome.example.com/v1',
+          ANTHROPIC_API_KEY: '  aid_pat_test  ',
+          CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1',
+        }
+      }));
+
+      const config = await readClaudeCodeGatewayConfig('/path/to/settings.json');
+
+      expect(config).toEqual({
+        baseUrl: 'https://aidome.example.com',
+        apiKey: 'aid_pat_test',
+        modelDiscoveryEnabled: true,
+      });
+    });
+
+    it('should return undefined when the settings file does not exist', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+      await expect(readClaudeCodeGatewayConfig('/path/to/settings.json')).resolves.toBeUndefined();
     });
   });
 
