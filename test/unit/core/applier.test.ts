@@ -60,10 +60,6 @@ vi.mock('../../../src/util/log', () => ({
   },
 }));
 
-vi.mock('../../../src/ui/guidedStepsCompat', () => ({
-  showGuidedStepsView: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: vi.fn(() => ({

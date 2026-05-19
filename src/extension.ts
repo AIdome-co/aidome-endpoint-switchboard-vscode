@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { setupSwitchboard } from './commands/setupSwitchboard';
 import { verifyRouting } from './commands/verifyRouting';
-import { showModels, showModelsProviders } from './commands/showModelsProviders';
+import { showModelsProviders } from './commands/showModelsProviders';
 import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
@@ -17,11 +17,6 @@ import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
 import { handleBoundaryOutcome } from './ui/notifications';
-import {
-  initializeGuidedStepsView,
-  openControlCenter,
-  openGuidedStepsView
-} from './ui/guidedStepsCompat';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -67,7 +62,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   
   // Initialize extension caching for performance
   initializeExtensionCaching(context);
-  initializeGuidedStepsView(context);
   
   // Check and migrate state if needed
   await migrateState(context);
@@ -102,11 +96,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
       try {
         const action = await vscode.window.showQuickPick([
-          { label: '$(dashboard) Open Control Center', value: 'control-center' },
           { label: '$(debug-start) Verify Routing', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
           { label: '$(wand) Open Setup Wizard', value: 'setup' },
-          { label: '$(settings-gear) Open Guided Setup Panel', value: 'guided-setup' },
           { label: '$(notebook) Export Diagnostics', value: 'diagnostics' },
           { label: '$(gear) Show Models & Providers', value: 'models' }
         ], {
@@ -118,9 +110,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         switch (action.value) {
-          case 'control-center':
-            await vscode.commands.executeCommand('aidome-switchboard.openControlCenter');
-            break;
           case 'verify':
             await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
             break;
@@ -132,9 +121,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             break;
           case 'diagnostics':
             await vscode.commands.executeCommand('aidome-switchboard.exportDiagnostics');
-            break;
-          case 'guided-setup':
-            await vscode.commands.executeCommand('aidome-switchboard.openGuidedSetup');
             break;
           case 'models':
             await vscode.commands.executeCommand('aidome-switchboard.showModelsProviders');
@@ -156,29 +142,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.verifyRouting', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => verifyRouting(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.verifyRouting', async () => {
+      const outcome = await withErrorBoundary(() => verifyRouting(context));
       await handleBoundaryOutcome(outcome, logger, 'Verify routing');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => showModelsProviders(context, profileId));
-      await handleBoundaryOutcome(outcome, logger, 'Show models and providers');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.showModels', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => showModels(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async () => {
+      const outcome = await withErrorBoundary(() => showModelsProviders(context));
       await handleBoundaryOutcome(outcome, logger, 'Show models');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => manageProfiles(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async () => {
+      const outcome = await withErrorBoundary(() => manageProfiles(context));
       await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
     })
   );
@@ -194,20 +173,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.exportDiagnostics', async () => {
       const outcome = await withErrorBoundary(() => exportDiagnostics(context));
       await handleBoundaryOutcome(outcome, logger, 'Export diagnostics');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.openControlCenter', async () => {
-      const outcome = await withErrorBoundary(() => openControlCenter());
-      await handleBoundaryOutcome(outcome, logger, 'Open control center');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.openGuidedSetup', async () => {
-      const outcome = await withErrorBoundary(() => openGuidedStepsView());
-      await handleBoundaryOutcome(outcome, logger, 'Open guided setup');
     })
   );
 

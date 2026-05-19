@@ -36,36 +36,21 @@ export function getClaudeCodeSettingsPath(): string {
  * Builds Claude Code settings content with AIdome gateway routing enabled.
  * @param profile Endpoint profile to configure
  * @param content Existing settings content, if any
- * @param apiKey Optional gateway API key to persist in Claude settings
  * @returns Updated settings JSON content
  */
-export function buildClaudeCodeSettingsContent(
-  profile: EndpointProfile,
-  content?: string,
-  apiKey?: string
-): string {
+export function buildClaudeCodeSettingsContent(profile: EndpointProfile, content?: string): string {
   if (!validateUrl(profile.baseUrl)) {
     throw new Error('Invalid Claude Code endpoint URL');
   }
 
   const settings = parseClaudeCodeSettings(content);
   const env = isStringRecord(settings.env) ? settings.env : {};
-  const claudeBaseUrl = normalizeClaudeBaseUrl(profile.baseUrl);
-  const normalizedApiKey = apiKey?.trim();
 
-  const nextEnv: Record<string, string> = {
+  settings.env = {
     ...env,
-    ANTHROPIC_BASE_URL: claudeBaseUrl,
+    ANTHROPIC_BASE_URL: profile.baseUrl,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
-
-  if (normalizedApiKey) {
-    nextEnv.ANTHROPIC_API_KEY = normalizedApiKey;
-  } else {
-    delete nextEnv.ANTHROPIC_API_KEY;
-  }
-
-  settings.env = nextEnv;
 
   return `${stringifyJsonc(settings, 2)}\n`;
 }
@@ -74,13 +59,11 @@ export function buildClaudeCodeSettingsContent(
  * Patches Claude Code settings with new endpoint configuration.
  * @param profile Endpoint profile to configure
  * @param configPath Path to Claude Code settings file
- * @param apiKey Optional gateway API key to persist in Claude settings
  * @returns Promise resolving when complete
  */
 export async function patchClaudeCodeConfig(
   profile: EndpointProfile,
-  configPath: string,
-  apiKey?: string
+  configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
 
@@ -91,7 +74,7 @@ export async function patchClaudeCodeConfig(
     }
   }
 
-  const updated = buildClaudeCodeSettingsContent(profile, content, apiKey);
+  const updated = buildClaudeCodeSettingsContent(profile, content);
   const success = await writeFileAtomic(configPath, updated);
   if (!success) {
     throw new Error(`Failed to write Claude Code settings to ${configPath}`);
@@ -121,17 +104,4 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   }
 
   return Object.values(value).every(item => typeof item === 'string');
-}
-
-function normalizeClaudeBaseUrl(baseUrl: string): string {
-  const parsed = new URL(baseUrl);
-  let pathname = parsed.pathname.replace(/\/+$/, '');
-
-  if (pathname === '/v1') {
-    pathname = '';
-  } else if (pathname.endsWith('/v1')) {
-    pathname = pathname.slice(0, -3);
-  }
-
-  return `${parsed.origin}${pathname}${parsed.search}`;
 }

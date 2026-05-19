@@ -109,12 +109,8 @@ export class Switchboard {
       }
 
       try {
-        const buildContext = assistantKey === 'claude-code'
-          ? { authSecret: await this.resolveProfileAuthSecret(profile) }
-          : undefined;
-
         // Build plan for this assistant
-        const assistantPlan = await adapter.buildPlan(profile, buildContext);
+        const assistantPlan = await adapter.buildPlan(profile);
         
         // Merge steps into main plan
         for (const step of assistantPlan.steps) {
@@ -196,7 +192,7 @@ export class Switchboard {
 
     for (const profile of profiles) {
       try {
-        const authToken = await this.resolveProfileAuthSecret(profile);
+        const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
         const result = await this.verifier.verifyEndpoint(profile, false, authToken);
         results[profile.id] = result;
         
@@ -221,32 +217,6 @@ export class Switchboard {
     }
 
     return results;
-  }
-
-  /**
-   * Verifies a single configured profile.
-   * @param profileId The profile ID to verify
-   * @returns Promise resolving to verification result for that profile
-   */
-  async verifyProfile(profileId: string): Promise<VerificationResult> {
-    this.logger.info(`Verifying profile ${profileId}`);
-
-    const profiles = await this.profileStore.getProfiles();
-    const profile = profiles.find(item => item.id === profileId);
-
-    if (!profile) {
-      throw new Error(`Profile ${profileId} not found`);
-    }
-
-    const authToken = await this.resolveProfileAuthSecret(profile);
-    const result = await this.verifier.verifyEndpoint(profile, false, authToken);
-
-    if (result.status === 'success') {
-      profile.lastVerified = new Date().toISOString();
-      await this.profileStore.saveProfile(profile);
-    }
-
-    return result;
   }
 
   /**
@@ -275,22 +245,5 @@ export class Switchboard {
       default:
         return 'settings';
     }
-  }
-
-  private async resolveProfileAuthSecret(profile: EndpointProfile): Promise<string | undefined> {
-    const refs = new Set(
-      [profile.authRef?.trim(), profile.name.trim()].filter(
-        (value): value is string => Boolean(value)
-      )
-    );
-
-    for (const ref of refs) {
-      const secret = await this.profileSecrets.getSecret(ref);
-      if (secret?.trim()) {
-        return secret.trim();
-      }
-    }
-
-    return undefined;
   }
 }

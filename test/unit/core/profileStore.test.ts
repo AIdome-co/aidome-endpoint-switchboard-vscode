@@ -8,28 +8,6 @@ import { EndpointProfile, AssistantMapping } from '../../../src/core/profiles/pr
 
 // Mock vscode module
 vi.mock('vscode', () => ({
-  EventEmitter: class<T> {
-    private listeners = new Set<(value: T) => void>();
-
-    event = (listener: (value: T) => void) => {
-      this.listeners.add(listener);
-      return {
-        dispose: () => {
-          this.listeners.delete(listener);
-        }
-      };
-    };
-
-    fire = (value: T) => {
-      for (const listener of this.listeners) {
-        listener(value);
-      }
-    };
-
-    dispose = () => {
-      this.listeners.clear();
-    };
-  },
   window: {
     showWarningMessage: vi.fn().mockResolvedValue('OK')
   }
@@ -319,30 +297,6 @@ describe('ProfileStore', () => {
       const activeProfile = await profileStore.getActiveProfile();
 
       expect(activeProfile).toBeUndefined();
-    });
-
-    it('emits change events for profile lifecycle updates', async () => {
-      const listener = vi.fn();
-      const disposable = ProfileStore.onDidChange(listener);
-      const testProfile: EndpointProfile = {
-        id: 'prof-active',
-        name: 'active-profile',
-        baseUrl: 'https://api.com',
-        dialect: 'openai.chat_completions',
-        profileType: 'aidome'
-      };
-
-      await profileStore.saveProfile(testProfile);
-      await profileStore.setActiveProfile('prof-active');
-      await profileStore.saveAssistantMapping({
-        assistantKey: 'continue',
-        profileId: 'prof-active'
-      });
-      await profileStore.deleteProfile('prof-active');
-      await profileStore.clearAll();
-
-      expect(listener).toHaveBeenCalledTimes(5);
-      disposable.dispose();
     });
   });
 

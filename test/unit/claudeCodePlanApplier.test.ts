@@ -85,10 +85,6 @@ vi.mock('../../src/util/log', () => ({
   },
 }));
 
-vi.mock('../../src/ui/guidedStepsCompat', () => ({
-  showGuidedStepsView: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock('../../src/core/orchestration/changeLog', () => ({
   ChangeLog: vi.fn().mockImplementation(class {
     recordApply = mockRecordApply;
@@ -103,9 +99,7 @@ import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 const profile: EndpointProfile = {
   id: 'claude-profile',
   name: 'Claude Profile',
-  profileType: 'custom',
   baseUrl: 'https://gateway.example.com/v1',
-  dialect: 'anthropic.messages',
   createdAt: '2026-05-13T00:00:00.000Z',
   updatedAt: '2026-05-13T00:00:00.000Z',
 };
@@ -137,15 +131,11 @@ describe('Claude Code plan application through PlanApplier', () => {
     expect(plan.steps.map(step => step.action)).toContain('verify-endpoint');
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com"')
+      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com/v1"')
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.stringContaining('"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"')
-    );
-    expect(mockSafeWriteFile).toHaveBeenCalledWith(
-      '/home/user/.claude/settings.json',
-      expect.not.stringContaining('ANTHROPIC_API_KEY')
+      expect.not.stringContaining('ANTHROPIC_AUTH_TOKEN')
     );
     expect(mockUpdateConfig).toHaveBeenCalledWith('claudeCode.disableLoginPrompt', true, 1);
     expect(mockRecordApply).toHaveBeenCalledTimes(1);
