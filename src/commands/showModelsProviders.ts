@@ -7,6 +7,7 @@ import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { AIdomeClient } from '../core/aidome/client';
 import { AIdomeModel, AIdomeProvider } from '../core/aidome/types';
+import { resolveAidomeProfileAuthToken } from '../core/profiles/resolveAidomeProfileAuth';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showWarning } from '../ui/notifications';
 import { getOutputChannel } from '../ui/output';
@@ -175,7 +176,7 @@ async function resolveAidomeProfile(
   }
 
   const profileSecrets = new ProfileSecrets(context);
-  const authToken = profile.authRef ? await profileSecrets.getSecret(profile.authRef) : undefined;
+  const authToken = await resolveAidomeProfileAuthToken(profile, profileSecrets);
   return {
     profile,
     client: new AIdomeClient(profile, authToken)
@@ -187,17 +188,42 @@ async function resolveProfile(
   profileId: string | undefined,
   profileStore: ProfileStore
 ): Promise<EndpointProfile | undefined> {
+  const profiles = await profileStore.getProfiles();
+  const aidomeProfiles = profiles.filter(profile => profile.profileType === 'aidome');
+
   if (profileId) {
-    const profiles = await profileStore.getProfiles();
     const selected = profiles.find(profile => profile.id === profileId);
     if (selected) {
       return selected;
     }
 
-    Logger.getInstance().warning(`Requested models view for missing profile ${profileId}; falling back to active profile.`);
+    Logger.getInstance().warning(`Requested models view for missing profile ${profileId}; prompting for a selectable AIdome profile.`);
   }
 
-  return profileStore.getActiveProfile();
+  if (aidomeProfiles.length === 0) {
+    return undefined;
+  }
+
+  if (aidomeProfiles.length === 1) {
+    return aidomeProfiles[0];
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    aidomeProfiles.map(profile => ({
+      label: profile.name,
+      description: profile.baseUrl,
+      detail: profile.lastVerified
+        ? `Last verified ${new Date(profile.lastVerified).toLocaleString()}`
+        : 'Not yet verified',
+      profile
+    })),
+    {
+      title: 'Select AIdome Profile',
+      placeHolder: 'Choose which AIdome profile to inspect'
+    }
+  );
+
+  return selected?.profile;
 }
 
 function appendModelsSection(outputChannel: vscode.OutputChannel, models: Awaited<ReturnType<AIdomeClient['getModels']>>): void {

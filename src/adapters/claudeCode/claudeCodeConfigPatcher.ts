@@ -15,6 +15,12 @@ interface ClaudeCodeSettings {
   [key: string]: unknown;
 }
 
+export interface ClaudeCodeGatewayConfig {
+  baseUrl?: string;
+  apiKey?: string;
+  modelDiscoveryEnabled: boolean;
+}
+
 /**
  * Gets the Claude Code shared settings path.
  * @returns Config file path
@@ -30,6 +36,35 @@ export function getClaudeCodeSettingsPath(): string {
   }
 
   return defaultPath;
+}
+
+export async function readClaudeCodeGatewayConfig(
+  configPath = getClaudeCodeSettingsPath()
+): Promise<ClaudeCodeGatewayConfig | undefined> {
+  const content = await readFileSafe(configPath);
+  if (!content) {
+    return undefined;
+  }
+
+  const settings = parseClaudeCodeSettings(content);
+  const env = isStringRecord(settings.env) ? settings.env : undefined;
+  if (!env) {
+    return undefined;
+  }
+
+  const baseUrl = typeof env.ANTHROPIC_BASE_URL === 'string' && env.ANTHROPIC_BASE_URL.trim()
+    ? normalizeClaudeBaseUrl(env.ANTHROPIC_BASE_URL.trim())
+    : undefined;
+  const apiKey = typeof env.ANTHROPIC_API_KEY === 'string' && env.ANTHROPIC_API_KEY.trim()
+    ? env.ANTHROPIC_API_KEY.trim()
+    : undefined;
+  const discoveryFlag = env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY?.trim().toLowerCase();
+
+  return {
+    baseUrl,
+    apiKey,
+    modelDiscoveryEnabled: discoveryFlag === '1' || discoveryFlag === 'true'
+  };
 }
 
 /**
@@ -123,7 +158,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return Object.values(value).every(item => typeof item === 'string');
 }
 
-function normalizeClaudeBaseUrl(baseUrl: string): string {
+export function normalizeClaudeBaseUrl(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   let pathname = parsed.pathname.replace(/\/+$/, '');
 

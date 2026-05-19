@@ -109,7 +109,7 @@ export class Switchboard {
       }
 
       try {
-        const buildContext = assistantKey === 'claude-code'
+        const buildContext = (assistantKey === 'claude-code' || assistantKey === 'continue')
           ? { authSecret: await this.resolveProfileAuthSecret(profile) }
           : undefined;
 
@@ -161,7 +161,7 @@ export class Switchboard {
     
     const result = await this.applier.applyPlan(plan, profileName);
     
-    if (result.success) {
+    if (result.appliedSteps.length > 0) {
       this.logger.info(`Plan applied successfully in ${timer.stop()}ms`);
       
       // Update mappings in profile store
@@ -169,7 +169,8 @@ export class Switchboard {
         try {
           await this.profileStore.saveAssistantMapping({
             assistantKey: step.assistantKey,
-            profileName: plan.profileId,
+            profileId: plan.profileId,
+            profileName,
             appliedMode: this.getAppliedMode(step.action),
             appliedAt: new Date().toISOString()
           });
@@ -177,7 +178,9 @@ export class Switchboard {
           this.logger.error(`Failed to save mapping for ${step.assistantKey}`, error instanceof Error ? error : undefined);
         }
       }
-    } else {
+    }
+
+    if (!result.success) {
       this.logger.error(`Plan failed: ${result.failedSteps.length} step(s) failed`);
     }
     

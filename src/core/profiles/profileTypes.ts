@@ -16,9 +16,10 @@ export type ProfileType = 'aidome' | 'custom';
  */
 export interface AssistantMapping {
   assistantKey: string;
-  profileName: string;
-  appliedMode: 'settings' | 'configFile' | 'env' | 'guided';
-  appliedAt: string;
+  profileId: string;
+  profileName?: string;
+  appliedMode?: 'settings' | 'configFile' | 'env' | 'guided';
+  appliedAt?: string;
 }
 
 /**

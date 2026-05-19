@@ -10,6 +10,9 @@ import { getOutputChannel } from '../../ui/output';
 import { showGuidedStepsView } from '../../ui/guidedStepsCompat';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
+import { patchContinueConfig } from '../../adapters/continue/continueConfigPatcher';
+import { EndpointProfile } from '../profiles/profileTypes';
+import { Dialect } from '../dialects/dialectTypes';
 
 /**
  * Result of applying a plan.
@@ -159,19 +162,19 @@ export class PlanApplier {
       case 'set-vscode-setting':
         await this.applyVSCodeSetting(step, appliedStep);
         break;
-      
+
       case 'edit-config-file':
         await this.applyConfigFileEdit(step, appliedStep);
         break;
-      
+
       case 'set-env-var':
         await this.applyEnvVar(step, appliedStep);
         break;
-      
+
       case 'show-guided-steps':
         await this.applyGuidedSteps(step, appliedStep);
         break;
-      
+
       case 'backup-file':
         await this.applyBackup(step, appliedStep);
         break;
@@ -240,6 +243,15 @@ export class PlanApplier {
       this.logger.info(`Created backup at ${backupPath}`);
     }
 
+    if (step.assistantKey === 'continue') {
+      const authSecret = typeof step.data.authSecret === 'string'
+        ? step.data.authSecret
+        : undefined;
+      await patchContinueConfig(this.buildProfileFromStep(step), step.targetPath, authSecret);
+      this.logger.info(`Patched Continue.dev config file ${step.targetPath}`);
+      return;
+    }
+
     // Write new content
     const content = typeof step.newValue === 'string' 
       ? step.newValue 
@@ -251,6 +263,41 @@ export class PlanApplier {
     }
 
     this.logger.info(`Updated config file ${step.targetPath}`);
+  }
+
+  private buildProfileFromStep(step: PlanStep): EndpointProfile {
+    const baseUrl = typeof step.data.baseUrl === 'string' ? step.data.baseUrl : undefined;
+    if (!baseUrl) {
+      throw new Error(`baseUrl is required for ${step.assistantKey} config edits`);
+    }
+
+    const profileId = typeof step.data.profileId === 'string'
+      ? step.data.profileId
+      : `${step.assistantKey}-profile`;
+
+    const dialect = this.isDialect(step.data.dialect)
+      ? step.data.dialect
+      : 'openai.chat_completions';
+
+    return {
+      id: profileId,
+      name: profileId,
+      profileType: 'custom',
+      baseUrl,
+      dialect,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
+  }
+
+  private isDialect(value: unknown): value is Dialect {
+    return value === 'openai.chat_completions'
+      || value === 'openai.responses'
+      || value === 'anthropic.messages'
+      || value === 'google.gemini.generate_content'
+      || value === 'github.copilot'
+      || value === 'tabnine.proprietary'
+      || value === 'unknown';
   }
 
   /**
@@ -470,6 +517,16 @@ export class PlanApplier {
         break;
     }
   }
+}
+
+function isDialect(value: unknown): value is Dialect {
+  return value === 'openai.chat_completions'
+    || value === 'openai.responses'
+    || value === 'anthropic.messages'
+    || value === 'google.gemini.generate_content'
+    || value === 'github.copilot'
+    || value === 'tabnine.proprietary'
+    || value === 'unknown';
 }
 
 /**

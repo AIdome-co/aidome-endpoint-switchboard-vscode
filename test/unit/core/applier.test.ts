@@ -14,6 +14,7 @@ import { createEnoentError } from '../testErrors';
 const {
   mockSafeWriteFile,
   mockCreateBackup,
+  mockPatchContinueConfig,
   mockRecordApply,
   mockGetConfig,
   mockUpdateConfig,
@@ -24,6 +25,7 @@ const {
 } = vi.hoisted(() => ({
   mockSafeWriteFile: vi.fn().mockResolvedValue(true),
   mockCreateBackup: vi.fn().mockResolvedValue('/tmp/backup.json'),
+  mockPatchContinueConfig: vi.fn().mockResolvedValue(undefined),
   mockRecordApply: vi.fn().mockResolvedValue(undefined),
   mockGetConfig: vi.fn(),
   mockUpdateConfig: vi.fn().mockResolvedValue(undefined),
@@ -36,6 +38,10 @@ const {
 vi.mock('../../../src/util/fsSafe', () => ({
   safeWriteFile: mockSafeWriteFile,
   createBackup: mockCreateBackup,
+}));
+
+vi.mock('../../../src/adapters/continue/continueConfigPatcher', () => ({
+  patchContinueConfig: mockPatchContinueConfig,
 }));
 
 vi.mock('../../../src/ui/output', () => ({
@@ -121,6 +127,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     vi.clearAllMocks();
     mockSafeWriteFile.mockResolvedValue(true);
     mockCreateBackup.mockResolvedValue('/tmp/backup.json');
+    mockPatchContinueConfig.mockResolvedValue(undefined);
     mockUpdateConfig.mockResolvedValue(undefined);
     mockRecordApply.mockResolvedValue(undefined);
     mockAccess.mockRejectedValue(createEnoentError());
@@ -327,6 +334,35 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.success).toBe(false);
     expect(mockSafeWriteFile).not.toHaveBeenCalled();
     expect(mockRecordApply).not.toHaveBeenCalled();
+  });
+
+  it('uses the Continue patcher instead of raw-writing the config file', async () => {
+    const applier = new PlanApplier(fakeContext);
+    const step = makeStep({
+      action: 'edit-config-file',
+      assistantKey: 'continue',
+      targetPath: '/home/user/.continue/config.yaml',
+      newValue: 'https://aidome.example.com/v1',
+      data: {
+        profileId: 'profile-continue',
+        baseUrl: 'https://aidome.example.com/v1',
+        dialect: 'anthropic.messages',
+        authSecret: 'aid_pat_test',
+      },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(mockPatchContinueConfig).toHaveBeenCalledTimes(1);
+    expect(mockPatchContinueConfig.mock.calls[0][0]).toMatchObject({
+      id: 'profile-continue',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'anthropic.messages',
+    });
+    expect(mockPatchContinueConfig.mock.calls[0][1]).toBe('/home/user/.continue/config.yaml');
+    expect(mockPatchContinueConfig.mock.calls[0][2]).toBe('aid_pat_test');
+    expect(mockSafeWriteFile).not.toHaveBeenCalled();
   });
 });
 

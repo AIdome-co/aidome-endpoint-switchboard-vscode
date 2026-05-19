@@ -66,7 +66,7 @@ export interface ProfileSurfaceState {
   baseUrl: string;
   dialect: string;
   profileType: string;
-  isActive: boolean;
+  isInUse: boolean;
   lastVerified?: string;
   assistantCount: number;
   assistantNames: string[];
@@ -85,8 +85,9 @@ export interface OverviewSurfaceState {
   detectedAssistantCount: number;
   configuredAssistantCount: number;
   manualFollowUpCount: number;
-  activeProfileName?: string;
-  activeProfileBaseUrl?: string;
+  profileUsageSummary: string;
+  mappedAssistantCount: number;
+  inUseProfiles: ProfileSurfaceState[];
   pendingAssistants: AssistantSurfaceState[];
   configuredAssistants: AssistantSurfaceState[];
   detectedAssistants: AssistantSurfaceState[];
@@ -113,7 +114,7 @@ export interface VerificationPageState {
 }
 
 export interface ModelsPageState {
-  activeProfile?: ProfileSurfaceState;
+  selectedProfile?: ProfileSurfaceState;
   note: string;
 }
 
@@ -137,12 +138,17 @@ export interface AdvancedPageState {
   settings: AdvancedSettingSurfaceState[];
 }
 
+export interface SetupWizardSurfaceState {
+  isRunning: boolean;
+  currentStep?: string;
+}
+
 export interface ControlCenterState {
   page: ControlCenterPageId;
   selectedAssistantKey?: string;
   selectedProfileId?: string;
   generatedAt: string;
-  activeProfileName?: string;
+  profileUsageSummary: string;
   navigation: ControlCenterNavigationItem[];
   overview: OverviewSurfaceState;
   profiles: ProfilesPageState;
@@ -153,4 +159,5 @@ export interface ControlCenterState {
   diagnostics: DiagnosticsPageState;
   historyReset: HistoryResetPageState;
   advanced: AdvancedPageState;
+  setupWizard: SetupWizardSurfaceState;
 }

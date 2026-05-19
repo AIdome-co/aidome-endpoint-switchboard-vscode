@@ -10,11 +10,11 @@ import { EndpointProfile, AssistantMapping } from '../core/profiles/profileTypes
 import { Verifier, VerificationReport } from '../core/orchestration/verifier';
 import { detectRemote } from '../core/detection/detectRemote';
 import { getOutputChannel } from '../ui/output';
-import { updateStatusBar } from '../ui/statusBar';
 import { showError, showSuccess, showWarning } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
 import { activateProfileAndReapplyMappings, getProfileActivationNotice } from './profileActivation';
+import { assignProfileAssistants } from './assignProfileAssistants';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -74,7 +74,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   // Add existing profiles with status
   for (const profile of profiles) {
-    const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+    const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
     const status = getProfileStatusIcon(profile);
     const lastVerified = profile.lastVerified 
       ? formatLastVerified(profile.lastVerified)
@@ -91,9 +91,9 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   if (profiles.length > 0) {
     items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
     items.push({
-      label: '$(star) Set Active Profile',
+      label: '$(sync) Reapply Profile Assignments',
       description: '',
-      detail: 'Switch mapped assistants to a different active profile'
+      detail: 'Reapply one profile to the assistants already assigned to it'
     });
   }
   
@@ -108,7 +108,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   if (selected.label.includes('Create New Profile')) {
     await createProfileFlow(context);
-  } else if (selected.label.includes('Set Active Profile')) {
+  } else if (selected.label.includes('Reapply Profile Assignments')) {
     await setDefaultProfile(context, profileStore, profiles);
   } else if ('profile' in selected) {
     await showProfileDetails(context, selected.profile);
@@ -330,7 +330,7 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
 async function showProfileDetails(context: vscode.ExtensionContext, profile: EndpointProfile): Promise<void> {
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+  const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
   
   const lastVerifiedText = profile.lastVerified 
     ? `${new Date(profile.lastVerified).toISOString().replace('T', ' ').substring(0, 19)} UTC ${getProfileStatusIcon(profile)}`
@@ -354,6 +354,11 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
       kind: vscode.QuickPickItemKind.Default
     },
     { label: '', kind: vscode.QuickPickItemKind.Separator },
+    {
+      label: '$(plug) Assign Assistants',
+      description: '',
+      detail: 'Move assistants onto this profile directly'
+    },
     {
       label: '$(pencil) Edit Profile',
       description: '',
@@ -386,7 +391,10 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
     return;
   }
   
-  if (selected.label.includes('Edit Profile')) {
+  if (selected.label.includes('Assign Assistants')) {
+    await assignProfileAssistants(context, profile.id);
+    await showProfileDetails(context, profile);
+  } else if (selected.label.includes('Edit Profile')) {
     await editProfileFlow(context, profile);
   } else if (selected.label.includes('Test Connection')) {
     await testConnection(context, profile);
@@ -408,7 +416,7 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+  const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
   
   const fieldOptions: vscode.QuickPickItem[] = [
     {
@@ -471,12 +479,6 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
     });
     
     if (newName && newName.trim() !== profile.name) {
-      // Update mappings to use new name
-      for (const mapping of mappings.filter(m => m.profileName === profile.name)) {
-        mapping.profileName = newName.trim();
-        await profileStore.saveAssistantMapping(mapping);
-      }
-      
       // Update secrets if they exist
       if (profile.authRef) {
         const secrets = new ProfileSecrets(context);
@@ -620,7 +622,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const profileMappings = mappings.filter(m => m.profileName === profile.name);
+  const profileMappings = mappings.filter(m => m.profileId === profile.id);
   const assistantCount = profileMappings.length;
   
   let confirmMessage = `Delete profile '${profile.name}'?`;
@@ -684,6 +686,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
     
     // Update mappings
     for (const mapping of profileMappings) {
+      mapping.profileId = targetProfile.profile.id;
       mapping.profileName = targetProfile.profile.name;
       await profileStore.saveAssistantMapping(mapping);
     }
@@ -698,18 +701,6 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   if (profile.authRef) {
     const profileSecrets = new ProfileSecrets(context);
     await profileSecrets.deleteSecret(profile.name);
-  }
-  
-  // Update status bar if this was the active profile
-  const activeProfileId = await profileStore.getActiveProfileId();
-  if (profile.id === activeProfileId) {
-    const remaining = await profileStore.getProfiles();
-    if (remaining.length > 0) {
-      await profileStore.setActiveProfile(remaining[0].id);
-      updateStatusBar(remaining[0].name);
-    } else {
-      updateStatusBar(undefined);
-    }
   }
   
   await showSuccess(`Profile "${profile.name}" deleted successfully`);
@@ -799,18 +790,18 @@ async function setDefaultProfile(
   profiles: EndpointProfile[]
 ): Promise<void> {
   const logger = Logger.getInstance();
-  const currentActiveId = await profileStore.getActiveProfileId();
+  const mappings = await profileStore.getAssistantMappings();
   
   const items: ProfileQuickPickItem[] = profiles.map(p => ({
     label: p.name,
     description: p.baseUrl,
-    detail: p.id === currentActiveId ? '$(check) Currently active' : '',
+    detail: `${mappings.filter(mapping => mapping.profileId === p.id).length} assigned assistant(s)`,
     profile: p
   }));
   
   const selected = await vscode.window.showQuickPick(items, {
-    title: 'Set Active Profile',
-    placeHolder: 'Select the profile to apply to configured assistants'
+    title: 'Reapply Profile Assignments',
+    placeHolder: 'Select the profile to reapply to assistants already assigned to it'
   });
   
   if (!selected) {
@@ -842,7 +833,7 @@ async function viewMappedAssistants(
   profile: EndpointProfile,
   allMappings: AssistantMapping[]
 ): Promise<void> {
-  const profileMappings = allMappings.filter(m => m.profileName === profile.name);
+  const profileMappings = allMappings.filter(m => m.profileId === profile.id);
   
   if (profileMappings.length === 0) {
     await vscode.window.showInformationMessage(`No assistants are currently mapped to "${profile.name}"`);
@@ -852,7 +843,9 @@ async function viewMappedAssistants(
   const items = profileMappings.map(m => ({
     label: m.assistantKey,
     description: `Applied via ${m.appliedMode}`,
-    detail: `Applied at: ${new Date(m.appliedAt).toLocaleString()}`
+    detail: m.appliedAt
+      ? `Applied at: ${new Date(m.appliedAt).toLocaleString()}`
+      : 'Applied time unavailable'
   }));
   
   await vscode.window.showQuickPick(items, {

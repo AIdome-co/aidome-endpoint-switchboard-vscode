@@ -124,6 +124,11 @@
         "category": "AIdome"
       },
       {
+        "command": "aidome-switchboard.assignProfileAssistants",
+        "title": "Assign Profile to Assistants",
+        "category": "AIdome"
+      },
+      {
         "command": "aidome-switchboard.resetSwitchboard",
         "title": "Reset Switchboard",
         "category": "AIdome"
@@ -205,7 +210,8 @@
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",
-    "smol-toml": "^1.6.0"
+    "smol-toml": "^1.6.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2.13.0",

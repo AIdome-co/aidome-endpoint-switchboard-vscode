@@ -96,6 +96,20 @@ describe('Switchboard.buildPlan', () => {
     expect(mockAdapterBuildPlan).toHaveBeenCalledWith(profile, { authSecret: 'aid_pat_test' });
   });
 
+  it('passes the stored profile secret to the Continue adapter build context', async () => {
+    const switchboard = new Switchboard(
+      {} as any,
+      {} as any,
+      {} as any,
+      { getSecret: mockGetSecret } as any
+    );
+
+    await switchboard.buildPlan(profile, ['continue']);
+
+    expect(mockGetSecret).toHaveBeenCalledWith('claude-test3');
+    expect(mockAdapterBuildPlan).toHaveBeenCalledWith(profile, { authSecret: 'aid_pat_test' });
+  });
+
   it('falls back to the profile name when authRef is missing', async () => {
     const switchboard = new Switchboard(
       {} as any,

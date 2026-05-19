@@ -276,51 +276,7 @@ describe('ProfileStore', () => {
     });
   });
 
-  describe('active profile management', () => {
-    it('should return undefined for active profile initially', async () => {
-      const activeProfileId = await profileStore.getActiveProfileId();
-      expect(activeProfileId).toBeUndefined();
-    });
-
-    it('should set and get active profile ID', async () => {
-      const testProfile: EndpointProfile = {
-        id: 'prof-active',
-        name: 'active-profile',
-        baseUrl: 'https://api.com',
-        dialect: 'openai.chat_completions',
-        profileType: 'aidome'
-      };
-
-      await profileStore.saveProfile(testProfile);
-      await profileStore.setActiveProfile('prof-active');
-      const activeProfileId = await profileStore.getActiveProfileId();
-
-      expect(activeProfileId).toBe('prof-active');
-    });
-
-    it('should get active profile object', async () => {
-      const testProfile: EndpointProfile = {
-        id: 'prof-active',
-        name: 'active-profile',
-        baseUrl: 'https://api.com',
-        dialect: 'openai.chat_completions',
-        profileType: 'aidome'
-      };
-
-      await profileStore.saveProfile(testProfile);
-      await profileStore.setActiveProfile('prof-active');
-      const activeProfile = await profileStore.getActiveProfile();
-
-      expect(activeProfile).toEqual(testProfile);
-    });
-
-    it('should return undefined when active profile does not exist', async () => {
-      await profileStore.setActiveProfile('nonexistent-id');
-      const activeProfile = await profileStore.getActiveProfile();
-
-      expect(activeProfile).toBeUndefined();
-    });
-
+  describe('metadata and change events', () => {
     it('emits change events for profile lifecycle updates', async () => {
       const listener = vi.fn();
       const disposable = ProfileStore.onDidChange(listener);
@@ -344,6 +300,22 @@ describe('ProfileStore', () => {
       expect(listener).toHaveBeenCalledTimes(5);
       disposable.dispose();
     });
+
+    it('clears the active profile metadata when deleting the active profile', async () => {
+      const testProfile: EndpointProfile = {
+        id: 'prof-active',
+        name: 'active-profile',
+        baseUrl: 'https://api.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'aidome'
+      };
+
+      await profileStore.saveProfile(testProfile);
+      await profileStore.setActiveProfile('prof-active');
+      await profileStore.deleteProfile('prof-active');
+
+      expect(await profileStore.getActiveProfileId()).toBeUndefined();
+    });
   });
 
   describe('assistant mappings', () => {
@@ -355,7 +327,8 @@ describe('ProfileStore', () => {
     it('should save and retrieve assistant mapping', async () => {
       const mapping: AssistantMapping = {
         assistantKey: 'continue',
-        profileId: 'prof-1'
+        profileId: 'prof-1',
+        profileName: 'Profile 1'
       };
 
       await profileStore.saveAssistantMapping(mapping);
@@ -401,6 +374,58 @@ describe('ProfileStore', () => {
       const mappings = await profileStore.getAssistantMappings();
 
       expect(mappings).toHaveLength(2);
+    });
+
+    it('normalizes legacy profileName-only mappings to profileId', async () => {
+      const profile: EndpointProfile = {
+        id: 'prof-legacy',
+        name: 'legacy-profile',
+        baseUrl: 'https://legacy.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+
+      await profileStore.saveProfile(profile);
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'continue',
+          profileName: 'legacy-profile',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-18T00:00:00.000Z'
+        }
+      ]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([
+        {
+          assistantKey: 'continue',
+          profileId: 'prof-legacy',
+          profileName: 'legacy-profile',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-18T00:00:00.000Z'
+        }
+      ]);
+    });
+
+    it('removes mappings when deleting a profile', async () => {
+      const profile: EndpointProfile = {
+        id: 'prof-delete',
+        name: 'delete-me',
+        baseUrl: 'https://delete.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+
+      await profileStore.saveProfile(profile);
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'continue',
+        profileId: 'prof-delete'
+      });
+
+      await profileStore.deleteProfile('prof-delete');
+
+      expect(await profileStore.getAssistantMappings()).toEqual([]);
     });
   });
 

@@ -8,10 +8,11 @@ import { setupSwitchboard } from './commands/setupSwitchboard';
 import { verifyRouting } from './commands/verifyRouting';
 import { showModels, showModelsProviders } from './commands/showModelsProviders';
 import { manageProfiles } from './commands/manageProfiles';
+import { assignProfileAssistants } from './commands/assignProfileAssistants';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
 import { getOutputChannel } from './ui/output';
-import { createStatusBarItem, StatusBarManager } from './ui/statusBar';
+import { buildStatusBarSummary, createStatusBarItem, StatusBarManager } from './ui/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
@@ -82,16 +83,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Initialize profile store and update status bar
       const profileStore = new ProfileStore(context);
-      profileStore.getActiveProfile().then(profile => {
-        if (profile) {
-          statusBarManager.setConfigured(profile.name);
-        } else {
+      const refreshStatusBar = async (): Promise<void> => {
+        try {
+          const [profiles, mappings] = await Promise.all([
+            profileStore.getProfiles(),
+            profileStore.getAssistantMappings()
+          ]);
+          const summary = buildStatusBarSummary(profiles, mappings);
+
+          if (summary) {
+            statusBarManager.setConfigured(summary);
+          } else {
+            statusBarManager.setNotConfigured();
+          }
+        } catch (error) {
+          logger.error('Failed to refresh status bar summary', error instanceof Error ? error : undefined);
           statusBarManager.setNotConfigured();
         }
-      }).catch(error => {
-        logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
-        statusBarManager.setNotConfigured();
-      });
+      };
+
+      context.subscriptions.push(ProfileStore.onDidChange(() => {
+        void refreshStatusBar();
+      }));
+
+      void refreshStatusBar();
     } catch (error) {
       logger.error('Failed to initialize status bar', error instanceof Error ? error : undefined);
     }
@@ -180,6 +195,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async (profileId?: string) => {
       const outcome = await withErrorBoundary(() => manageProfiles(context, profileId));
       await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidome-switchboard.assignProfileAssistants', async (profileId?: string) => {
+      const outcome = await withErrorBoundary(() => assignProfileAssistants(context, profileId));
+      await handleBoundaryOutcome(outcome, logger, 'Assign profile assistants');
     })
   );
 
