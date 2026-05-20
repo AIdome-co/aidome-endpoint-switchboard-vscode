@@ -20,7 +20,8 @@ const DECLARED_COMMANDS: readonly string[] = [
   'aidome-switchboard.manageProfiles',
   'aidome-switchboard.resetSwitchboard',
   'aidome-switchboard.exportDiagnostics',
-  'aidome-switchboard.activateProfile'
+  'aidome-switchboard.activateProfile',
+  'aidome-switchboard.refreshAssistantsView'
 ];
 
 // `aidome-switchboard.statusBarAction` is registered programmatically during
@@ -82,10 +83,13 @@ describe('AIdome Endpoint Switchboard — E2E', function () {
       owned.length,
       `Duplicate AIdome commands registered: ${owned.join(', ')}`
     );
-    // Declared commands + the one programmatic command.
+    // Declared commands + the one programmatic command + 5 auto-generated
+    // view commands (focus, open, removeView, resetViewLocation,
+    // toggleVisibility) contributed by `contributes.views`.
+    const VIEW_AUTO_COMMANDS = 5;
     assert.strictEqual(
       unique.size,
-      DECLARED_COMMANDS.length + 1,
+      DECLARED_COMMANDS.length + 1 + VIEW_AUTO_COMMANDS,
       `Unexpected AIdome command set: ${owned.sort().join(', ')}`
     );
   });
