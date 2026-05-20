@@ -20,7 +20,7 @@ import { handleBoundaryOutcome } from './ui/notifications';
 import {
   activateProfileAndReapplyMappings,
   getProfileActivationNotice
-} from './commands/profileActivation';
+} from './commands/activateProfile';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -185,7 +185,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.activateProfile', async (profileId?: string) => {
+    vscode.commands.registerCommand('aidome-switchboard.activateProfile', async (rawProfileId?: unknown) => {
+      if (rawProfileId !== undefined && typeof rawProfileId !== 'string') {
+        vscode.window.showErrorMessage('activateProfile expects a string profileId.');
+        return;
+      }
+      let profileId: string | undefined = rawProfileId;
       if (!profileId) {
         const profileStore = new ProfileStore(context);
         const profiles = await profileStore.getProfiles();
@@ -193,7 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           vscode.window.showWarningMessage('No profiles exist yet. Run setup or Manage Profiles first.');
           return;
         }
-        const pick = await vscode.window.showQuickPick(
+        const pick = await vscode.window.showQuickPick<vscode.QuickPickItem & { profileId: string }>(
           profiles.map(p => ({ label: p.name, description: p.baseUrl, profileId: p.id })),
           { placeHolder: 'Select a profile to activate' }
         );
@@ -202,8 +207,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         profileId = pick.profileId;
       }
+      const resolvedId = profileId;
       const outcome = await withErrorBoundary(async () => {
-        const result = await activateProfileAndReapplyMappings(context, profileId);
+        const result = await activateProfileAndReapplyMappings(context, resolvedId);
         const notice = getProfileActivationNotice(result);
         if (notice.kind === 'success') {
           vscode.window.showInformationMessage(notice.message);

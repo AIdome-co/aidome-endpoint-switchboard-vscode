@@ -156,6 +156,64 @@ describe('activateProfileAndReapplyMappings', () => {
     expect(result.skippedAssistantKeys).toEqual(['claude-code']);
     expect(mockSetActiveProfile).toHaveBeenCalledWith('profile-1');
   });
+
+  it('returns failed when profileId is not found', async () => {
+    mockGetProfiles.mockResolvedValue([baseProfile]);
+
+    const result = await activateProfileAndReapplyMappings(fakeContext, 'nonexistent-id');
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toContain('nonexistent-id');
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns failed when buildPlan throws', async () => {
+    mockGetProfiles.mockResolvedValue([baseProfile]);
+    mockGetAssistantMappings.mockResolvedValue([{ assistantKey: 'cline' }]);
+    mockBuildPlan.mockRejectedValue(new Error('Registry load failed'));
+
+    const result = await activateProfileAndReapplyMappings(fakeContext, 'profile-1');
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toBe('Registry load failed');
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns partial when some assistants fail', async () => {
+    mockGetProfiles.mockResolvedValue([baseProfile]);
+    mockGetAssistantMappings.mockResolvedValue([
+      { assistantKey: 'cline' },
+      { assistantKey: 'continue' },
+    ]);
+    mockBuildPlan.mockResolvedValue({
+      id: 'plan-3',
+      profileId: 'profile-1',
+      assistantKeys: ['cline', 'continue'],
+      steps: [
+        { id: 's1', action: 'set-vscode-setting', assistantKey: 'cline', targetPath: 'x', newValue: 'y', data: {}, reversible: true, description: 'set' },
+        { id: 's2', action: 'set-vscode-setting', assistantKey: 'continue', targetPath: 'z', newValue: 'w', data: {}, reversible: true, description: 'set' },
+      ],
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    });
+    mockApplyPlan.mockResolvedValue({
+      success: false,
+      appliedSteps: [{ id: 's1' }],
+      failedSteps: [{ id: 's2' }],
+      changeLogEntry: {},
+      assistantResults: new Map([
+        ['cline', { success: true }],
+        ['continue', { success: false }],
+      ]),
+    });
+
+    const result = await activateProfileAndReapplyMappings(fakeContext, 'profile-1');
+
+    expect(result.status).toBe('partial');
+    expect(result.appliedAssistantKeys).toEqual(['cline']);
+    expect(result.failedAssistantKeys).toEqual(['continue']);
+    expect(mockSetActiveProfile).toHaveBeenCalledWith('profile-1');
+  });
 });
 
 describe('getProfileActivationNotice', () => {
