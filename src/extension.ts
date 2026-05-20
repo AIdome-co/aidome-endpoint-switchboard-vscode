@@ -75,7 +75,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeProvider = new AssistantsTreeProvider(context);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('aidome-switchboard.assistantsView', treeProvider),
-    { dispose: () => treeProvider.dispose() }
+    new vscode.Disposable(() => treeProvider.dispose())
   );
 
   // Defer status bar and non-essential initialization

@@ -220,9 +220,9 @@ describe('AssistantsTreeProvider', () => {
   });
 
   it('dispose method disposes the EventEmitter', () => {
+    // Access the internal EventEmitter and spy on its dispose
+    const emitter = (provider as unknown as { _onDidChangeTreeData: { dispose: ReturnType<typeof vi.fn> } })._onDidChangeTreeData;
     provider.dispose();
-    // EventEmitter.dispose was called (mocked in vscode mock)
-    // This verifies the dispose method exists and calls through
-    expect(provider.dispose).toBeDefined();
+    expect(emitter.dispose).toHaveBeenCalled();
   });
 });
