@@ -55,7 +55,7 @@ export function showPlan(plan: Plan): void {
   channel.appendLine(`Assistants: ${plan.assistantKeys.join(', ')}`);
   channel.appendLine(`Steps: ${plan.steps.length}`);
   channel.appendLine('='.repeat(60));
-  
+
   plan.steps.forEach((step, index) => {
     channel.appendLine(`\n${index + 1}. ${step.description}`);
     channel.appendLine(`   Action: ${step.action}`);
@@ -67,7 +67,7 @@ export function showPlan(plan: Plan): void {
       channel.appendLine(`   Reversible: Yes`);
     }
   });
-  
+
   channel.appendLine('\n' + '='.repeat(60));
   channel.show();
 }
@@ -82,20 +82,20 @@ export function showResults(results: Record<string, VerificationResult>): void {
   channel.appendLine('='.repeat(60));
   channel.appendLine('Verification Results');
   channel.appendLine('='.repeat(60));
-  
+
   for (const [profileId, result] of Object.entries(results)) {
     channel.appendLine(`\nProfile: ${profileId}`);
     channel.appendLine(`Status: ${result.status.toUpperCase()}`);
     channel.appendLine('Checks:');
-    
+
     result.checks.forEach(check => {
       const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '○';
       channel.appendLine(`  ${icon} ${check.name}: ${check.message}`);
     });
-    
+
     channel.appendLine(`\nMessage: ${result.actionableMessage}`);
   }
-  
+
   channel.appendLine('\n' + '='.repeat(60));
   channel.show();
 }

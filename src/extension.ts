@@ -10,14 +10,13 @@ import { showModels, showModelsProviders } from './commands/showModelsProviders'
 import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
-import { getOutputChannel } from './ui/output';
-import { createStatusBarItem, StatusBarManager } from './ui/statusBar';
+import { getOutputChannel } from './presentation/output';
+import { createStatusBarItem, StatusBarManager } from './presentation/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
-import { handleBoundaryOutcome } from './ui/notifications';
-import { initializeGuidedStepsView } from './ui/guidedStepsCompat';
+import { handleBoundaryOutcome } from './presentation/notifications';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -63,7 +62,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   
   // Initialize extension caching for performance
   initializeExtensionCaching(context);
-  initializeGuidedStepsView(context);
   
   // Check and migrate state if needed
   await migrateState(context);

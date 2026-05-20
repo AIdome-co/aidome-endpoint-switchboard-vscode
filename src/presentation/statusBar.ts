@@ -96,7 +96,7 @@ export function createStatusBarItem(): vscode.StatusBarItem {
  */
 export function updateStatusBar(profileName?: string): void {
   const item = createStatusBarItem();
-  
+
   if (profileName) {
     item.text = `$(shield) AIdome: ${profileName}`;
     item.tooltip = `Active profile: ${profileName}\nClick for quick actions`;

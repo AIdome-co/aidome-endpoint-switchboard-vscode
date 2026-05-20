@@ -8,8 +8,8 @@ import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { AIdomeClient } from '../core/aidome/client';
 import { AIdomeModel, AIdomeProvider } from '../core/aidome/types';
 import { EndpointProfile } from '../core/profiles/profileTypes';
-import { showError, showWarning } from '../ui/notifications';
-import { getOutputChannel } from '../ui/output';
+import { showError, showWarning } from '../presentation/notifications';
+import { getOutputChannel } from '../presentation/output';
 import { HttpError } from '../util/http';
 import { Logger } from '../util/log';
 

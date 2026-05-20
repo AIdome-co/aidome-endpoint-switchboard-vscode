@@ -38,7 +38,7 @@ vi.mock('../../../src/util/fsSafe', () => ({
   createBackup: mockCreateBackup,
 }));
 
-vi.mock('../../../src/ui/output', () => ({
+vi.mock('../../../src/presentation/output', () => ({
   getOutputChannel: vi.fn(() => ({ appendLine: mockAppendLine, show: vi.fn(), clear: vi.fn() })),
 }));
 
@@ -58,10 +58,6 @@ vi.mock('../../../src/util/log', () => ({
     })),
     initialize: vi.fn(),
   },
-}));
-
-vi.mock('../../../src/ui/guidedStepsCompat', () => ({
-  showGuidedStepsView: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('vscode', () => ({

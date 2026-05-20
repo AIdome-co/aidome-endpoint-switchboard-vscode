@@ -57,7 +57,7 @@ vi.mock('../../src/core/registry/registryLoader', () => ({
   loadRegistry: mockLoadRegistry
 }));
 
-vi.mock('../../src/ui/statusBar', () => ({
+vi.mock('../../src/presentation/statusBar', () => ({
   updateStatusBar: mockUpdateStatusBar
 }));
 

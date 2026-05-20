@@ -7,9 +7,9 @@ import * as fs from 'fs';
 import { ChangeLog } from '../core/orchestration/changeLog';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
-import { getOutputChannel } from '../ui/output';
-import { updateStatusBar } from '../ui/statusBar';
-import { showWarning, showError, showSuccess } from '../ui/notifications';
+import { getOutputChannel } from '../presentation/output';
+import { updateStatusBar } from '../presentation/statusBar';
+import { showWarning, showError, showSuccess } from '../presentation/notifications';
 import { Logger } from '../util/log';
 import { safeWriteFile } from '../util/fsSafe';
 

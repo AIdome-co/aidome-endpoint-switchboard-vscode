@@ -6,8 +6,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
 import { createBackup, safeWriteFile } from '../../util/fsSafe';
-import { getOutputChannel } from '../../ui/output';
-import { showGuidedStepsView } from '../../ui/guidedStepsCompat';
+import { getOutputChannel } from '../../presentation/output';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 
@@ -333,7 +332,7 @@ export class PlanApplier {
     }
 
     output.appendLine('');
-    await showGuidedStepsView(step);
+    output.show();
   }
 
   /**
