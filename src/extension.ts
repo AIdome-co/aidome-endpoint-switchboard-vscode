@@ -17,6 +17,10 @@ import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
 import { handleBoundaryOutcome } from './ui/notifications';
+import {
+  activateProfileAndReapplyMappings,
+  getProfileActivationNotice
+} from './commands/profileActivation';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -98,6 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const action = await vscode.window.showQuickPick([
           { label: '$(debug-start) Verify Routing', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
+          { label: '$(arrow-swap) Activate Profile', value: 'activate' },
           { label: '$(wand) Open Setup Wizard', value: 'setup' },
           { label: '$(notebook) Export Diagnostics', value: 'diagnostics' },
           { label: '$(gear) Show Models & Providers', value: 'models' }
@@ -115,6 +120,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             break;
           case 'manage':
             await vscode.commands.executeCommand('aidome-switchboard.manageProfiles');
+            break;
+          case 'activate':
+            await vscode.commands.executeCommand('aidome-switchboard.activateProfile');
             break;
           case 'setup':
             await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
@@ -173,6 +181,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.exportDiagnostics', async () => {
       const outcome = await withErrorBoundary(() => exportDiagnostics(context));
       await handleBoundaryOutcome(outcome, logger, 'Export diagnostics');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidome-switchboard.activateProfile', async (profileId?: string) => {
+      if (!profileId) {
+        const profileStore = new ProfileStore(context);
+        const profiles = await profileStore.getProfiles();
+        if (profiles.length === 0) {
+          vscode.window.showWarningMessage('No profiles exist yet. Run setup or Manage Profiles first.');
+          return;
+        }
+        const pick = await vscode.window.showQuickPick(
+          profiles.map(p => ({ label: p.name, description: p.baseUrl, profileId: p.id })),
+          { placeHolder: 'Select a profile to activate' }
+        );
+        if (!pick) {
+          return;
+        }
+        profileId = pick.profileId;
+      }
+      const outcome = await withErrorBoundary(async () => {
+        const result = await activateProfileAndReapplyMappings(context, profileId);
+        const notice = getProfileActivationNotice(result);
+        if (notice.kind === 'success') {
+          vscode.window.showInformationMessage(notice.message);
+        } else if (notice.kind === 'warning') {
+          vscode.window.showWarningMessage(notice.message);
+        } else {
+          vscode.window.showErrorMessage(notice.message);
+        }
+      });
+      await handleBoundaryOutcome(outcome, logger, 'Activate profile');
     })
   );
 

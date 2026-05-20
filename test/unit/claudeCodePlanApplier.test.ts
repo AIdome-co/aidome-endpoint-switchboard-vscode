@@ -86,9 +86,9 @@ vi.mock('../../src/util/log', () => ({
 }));
 
 vi.mock('../../src/core/orchestration/changeLog', () => ({
-  ChangeLog: vi.fn().mockImplementation(class {
-    recordApply = mockRecordApply;
-    getEntries = vi.fn().mockResolvedValue([]);
+  ChangeLog: vi.fn(function (this: Record<string, unknown>) {
+    this.recordApply = mockRecordApply;
+    this.getEntries = vi.fn().mockResolvedValue([]);
   }),
 }));
 

@@ -19,7 +19,8 @@ const DECLARED_COMMANDS: readonly string[] = [
   'aidome-switchboard.showModelsProviders',
   'aidome-switchboard.manageProfiles',
   'aidome-switchboard.resetSwitchboard',
-  'aidome-switchboard.exportDiagnostics'
+  'aidome-switchboard.exportDiagnostics',
+  'aidome-switchboard.activateProfile'
 ];
 
 // `aidome-switchboard.statusBarAction` is registered programmatically during

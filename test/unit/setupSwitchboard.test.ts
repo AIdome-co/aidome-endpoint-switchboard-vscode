@@ -93,10 +93,10 @@ vi.mock('../../src/ui/wizard/renderResults', () => ({
 }));
 
 vi.mock('../../src/core/orchestration/switchboard', () => ({
-  Switchboard: vi.fn().mockImplementation(class {
-    detectAll = mockDetectAll;
-    buildPlan = mockBuildPlan;
-    applyPlan = mockApplyPlan;
+  Switchboard: vi.fn(function (this: Record<string, unknown>) {
+    this.detectAll = mockDetectAll;
+    this.buildPlan = mockBuildPlan;
+    this.applyPlan = mockApplyPlan;
   }),
 }));
 
@@ -114,19 +114,19 @@ vi.mock('../../src/core/registry/registryLoader', () => ({
 }));
 
 vi.mock('../../src/core/profiles/profileStore', () => ({
-  ProfileStore: vi.fn().mockImplementation(class {
-    getProfiles = mockGetProfiles;
-    saveProfile = vi.fn();
-    getAssistantMappings = vi.fn(async () => []);
-    setActiveProfile = vi.fn();
-    saveAssistantMapping = vi.fn();
+  ProfileStore: vi.fn(function (this: Record<string, unknown>) {
+    this.getProfiles = mockGetProfiles;
+    this.saveProfile = vi.fn();
+    this.getAssistantMappings = vi.fn(async () => []);
+    this.setActiveProfile = vi.fn();
+    this.saveAssistantMapping = vi.fn();
   }),
 }));
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
-  ProfileSecrets: vi.fn().mockImplementation(class {
-    storeSecret = vi.fn();
-    getSecret = vi.fn();
+  ProfileSecrets: vi.fn(function (this: Record<string, unknown>) {
+    this.storeSecret = vi.fn();
+    this.getSecret = vi.fn();
   }),
 }));
 
