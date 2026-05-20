@@ -2,7 +2,6 @@
 .github/**
 src/**
 test/**
-node_modules/**
 *.ts
 !out/**/*.js
 tsconfig.json
