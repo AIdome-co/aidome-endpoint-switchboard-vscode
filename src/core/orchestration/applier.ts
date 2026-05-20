@@ -205,7 +205,18 @@ export class PlanApplier {
       ? vscode.ConfigurationTarget.Workspace 
       : vscode.ConfigurationTarget.Global;
 
-    await config.update(step.targetPath, step.newValue, scope);
+    try {
+      await config.update(step.targetPath, step.newValue, scope);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('is not a registered configuration')) {
+        this.logger.warning(
+          `Skipped unregistered setting "${step.targetPath}" — ` +
+          `the target extension may not be installed on this machine`
+        );
+        return;
+      }
+      throw error;
+    }
     
     this.logger.info(`Updated setting ${step.targetPath} to ${JSON.stringify(step.newValue)}`);
   }

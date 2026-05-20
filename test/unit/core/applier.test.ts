@@ -324,6 +324,40 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(mockSafeWriteFile).not.toHaveBeenCalled();
     expect(mockRecordApply).not.toHaveBeenCalled();
   });
+
+  it('skips unregistered settings gracefully instead of failing the assistant', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockUpdateConfig.mockRejectedValueOnce(
+      new Error('Unable to write to User Settings because kilocode.openaiBaseUrl is not a registered configuration.')
+    );
+
+    const step = makeStep({
+      assistantKey: 'kilo-code',
+      targetPath: 'kilocode.openaiBaseUrl',
+      newValue: 'https://gateway.example.com',
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(result.failedSteps).toHaveLength(0);
+  });
+
+  it('still fails on non-registration setting errors', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockUpdateConfig.mockRejectedValueOnce(new Error('Permission denied'));
+
+    const step = makeStep({
+      assistantKey: 'kilo-code',
+      targetPath: 'kilocode.openaiBaseUrl',
+      newValue: 'https://gateway.example.com',
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(false);
+    expect(result.failedSteps).toHaveLength(1);
+  });
 });
 
 // ---------- show-guided-steps action ----------

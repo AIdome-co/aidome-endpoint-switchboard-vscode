@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-20
+
+### Fixed
+
+- Fixed `MODULE_NOT_FOUND` crash for `jsonc-parser` when the extension is installed from VSIX — `.vscodeignore` was excluding `node_modules/**` but the extension uses `tsc` (no bundler), so production dependencies must ship in the package.
+- Fixed `set-vscode-setting` plan steps crashing with "not a registered configuration" when a mapped assistant's extension is not installed on the target machine — the applier now logs a warning and skips the step instead of failing the entire assistant group.
+
 ## [1.3.0] - 2026-05-20
 
 ### Added

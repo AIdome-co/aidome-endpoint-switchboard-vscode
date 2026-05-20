@@ -30,8 +30,8 @@ describe('.vscodeignore VSIX Content Validation', () => {
     expect(vscodeignoreContent).toContain('*.ts');
   });
 
-  it('should exclude node_modules', () => {
-    expect(vscodeignoreContent).toMatch(/^node_modules\/\*\*$/m);
+  it('should NOT exclude node_modules (production deps must ship with tsc builds)', () => {
+    expect(vscodeignoreContent).not.toMatch(/^node_modules\/\*\*$/m);
   });
 
   it('should exclude tsconfig.json', () => {
