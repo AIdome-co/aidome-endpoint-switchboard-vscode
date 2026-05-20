@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Removed the Control Center webview surface and returned guided manual follow-up to the wizard/output workflow while keeping backend verification, adapter, and profile activation logic intact.
+
 ## [1.2.0] - 2026-05-17
 
 ## [1.1.0] - 2026-05-14

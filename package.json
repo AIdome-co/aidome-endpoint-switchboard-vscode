@@ -132,16 +132,6 @@
         "command": "aidome-switchboard.exportDiagnostics",
         "title": "Export Diagnostics",
         "category": "AIdome"
-      },
-      {
-        "command": "aidome-switchboard.openControlCenter",
-        "title": "Open Control Center",
-        "category": "AIdome"
-      },
-      {
-        "command": "aidome-switchboard.openGuidedSetup",
-        "title": "Open Guided Setup Panel",
-        "category": "AIdome"
       }
     ],
     "walkthroughs": [

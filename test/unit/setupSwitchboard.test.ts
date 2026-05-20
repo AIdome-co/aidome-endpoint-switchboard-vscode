@@ -455,7 +455,7 @@ describe('setupSwitchboard', () => {
     await setupSwitchboard(makeContext());
 
     expect(mockShowWarning).toHaveBeenCalledWith(
-      expect.stringContaining('manual follow-up in the AIdome Control Center before verification'),
+      expect.stringContaining('manual follow-up in the output channel before verification'),
       'View Output',
       'Verify Routing'
     );

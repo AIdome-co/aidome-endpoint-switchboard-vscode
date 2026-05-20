@@ -204,7 +204,7 @@ async function showSetupSuccess(
     return await showWarning(
       `Successfully configured ${appliedAssistantCount} assistant(s) to use ${profileName}, ` +
       `but ${guidedAssistantCount} assistant${guidedAssistantCount === 1 ? '' : 's'} still ` +
-      `require manual follow-up in the AIdome Control Center before verification.`,
+      `require manual follow-up in the output channel before verification.`,
       VIEW_OUTPUT_ACTION,
       VERIFY_ROUTING_ACTION
     );

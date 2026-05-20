@@ -88,7 +88,7 @@ describe('package.json Marketplace Readiness', () => {
     expect(packageJson.engines.vscode).toMatch(/^\^?\d+\.\d+\.\d+$/);
   });
 
-  it('should have core and control-center commands registered', () => {
+  it('should have the wizard-first command set registered', () => {
     expect(packageJson.contributes).toBeDefined();
     expect(packageJson.contributes.commands).toBeDefined();
     expect(Array.isArray(packageJson.contributes.commands)).toBe(true);
@@ -101,9 +101,7 @@ describe('package.json Marketplace Readiness', () => {
       'aidome-switchboard.showModels',
       'aidome-switchboard.manageProfiles',
       'aidome-switchboard.resetSwitchboard',
-      'aidome-switchboard.exportDiagnostics',
-      'aidome-switchboard.openControlCenter',
-      'aidome-switchboard.openGuidedSetup'
+      'aidome-switchboard.exportDiagnostics'
     ]));
   });
 
