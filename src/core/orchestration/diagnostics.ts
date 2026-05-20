@@ -48,7 +48,7 @@ export interface DiagnosticsAssistant {
   detected: boolean;
   version?: string;
   tier: string;
-  configuredProfiles?: string[];
+  configuredProfile?: string;
 }
 
 /**
@@ -135,8 +135,6 @@ export async function generateDiagnostics(
     recentLogs?: readonly LogEntry[];
   }
 ): Promise<DiagnosticsReport> {
-  const profilesById = new Map((options?.profiles || []).map(profile => [profile.id, profile]));
-
   const systemInfo = {
     platform: `${os.platform()} ${os.arch()}`,
     arch: os.arch(),
@@ -148,7 +146,7 @@ export async function generateDiagnostics(
   // Convert profiles to diagnostic format (redacted)
   const diagnosticsProfiles: DiagnosticsProfile[] = (options?.profiles || []).map(profile => {
     const mappedAssistants = (options?.mappings || [])
-      .filter(m => m.profileId === profile.id)
+      .filter(m => m.profileName === profile.name)
       .map(m => m.assistantKey);
     
     return {
@@ -164,9 +162,7 @@ export async function generateDiagnostics(
   
   // Convert assistants to diagnostic format
   const diagnosticsAssistants: DiagnosticsAssistant[] = (options?.assistants || []).map(assistant => {
-    const configuredProfiles = [...new Set((options?.mappings || [])
-      .filter(m => m.assistantKey === assistant.assistantKey)
-      .map(mapping => profilesById.get(mapping.profileId)?.name || mapping.profileId))];
+    const mapping = (options?.mappings || []).find(m => m.assistantKey === assistant.assistantKey);
     
     return {
       key: assistant.assistantKey,
@@ -175,7 +171,7 @@ export async function generateDiagnostics(
       detected: true,
       version: assistant.version,
       tier: assistant.tier,
-      configuredProfiles: configuredProfiles.length > 0 ? configuredProfiles : undefined
+      configuredProfile: mapping?.profileName
     };
   });
   
@@ -344,12 +340,12 @@ function formatEnhancedMarkdown(report: DiagnosticsReport): string {
     lines.push('No assistants detected.');
     lines.push('');
   } else {
-    lines.push('| Assistant | Tier | Detected | Version | Profiles |');
-    lines.push('|-----------|------|----------|---------|----------|');
+    lines.push('| Assistant | Tier | Detected | Version | Profile |');
+    lines.push('|-----------|------|----------|---------|---------|');
     for (const assistant of report.detectedAssistants) {
       const detected = assistant.detected ? '✅' : '❌';
       const version = assistant.version || '—';
-      const profile = assistant.configuredProfiles?.join(', ') || '—';
+      const profile = assistant.configuredProfile || '—';
       lines.push(`| ${assistant.displayName} | ${assistant.tier} | ${detected} | ${version} | ${profile} |`);
     }
     lines.push('');
@@ -527,9 +523,9 @@ function formatLegacyMarkdown(report: DiagnosticReport): string {
     lines.push('No mappings configured.');
   } else {
     for (const mapping of report.mappings) {
-      lines.push(`- **${mapping.assistantKey}** → ${mapping.profileId}`);
-      lines.push(`  - Mode: ${mapping.appliedMode || 'unknown'}`);
-      lines.push(`  - Applied: ${mapping.appliedAt || 'unknown'}`);
+      lines.push(`- **${mapping.assistantKey}** → ${mapping.profileName}`);
+      lines.push(`  - Mode: ${mapping.appliedMode}`);
+      lines.push(`  - Applied: ${mapping.appliedAt}`);
     }
     lines.push('');
   }

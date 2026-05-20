@@ -135,6 +135,7 @@ describe('Claude Code Config Patcher', () => {
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
     });
 
+
     it('should create a backup before patching existing settings', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');

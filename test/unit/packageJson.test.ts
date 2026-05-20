@@ -88,18 +88,17 @@ describe('package.json Marketplace Readiness', () => {
     expect(packageJson.engines.vscode).toMatch(/^\^?\d+\.\d+\.\d+$/);
   });
 
-  it('should have all 8 commands registered', () => {
+  it('should have all 7 commands registered', () => {
     expect(packageJson.contributes).toBeDefined();
     expect(packageJson.contributes.commands).toBeDefined();
     expect(Array.isArray(packageJson.contributes.commands)).toBe(true);
-    expect(packageJson.contributes.commands.length).toBe(8);
+    expect(packageJson.contributes.commands.length).toBe(7);
 
     const commandIds = packageJson.contributes.commands.map((c: any) => c.command);
     expect(commandIds).toContain('aidome-switchboard.setupSwitchboard');
     expect(commandIds).toContain('aidome-switchboard.verifyRouting');
     expect(commandIds).toContain('aidome-switchboard.showModelsProviders');
     expect(commandIds).toContain('aidome-switchboard.manageProfiles');
-    expect(commandIds).toContain('aidome-switchboard.assignProfileAssistants');
     expect(commandIds).toContain('aidome-switchboard.resetSwitchboard');
     expect(commandIds).toContain('aidome-switchboard.exportDiagnostics');
     expect(commandIds).toContain('aidome-switchboard.activateProfile');

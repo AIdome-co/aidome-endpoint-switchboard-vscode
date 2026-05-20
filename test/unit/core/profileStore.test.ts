@@ -319,46 +319,24 @@ describe('ProfileStore', () => {
       expect(mappings[0]).toEqual(mapping);
     });
 
-    it('should update existing mapping by assistant key and profile ID', async () => {
+    it('should update existing mapping by assistant key', async () => {
       const originalMapping: AssistantMapping = {
         assistantKey: 'continue',
-        profileId: 'prof-1',
-        appliedMode: 'settings'
+        profileId: 'prof-1'
       };
 
       await profileStore.saveAssistantMapping(originalMapping);
 
       const updatedMapping: AssistantMapping = {
         assistantKey: 'continue',
-        profileId: 'prof-1',
-        appliedMode: 'configFile'
+        profileId: 'prof-2'
       };
 
       await profileStore.saveAssistantMapping(updatedMapping);
       const mappings = await profileStore.getAssistantMappings();
 
       expect(mappings).toHaveLength(1);
-      expect(mappings[0].profileId).toBe('prof-1');
-      expect(mappings[0].appliedMode).toBe('configFile');
-    });
-
-    it('should preserve mappings for the same assistant across multiple profiles', async () => {
-      await profileStore.saveAssistantMapping({
-        assistantKey: 'claude-code',
-        profileId: 'prof-1'
-      });
-      await profileStore.saveAssistantMapping({
-        assistantKey: 'claude-code',
-        profileId: 'prof-2'
-      });
-
-      const mappings = await profileStore.getAssistantMappings();
-
-      expect(mappings).toHaveLength(2);
-      expect(mappings).toEqual(expect.arrayContaining([
-        { assistantKey: 'claude-code', profileId: 'prof-1' },
-        { assistantKey: 'claude-code', profileId: 'prof-2' }
-      ]));
+      expect(mappings[0].profileId).toBe('prof-2');
     });
 
     it('should handle multiple assistant mappings', async () => {
@@ -377,22 +355,6 @@ describe('ProfileStore', () => {
       const mappings = await profileStore.getAssistantMappings();
 
       expect(mappings).toHaveLength(2);
-    });
-
-    it('should delete only the targeted profile mapping for an assistant', async () => {
-      await profileStore.saveAssistantMapping({
-        assistantKey: 'claude-code',
-        profileId: 'prof-1'
-      });
-      await profileStore.saveAssistantMapping({
-        assistantKey: 'claude-code',
-        profileId: 'prof-2'
-      });
-
-      await profileStore.deleteAssistantMapping('claude-code', 'prof-1');
-
-      const mappings = await profileStore.getAssistantMappings();
-      expect(mappings).toEqual([{ assistantKey: 'claude-code', profileId: 'prof-2' }]);
     });
   });
 

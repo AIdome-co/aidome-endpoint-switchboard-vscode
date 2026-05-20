@@ -157,15 +157,15 @@ export class Switchboard {
     
     const result = await this.applier.applyPlan(plan, profileName);
     
-    if (result.appliedSteps.length > 0) {
-      this.logger.info(`Applied ${result.appliedSteps.length} step(s) in ${timer.stop()}ms`);
+    if (result.success) {
+      this.logger.info(`Plan applied successfully in ${timer.stop()}ms`);
       
       // Update mappings in profile store
       for (const step of result.appliedSteps) {
         try {
           await this.profileStore.saveAssistantMapping({
             assistantKey: step.assistantKey,
-            profileId: plan.profileId,
+            profileName: plan.profileId,
             appliedMode: this.getAppliedMode(step.action),
             appliedAt: new Date().toISOString()
           });
@@ -173,9 +173,7 @@ export class Switchboard {
           this.logger.error(`Failed to save mapping for ${step.assistantKey}`, error instanceof Error ? error : undefined);
         }
       }
-    }
-
-    if (!result.success) {
+    } else {
       this.logger.error(`Plan failed: ${result.failedSteps.length} step(s) failed`);
     }
     

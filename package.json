@@ -119,11 +119,6 @@
         "category": "AIdome"
       },
       {
-        "command": "aidome-switchboard.assignProfileAssistants",
-        "title": "Assign Assistants to Profile",
-        "category": "AIdome"
-      },
-      {
         "command": "aidome-switchboard.resetSwitchboard",
         "title": "Reset Switchboard",
         "category": "AIdome"
