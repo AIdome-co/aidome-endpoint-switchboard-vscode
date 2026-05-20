@@ -14,6 +14,8 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showError, showSuccess, showWarning } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
+import { activateProfileAndReapplyMappings, getProfileActivationNotice } from './activateProfile';
+import { assignProfileAssistants } from './assignProfileAssistants';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -57,7 +59,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   // Add existing profiles with status
   for (const profile of profiles) {
-    const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+    const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
     const status = getProfileStatusIcon(profile);
     const lastVerified = profile.lastVerified 
       ? formatLastVerified(profile.lastVerified)
@@ -74,9 +76,9 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   if (profiles.length > 0) {
     items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
     items.push({
-      label: '$(star) Set Default Profile',
+      label: '$(star) Set Active Profile',
       description: '',
-      detail: 'Set the active default profile'
+      detail: 'Switch mapped assistants to a different active profile'
     });
   }
   
@@ -91,7 +93,7 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
   
   if (selected.label.includes('Create New Profile')) {
     await createProfileFlow(context);
-  } else if (selected.label.includes('Set Default Profile')) {
+  } else if (selected.label.includes('Set Active Profile')) {
     await setDefaultProfile(context, profileStore, profiles);
   } else if ('profile' in selected) {
     await showProfileDetails(context, selected.profile);
@@ -105,6 +107,9 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const existingProfiles = await profileStore.getProfiles();
+  let completionNotification:
+    | { kind: 'success' | 'warning' | 'error'; message: string }
+    | undefined;
   
   // Step 1: Profile name
   const name = await vscode.window.showInputBox({
@@ -268,17 +273,37 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
       displayVerificationResults(report);
       
       if (report.overallStatus === 'passed') {
-        await showSuccess(`Profile "${profile.name}" created and verified successfully!`);
+        completionNotification = {
+          kind: 'success',
+          message: `Profile "${profile.name}" created and verified successfully!`
+        };
       } else if (report.overallStatus === 'partial') {
-        await showWarning(`Profile "${profile.name}" created with warnings. Check output for details.`);
+        completionNotification = {
+          kind: 'warning',
+          message: `Profile "${profile.name}" created with warnings. Check output for details.`
+        };
       } else {
-        await showError(`Profile "${profile.name}" created but verification failed. Check output for details.`);
+        completionNotification = {
+          kind: 'error',
+          message: `Profile "${profile.name}" created but verification failed. Check output for details.`
+        };
       }
     } catch (error) {
       logger.error('Verification failed', error instanceof Error ? error : undefined);
-      await showWarning(`Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`);
+      completionNotification = {
+        kind: 'warning',
+        message: `Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   });
+
+  if (completionNotification?.kind === 'success') {
+    await showSuccess(completionNotification.message);
+  } else if (completionNotification?.kind === 'warning') {
+    await showWarning(completionNotification.message);
+  } else if (completionNotification?.kind === 'error') {
+    await showError(completionNotification.message);
+  }
   
   // Return to main menu
   await showMainMenu(context);
@@ -290,7 +315,7 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
 async function showProfileDetails(context: vscode.ExtensionContext, profile: EndpointProfile): Promise<void> {
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+  const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
   
   const lastVerifiedText = profile.lastVerified 
     ? `${new Date(profile.lastVerified).toISOString().replace('T', ' ').substring(0, 19)} UTC ${getProfileStatusIcon(profile)}`
@@ -325,6 +350,11 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
       detail: 'Run verification pipeline'
     },
     {
+      label: `$(plug) Assign Assistants (${assistantCount})`,
+      description: '',
+      detail: 'Attach or detach assistants for this profile'
+    },
+    {
       label: '$(trash) Delete Profile',
       description: '',
       detail: 'Remove this profile'
@@ -351,6 +381,9 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
   } else if (selected.label.includes('Test Connection')) {
     await testConnection(context, profile);
     await showProfileDetails(context, profile);
+  } else if (selected.label.includes('Assign Assistants')) {
+    await assignProfileAssistants(context, profile.id);
+    await showProfileDetails(context, profile);
   } else if (selected.label.includes('Delete Profile')) {
     await deleteProfileFlow(context, profile);
   } else if (selected.label.includes('View Mapped Assistants')) {
@@ -368,7 +401,7 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const assistantCount = mappings.filter(m => m.profileName === profile.name).length;
+  const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
   
   const fieldOptions: vscode.QuickPickItem[] = [
     {
@@ -431,18 +464,12 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
     });
     
     if (newName && newName.trim() !== profile.name) {
-      // Update mappings to use new name
-      for (const mapping of mappings.filter(m => m.profileName === profile.name)) {
-        mapping.profileName = newName.trim();
-        await profileStore.saveAssistantMapping(mapping);
-      }
-      
       // Update secrets if they exist
       if (profile.authRef) {
         const secrets = new ProfileSecrets(context);
-        const token = await secrets.getSecret(profile.name);
+        const token = await secrets.getSecret(profile.authRef);
         if (token) {
-          await secrets.deleteSecret(profile.name);
+          await secrets.deleteSecret(profile.authRef);
           await secrets.storeSecret(newName.trim(), token);
         }
         profile.authRef = newName.trim();
@@ -580,7 +607,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const profileMappings = mappings.filter(m => m.profileName === profile.name);
+  const profileMappings = mappings.filter(m => m.profileId === profile.id);
   const assistantCount = profileMappings.length;
   
   let confirmMessage = `Delete profile '${profile.name}'?`;
@@ -644,7 +671,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
     
     // Update mappings
     for (const mapping of profileMappings) {
-      mapping.profileName = targetProfile.profile.name;
+      mapping.profileId = targetProfile.profile.id;
       await profileStore.saveAssistantMapping(mapping);
     }
     
@@ -657,7 +684,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   // Delete secrets
   if (profile.authRef) {
     const profileSecrets = new ProfileSecrets(context);
-    await profileSecrets.deleteSecret(profile.name);
+    await profileSecrets.deleteSecret(profile.authRef);
   }
   
   // Update status bar if this was the active profile
@@ -769,8 +796,8 @@ async function setDefaultProfile(
   }));
   
   const selected = await vscode.window.showQuickPick(items, {
-    title: 'Set Default Profile',
-    placeHolder: 'Select the default active profile'
+    title: 'Set Active Profile',
+    placeHolder: 'Select the profile to apply to configured assistants'
   });
   
   if (!selected) {
@@ -778,11 +805,18 @@ async function setDefaultProfile(
     return;
   }
   
-  await profileStore.setActiveProfile(selected.profile.id);
-  updateStatusBar(selected.profile.name);
-  
-  await showSuccess(`Default profile set to "${selected.profile.name}"`);
-  logger.info(`Default profile set: ${selected.profile.name}`);
+  const activation = await activateProfileAndReapplyMappings(context, selected.profile.id);
+  const notice = getProfileActivationNotice(activation);
+
+  if (notice.kind === 'success') {
+    await showSuccess(notice.message);
+  } else if (notice.kind === 'warning') {
+    await showWarning(notice.message);
+  } else {
+    await showError(notice.message);
+  }
+
+  logger.info(`Profile activation requested from Manage Profiles: ${selected.profile.name}`);
   
   await showMainMenu(context);
 }
@@ -795,7 +829,7 @@ async function viewMappedAssistants(
   profile: EndpointProfile,
   allMappings: AssistantMapping[]
 ): Promise<void> {
-  const profileMappings = allMappings.filter(m => m.profileName === profile.name);
+  const profileMappings = allMappings.filter(m => m.profileId === profile.id);
   
   if (profileMappings.length === 0) {
     await vscode.window.showInformationMessage(`No assistants are currently mapped to "${profile.name}"`);
@@ -804,8 +838,8 @@ async function viewMappedAssistants(
   
   const items = profileMappings.map(m => ({
     label: m.assistantKey,
-    description: `Applied via ${m.appliedMode}`,
-    detail: `Applied at: ${new Date(m.appliedAt).toLocaleString()}`
+    description: `Applied via ${m.appliedMode || 'unknown'}`,
+    detail: m.appliedAt ? `Applied at: ${new Date(m.appliedAt).toLocaleString()}` : 'Applied at: unknown'
   }));
   
   await vscode.window.showQuickPick(items, {

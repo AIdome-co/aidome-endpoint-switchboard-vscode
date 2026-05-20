@@ -54,12 +54,16 @@ export async function activateProfileAndReapplyMappings(
   }
 
   const mappings = await profileStore.getAssistantMappings();
-  const mappedAssistantKeys = [...new Set(mappings.map(mapping => mapping.assistantKey))];
+  const mappedAssistantKeys = [...new Set(
+    mappings
+      .filter(mapping => mapping.profileId === profile.id)
+      .map(mapping => mapping.assistantKey)
+  )];
 
   if (mappedAssistantKeys.length === 0) {
     await profileStore.setActiveProfile(profile.id);
     updateStatusBar(profile.name);
-    logger.info(`Activated profile ${profile.name} with no configured assistants to reapply`);
+    logger.info(`Activated profile ${profile.name} with no assigned assistants to reapply`);
     return {
       status: 'active-only',
       profile,
@@ -92,7 +96,7 @@ export async function activateProfileAndReapplyMappings(
           await profileStore.setActiveProfile(profile.id);
           updateStatusBar(profile.name);
           logger.info(
-            `Activated profile ${profile.name} but no mapped assistants had automatic reapply steps: ${skippedAssistantKeys.join(', ') || 'none'}`
+            `Activated profile ${profile.name} but no assigned assistants had automatic reapply steps: ${skippedAssistantKeys.join(', ') || 'none'}`
           );
           return {
             status: 'active-only' as const,
@@ -149,7 +153,7 @@ export async function activateProfileAndReapplyMappings(
         }
 
         logger.error(
-          `Failed to reapply mapped assistants for profile ${profile.name}`,
+          `Failed to reapply assigned assistants for profile ${profile.name}`,
           undefined,
           { failedAssistantKeys, skippedAssistantKeys }
         );
@@ -197,13 +201,13 @@ export function getProfileActivationNotice(
     if (result.skippedAssistantKeys.length > 0) {
       return {
         kind: 'warning',
-        message: `Active profile set to "${profileName}", but these assistants require manual switching: ${result.skippedAssistantKeys.join(', ')}.`
+        message: `Active profile set to "${profileName}", but these assigned assistants require manual switching: ${result.skippedAssistantKeys.join(', ')}.`
       };
     }
 
     return {
       kind: 'success',
-      message: `Active profile set to "${profileName}". No configured assistants needed reapplying.`
+      message: `Active profile set to "${profileName}". No assistants are assigned to this profile yet.`
     };
   }
 
