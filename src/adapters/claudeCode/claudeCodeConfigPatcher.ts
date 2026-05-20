@@ -40,7 +40,8 @@ export function getClaudeCodeSettingsPath(): string {
  */
 export function buildClaudeCodeSettingsContent(
   profile: EndpointProfile,
-  content?: string
+  content?: string,
+  authSecret?: string | null
 ): string {
   if (!validateUrl(profile.baseUrl)) {
     throw new Error('Invalid Claude Code endpoint URL');
@@ -48,12 +49,21 @@ export function buildClaudeCodeSettingsContent(
 
   const settings = parseClaudeCodeSettings(content);
   const env = isStringRecord(settings.env) ? settings.env : {};
+  const normalizedAuthSecret = typeof authSecret === 'string' ? authSecret.trim() : authSecret;
 
-  settings.env = {
+  const nextEnv: Record<string, string> = {
     ...env,
     ANTHROPIC_BASE_URL: profile.baseUrl,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
+
+  if (typeof normalizedAuthSecret === 'string' && normalizedAuthSecret.length > 0) {
+    nextEnv.ANTHROPIC_API_KEY = normalizedAuthSecret;
+  } else if (authSecret !== undefined) {
+    delete nextEnv.ANTHROPIC_API_KEY;
+  }
+
+  settings.env = nextEnv;
 
   return `${stringifyJsonc(settings, 2)}\n`;
 }

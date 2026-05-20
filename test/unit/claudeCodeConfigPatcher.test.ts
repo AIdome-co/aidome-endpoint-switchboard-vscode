@@ -107,11 +107,33 @@ describe('Claude Code Config Patcher', () => {
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
     });
 
-    it('should not write plaintext auth tokens', () => {
+    it('should not write plaintext auth tokens by default', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile);
 
       expect(updated).not.toContain('ANTHROPIC_AUTH_TOKEN');
       expect(updated).not.toContain('ANTHROPIC_API_KEY');
+    });
+
+    it('should write ANTHROPIC_API_KEY when a profile secret is provided', () => {
+      const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, 'aid_pat_test');
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
+    });
+
+    it('should remove a previously written ANTHROPIC_API_KEY when auth is explicitly unavailable', () => {
+      const existing = JSON.stringify({
+        env: {
+          ANTHROPIC_API_KEY: 'stale-key',
+          EXISTING_VAR: 'kept'
+        }
+      });
+
+      const updated = buildClaudeCodeSettingsContent(mockProfile, existing, null);
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(parsed.env.EXISTING_VAR).toBe('kept');
     });
 
     it('should reject unsafe endpoint URLs before writing settings', () => {
