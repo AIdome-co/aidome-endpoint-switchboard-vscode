@@ -38,7 +38,10 @@ export function getClaudeCodeSettingsPath(): string {
  * @param content Existing settings content, if any
  * @returns Updated settings JSON content
  */
-export function buildClaudeCodeSettingsContent(profile: EndpointProfile, content?: string): string {
+export function buildClaudeCodeSettingsContent(
+  profile: EndpointProfile,
+  content?: string
+): string {
   if (!validateUrl(profile.baseUrl)) {
     throw new Error('Invalid Claude Code endpoint URL');
   }
