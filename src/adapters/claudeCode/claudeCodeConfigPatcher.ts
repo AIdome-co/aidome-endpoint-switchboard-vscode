@@ -7,7 +7,7 @@ import * as path from 'path';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
-import { expandTilde } from '../../util/paths';
+import { expandTilde, getConfigDir } from '../../util/paths';
 import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
 
 interface ClaudeCodeSettings {
@@ -20,7 +20,6 @@ interface ClaudeCodeSettings {
  * @returns Config file path
  */
 export function getClaudeCodeSettingsPath(): string {
-  const defaultPath = expandTilde('~/.claude/settings.json');
   const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
   if (configDir) {
     const expandedConfigDir = expandTilde(configDir);
@@ -28,8 +27,8 @@ export function getClaudeCodeSettingsPath(): string {
       return path.join(expandedConfigDir, 'settings.json');
     }
   }
-
-  return defaultPath;
+  // Platform-aware: %APPDATA%\Claude on Windows, ~/Library/Application Support/Claude on macOS, ~/.claude on Linux
+  return path.join(getConfigDir('Claude'), 'settings.json');
 }
 
 /**

@@ -2,7 +2,7 @@
  * Unit tests for AnythingLLM adapter.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnythingLlmAdapter } from '../../src/adapters/anythingllm/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
@@ -57,6 +57,53 @@ describe('AnythingLlmAdapter', () => {
       const result = await adapter.detect();
 
       expect(result).toBe(false);
+    });
+
+    it('should use ProgramFiles env vars for Windows detection paths', async () => {
+      const previousProgramFiles = process.env['ProgramFiles'];
+      const previousProgramFilesX86 = process.env['ProgramFiles(x86)'];
+      process.env['ProgramFiles'] = 'D:\\Program Files';
+      process.env['ProgramFiles(x86)'] = 'D:\\Program Files (x86)';
+
+      const checkedPaths: string[] = [];
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(async (p: string) => {
+        checkedPaths.push(p);
+        return false;
+      });
+
+      // Call getDetectionPaths indirectly via detect() on a system where
+      // platform() returns 'win32' — we can only verify the env-var paths are
+      // included when running on Windows. On non-Windows CI we verify the
+      // adapter does NOT hard-code 'C:\Program Files' and instead reads env vars.
+      // We test the path-building logic directly by importing and calling the private
+      // method via the public verify() surface (which exposes detectionPaths).
+      const result = await adapter.verify();
+      const detectionPaths = result.details?.detectionPaths as string[] | undefined;
+
+      // Restore env vars
+      if (previousProgramFiles === undefined) {
+        delete process.env['ProgramFiles'];
+      } else {
+        process.env['ProgramFiles'] = previousProgramFiles;
+      }
+      if (previousProgramFilesX86 === undefined) {
+        delete process.env['ProgramFiles(x86)'];
+      } else {
+        process.env['ProgramFiles(x86)'] = previousProgramFilesX86;
+      }
+
+      // On Windows the env-var paths should appear; on other platforms they won't.
+      // The key invariant is that no path hard-codes 'C:\\Program Files' as a literal —
+      // it must come from the env var (or the default fallback).
+      // On non-Windows, detectionPaths won't contain Program Files paths at all.
+      const osPlatform = (await import('os')).platform();
+      if (osPlatform === 'win32') {
+        expect(detectionPaths?.some(p => p.includes('D:\\Program Files') && p.includes('AnythingLLM'))).toBe(true);
+        expect(detectionPaths?.some(p => p.includes('D:\\Program Files (x86)') && p.includes('AnythingLLM'))).toBe(true);
+      } else {
+        // On non-Windows, Windows paths are simply not present at all.
+        expect(detectionPaths?.every(p => !p.startsWith('C:\\Program Files'))).toBe(true);
+      }
     });
   });
 

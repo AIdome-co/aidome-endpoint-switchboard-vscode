@@ -63,6 +63,7 @@ vi.mock('../../src/util/fsSafe', () => ({
 
 vi.mock('../../src/util/paths', () => ({
   expandTilde: (path: string) => path.replace('~', '/home/user'),
+  getConfigDir: (appName: string) => `/home/user/.${appName.toLowerCase()}`
 }));
 
 vi.mock('../../src/core/detection/detectCLIs', () => ({

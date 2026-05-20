@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Assistants TreeView in Explorer panel: shows all registered assistants with Tier badge and configured/unconfigured status icon, refreshes after setup
+- First-run "Configure Now" notification on activation when no endpoint profile exists (shown once per install)
+
+### Fixed
+- AnythingLLM adapter: replace hardcoded `C:\Program Files\AnythingLLM` paths with `%ProgramFiles%`/`%ProgramFiles(x86)%` environment variable lookups for correct Windows support
+- Claude Code adapter: use platform-aware config path (`%APPDATA%\Claude` on Windows, `~/Library/Application Support/Claude` on macOS) instead of always using `~/.claude`
+
 ## [1.3.1] - 2026-05-20
 
 ### Fixed

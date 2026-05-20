@@ -132,8 +132,32 @@
         "command": "aidome-switchboard.activateProfile",
         "title": "Activate Profile",
         "category": "AIdome"
+      },
+      {
+        "command": "aidome-switchboard.refreshAssistantsView",
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "AIdome"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "aidome-switchboard.assistantsView",
+          "name": "AIdome Assistants",
+          "contextualTitle": "AIdome Endpoint Switchboard"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aidome-switchboard.refreshAssistantsView",
+          "when": "view == aidome-switchboard.assistantsView",
+          "group": "navigation"
+        }
+      ]
+    },
     "walkthroughs": [
       {
         "id": "aidome-switchboard-getting-started",
