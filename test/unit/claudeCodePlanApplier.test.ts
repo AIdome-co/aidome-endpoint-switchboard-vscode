@@ -69,7 +69,7 @@ vi.mock('../../src/core/detection/detectCLIs', () => ({
   detectCli: vi.fn(),
 }));
 
-vi.mock('../../src/presentation/output', () => ({
+vi.mock('../../src/interactions/output', () => ({
   getOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), show: vi.fn(), clear: vi.fn() })),
 }));
 

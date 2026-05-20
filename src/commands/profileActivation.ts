@@ -5,7 +5,7 @@ import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { loadRegistry } from '../core/registry/registryLoader';
-import { updateStatusBar } from '../presentation/statusBar';
+import { updateStatusBar } from '../interactions/statusBar';
 import { Logger } from '../util/log';
 
 const AUTOMATED_REAPPLY_ACTIONS = new Set<PlanStepAction>([

@@ -215,7 +215,7 @@ describe('Pre-Release Validation', () => {
 
     it('should have accessibility in status bar', () => {
       const statusBarContent = fs.readFileSync(
-        path.join(ROOT_DIR, 'src/presentation/statusBar.ts'),
+        path.join(ROOT_DIR, 'src/interactions/statusBar.ts'),
         'utf-8'
       );
       

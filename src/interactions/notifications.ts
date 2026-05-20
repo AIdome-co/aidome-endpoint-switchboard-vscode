@@ -17,16 +17,6 @@ export async function showSuccess(message: string, ...actions: string[]): Promis
 }
 
 /**
- * Shows an information notification.
- * @param message The message to display
- * @param items Optional action items
- * @returns Promise resolving to selected item
- */
-export async function showInfo(message: string, ...items: string[]): Promise<string | undefined> {
-  return await vscode.window.showInformationMessage(message, ...items);
-}
-
-/**
  * Shows a warning notification.
  * @param message The message to display
  * @param actions Optional action items

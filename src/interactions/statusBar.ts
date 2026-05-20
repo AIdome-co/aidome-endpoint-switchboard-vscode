@@ -57,20 +57,6 @@ export class StatusBarManager {
   }
 
   /**
-   * Set status bar to verifying state.
-   */
-  setVerifying(): void {
-    this.item.text = '$(sync~spin) AIdome: Verifying...';
-    this.item.tooltip = 'Verifying configuration...';
-    this.item.color = undefined;
-    this.item.accessibilityInformation = {
-      label: 'AIdome Switchboard verifying configuration',
-      role: 'status'
-    };
-    this.item.show();
-  }
-
-  /**
    * Dispose the status bar item.
    */
   dispose(): void {

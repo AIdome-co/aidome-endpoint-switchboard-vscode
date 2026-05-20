@@ -1,5 +1,5 @@
 /**
- * Unit tests for handleBoundaryOutcome in src/presentation/notifications.ts.
+ * Unit tests for handleBoundaryOutcome in src/interactions/notifications.ts.
  * Covers: all four BoundaryOutcome kinds, correct log method, correct notification.
  */
 
@@ -33,7 +33,7 @@ vi.mock('vscode', () => ({
 
 import {
   handleBoundaryOutcome,
-} from '../../src/presentation/notifications';
+} from '../../src/interactions/notifications';
 import {
   UserCancellationError,
   ConfigurationError,

@@ -91,15 +91,15 @@ vi.mock('../../src/util/log', () => ({
   },
 }));
 
-vi.mock('../../src/presentation/notifications', () => ({
+vi.mock('../../src/interactions/notifications', () => ({
   showWarning: mockShowWarning,
   showError: mockShowError,
   showSuccess: mockShowSuccess,
   withProgress: mockWithProgress,
 }));
 
-vi.mock('../../src/presentation/statusBar', () => ({ updateStatusBar: vi.fn() }));
-vi.mock('../../src/presentation/output', () => ({
+vi.mock('../../src/interactions/statusBar', () => ({ updateStatusBar: vi.fn() }));
+vi.mock('../../src/interactions/output', () => ({
   getOutputChannel: vi.fn(() => ({
     appendLine: mockOutputAppendLine,
     show: mockOutputShow,
@@ -109,9 +109,8 @@ vi.mock('../../src/presentation/output', () => ({
   showOutput: mockShowOutput,
   showPlan: vi.fn(),
 }));
-vi.mock('../../src/presentation/renderResults', () => ({
+vi.mock('../../src/interactions/renderResults', () => ({
   renderDetectionSummary: vi.fn(() => '🔍 Detection Summary'),
-  renderPlanSummary: vi.fn(() => 'Plan summary'),
 }));
 
 vi.mock('../../src/core/orchestration/switchboard', () => ({

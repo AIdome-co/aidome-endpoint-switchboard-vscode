@@ -7,9 +7,8 @@ import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
-import { renderVerificationResults } from '../presentation/renderResults';
-import { showError, showSuccess, showWarning } from '../presentation/notifications';
-import { showOutput, showResults } from '../presentation/output';
+import { showError, showSuccess, showWarning } from '../interactions/notifications';
+import { showOutput, showResults } from '../interactions/output';
 import { Logger } from '../util/log';
 
 /**

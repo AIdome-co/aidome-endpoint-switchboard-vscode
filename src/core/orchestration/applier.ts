@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
 import { createBackup, safeWriteFile } from '../../util/fsSafe';
-import { getOutputChannel } from '../../presentation/output';
+import { getOutputChannel } from '../../interactions/output';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 

@@ -38,7 +38,7 @@ vi.mock('../../../src/util/fsSafe', () => ({
   createBackup: mockCreateBackup,
 }));
 
-vi.mock('../../../src/presentation/output', () => ({
+vi.mock('../../../src/interactions/output', () => ({
   getOutputChannel: vi.fn(() => ({ appendLine: mockAppendLine, show: vi.fn(), clear: vi.fn() })),
 }));
 

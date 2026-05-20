@@ -10,13 +10,13 @@ import { showModels, showModelsProviders } from './commands/showModelsProviders'
 import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
-import { getOutputChannel } from './presentation/output';
-import { createStatusBarItem, StatusBarManager } from './presentation/statusBar';
+import { getOutputChannel } from './interactions/output';
+import { createStatusBarItem, StatusBarManager } from './interactions/statusBar';
 import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
-import { handleBoundaryOutcome } from './presentation/notifications';
+import { handleBoundaryOutcome } from './interactions/notifications';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
