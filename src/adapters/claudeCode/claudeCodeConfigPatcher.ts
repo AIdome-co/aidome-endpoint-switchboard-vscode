@@ -7,7 +7,7 @@ import * as path from 'path';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
-import { expandTilde, getConfigDir } from '../../util/paths';
+import { expandTilde } from '../../util/paths';
 import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
 
 interface ClaudeCodeSettings {
@@ -27,8 +27,9 @@ export function getClaudeCodeSettingsPath(): string {
       return path.join(expandedConfigDir, 'settings.json');
     }
   }
-  // Platform-aware: %APPDATA%\Claude on Windows, ~/Library/Application Support/Claude on macOS, ~/.claude on Linux
-  return path.join(getConfigDir('Claude'), 'settings.json');
+  // Claude Code CLI uses ~/.claude/ on ALL platforms (Windows, macOS, Linux).
+  // Do not use getConfigDir('Claude') — that resolves to Claude Desktop paths.
+  return expandTilde('~/.claude/settings.json');
 }
 
 /**
