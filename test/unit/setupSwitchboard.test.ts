@@ -11,12 +11,16 @@ import type { EndpointProfile } from '../../src/core/profiles/profileTypes';
 interface QuickPickItem {
   label: string;
   picked?: boolean;
+  assistantKey?: string;
+  detail?: string;
 }
 
 // ---------- hoisted mock variables ----------
 const {
   mockShowQuickPick,
   mockShowInputBox,
+  mockShowInformationMessage,
+  mockExecuteCommand,
   mockLoggerInfo,
   mockLoggerWarning,
   mockLoggerError,
@@ -31,6 +35,8 @@ const {
 } = vi.hoisted(() => ({
   mockShowQuickPick: vi.fn(),
   mockShowInputBox: vi.fn(),
+  mockShowInformationMessage: vi.fn(),
+  mockExecuteCommand: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn(),
   mockLoggerError: vi.fn(),
@@ -50,7 +56,7 @@ vi.mock('vscode', () => ({
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
     showWarningMessage: vi.fn(),
-    showInformationMessage: vi.fn(),
+    showInformationMessage: mockShowInformationMessage,
     showErrorMessage: vi.fn(),
     createOutputChannel: vi.fn(() => ({
       appendLine: vi.fn(),
@@ -63,6 +69,9 @@ vi.mock('vscode', () => ({
   extensions: {
     all: [],
     onDidChange: vi.fn(() => ({ dispose: vi.fn() })),
+  },
+  commands: {
+    executeCommand: mockExecuteCommand,
   },
   ExtensionContext: vi.fn(),
   SecretStorage: vi.fn(),
@@ -160,6 +169,8 @@ describe('setupSwitchboard', () => {
     vi.clearAllMocks();
     mockWithProgress.mockImplementation(progressCallback);
     mockGetProfiles.mockResolvedValue([]);
+    mockShowInformationMessage.mockResolvedValue(undefined);
+    mockShowSuccess.mockResolvedValue(undefined);
   });
 
   it('shows a warning and returns early when only Tier C assistants are detected', async () => {
@@ -212,8 +223,10 @@ describe('setupSwitchboard', () => {
 
     const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
     const labels = items.map(i => i.label);
-    expect(labels).toContain('kilocode');
-    expect(labels).not.toContain('github.copilot');
+    const assistantKeys = items.map(i => i.assistantKey);
+    expect(labels).toContain('Kilo Code');
+    expect(assistantKeys).toContain('kilocode');
+    expect(assistantKeys).not.toContain('github.copilot');
   });
 
   it('logs "user dismissed" when user closes the assistant QuickPick', async () => {
@@ -268,9 +281,29 @@ describe('setupSwitchboard', () => {
     await setupSwitchboard(makeContext());
 
     const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
-    const keys = items.map(i => i.label);
+    const labels = items.map(i => i.label);
+    const keys = items.map(i => i.assistantKey);
+    expect(labels).toContain('Kilo Code');
     expect(keys).toContain('kilocode');
     expect(keys).toContain('codex-cli');
+  });
+
+  it('deduplicates assistants detected as both extension and CLI', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('claude-code', 'B', 'Claude Code')],
+      clis: [{ assistantKey: 'claude-code', command: 'claude', version: '1.0.0' }],
+    });
+    mockShowQuickPick.mockResolvedValueOnce(undefined);
+
+    await setupSwitchboard(makeContext());
+
+    const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      assistantKey: 'claude-code',
+      label: 'Claude Code (Extension + CLI)',
+      detail: 'Detected as VS Code extension and CLI'
+    });
   });
 
   it('logs the offered assistant keys before showing QuickPick', async () => {
@@ -303,7 +336,7 @@ describe('setupSwitchboard', () => {
       assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
       clis: [],
     });
-    mockShowQuickPick.mockResolvedValueOnce([{ label: 'kilocode', picked: true }]);
+    mockShowQuickPick.mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }]);
     mockShowQuickPick.mockResolvedValueOnce(undefined);
 
     await setupSwitchboard(makeContext());
@@ -372,5 +405,44 @@ describe('setupSwitchboard', () => {
       expect.stringContaining('Failed to setup'),
       expect.anything()
     );
+  });
+
+  it('runs Verify when the setup success notification action is selected', async () => {
+    const profile = {
+      id: 'profile-1',
+      name: 'Production',
+      baseUrl: 'https://gateway.example.com',
+      apiPath: '/v1/chat/completions',
+      apiKeySource: 'user',
+      dialect: 'openai.chat_completions',
+      profileType: 'custom',
+      createdAt: '2026-05-20T00:00:00.000Z',
+      updatedAt: '2026-05-20T00:00:00.000Z'
+    } satisfies EndpointProfile;
+
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockGetProfiles.mockResolvedValue([profile]);
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: profile.name, profile });
+    mockBuildPlan.mockResolvedValue({
+      profileId: profile.id,
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+    mockShowInformationMessage.mockResolvedValue('Apply');
+    mockApplyPlan.mockResolvedValue({
+      success: true,
+      appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
+      assistantResults: new Map([['kilocode', { success: true }]])
+    });
+    mockShowSuccess.mockResolvedValue('Verify');
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.verifyRouting');
   });
 });
