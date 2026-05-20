@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Assistants TreeView in Explorer panel: shows all registered assistants with Tier badge and configured/unconfigured status icon, refreshes after setup
+- First-run "Configure Now" notification on activation when no endpoint profile exists (shown once per install)
+- Real assistant detection integration: TreeView now uses `detectExtensions()` to show actual installation status instead of treating all assistants as installed
+- Click-to-configure: clicking any assistant in the TreeView opens the Setup Wizard
+- Welcome view: empty-state message with "Run Setup Wizard" link when no assistants are detected
+- EventEmitter disposal: `_onDidChangeTreeData` is now properly disposed on extension deactivation (prevents memory leaks)
+- `XDG_CONFIG_HOME` support: `getConfigDir()` respects the XDG Base Directory Specification on Linux
+
+### Fixed
+- AnythingLLM adapter: replace hardcoded `C:\Program Files\AnythingLLM` paths with `%ProgramFiles%`/`%ProgramFiles(x86)%` environment variable lookups for correct Windows support
+- Claude Code adapter: revert config path to `~/.claude/settings.json` (used by Claude Code CLI on all platforms); the previous `getConfigDir('Claude')` incorrectly resolved to Claude Desktop paths on Windows and macOS
+
 ## [1.3.1] - 2026-05-20
 
 ### Fixed

@@ -21,6 +21,7 @@ import {
   activateProfileAndReapplyMappings,
   getProfileActivationNotice
 } from './commands/activateProfile';
+import { AssistantsTreeProvider } from './ui/assistantsTreeView';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -70,6 +71,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Check and migrate state if needed
   await migrateState(context);
 
+  // Register assistants tree view (synchronous registration — VS Code may call getChildren immediately)
+  const treeProvider = new AssistantsTreeProvider(context);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('aidome-switchboard.assistantsView', treeProvider),
+    new vscode.Disposable(() => treeProvider.dispose())
+  );
+
   // Defer status bar and non-essential initialization
   setImmediate(async () => {
     try {
@@ -85,6 +93,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           statusBarManager.setConfigured(profile.name);
         } else {
           statusBarManager.setNotConfigured();
+          // Show first-run configure prompt (once per install)
+          const hasShown = context.globalState.get<boolean>('aidome.switchboard.firstRunNotificationShown');
+          if (!hasShown) {
+            void context.globalState.update('aidome.switchboard.firstRunNotificationShown', true);
+            void vscode.window.showInformationMessage(
+              'AIdome endpoint not configured. Configure your AI assistants to route through your enterprise endpoint.',
+              'Configure Now',
+              'Later'
+            ).then(action => {
+              if (action === 'Configure Now') {
+                void vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+              }
+            });
+          }
         }
       }).catch(error => {
         logger.error('Failed to load active profile', error instanceof Error ? error : undefined);
@@ -96,6 +118,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   // Register status bar action command (quick actions menu)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidome-switchboard.refreshAssistantsView', () => {
+      treeProvider.refresh();
+    })
+  );
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
       try {
