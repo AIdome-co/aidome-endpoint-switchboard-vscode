@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { setupSwitchboard } from './commands/setupSwitchboard';
 import { verifyRouting } from './commands/verifyRouting';
-import { showModels, showModelsProviders } from './commands/showModelsProviders';
+import { showModelsProviders } from './commands/showModelsProviders';
 import { manageProfiles } from './commands/manageProfiles';
 import { resetSwitchboard } from './commands/resetSwitchboard';
 import { exportDiagnostics } from './commands/exportDiagnostics';
@@ -18,10 +18,9 @@ import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
 import { handleBoundaryOutcome } from './ui/notifications';
 import {
-  initializeGuidedStepsView,
-  openControlCenter,
-  openGuidedStepsView
-} from './ui/guidedStepsCompat';
+  activateProfileAndReapplyMappings,
+  getProfileActivationNotice
+} from './commands/activateProfile';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -67,7 +66,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   
   // Initialize extension caching for performance
   initializeExtensionCaching(context);
-  initializeGuidedStepsView(context);
   
   // Check and migrate state if needed
   await migrateState(context);
@@ -101,12 +99,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
       try {
-        const action = await vscode.window.showQuickPick([
-          { label: '$(dashboard) Open Control Center', value: 'control-center' },
+        const action = await vscode.window.showQuickPick<vscode.QuickPickItem & { value: string }>([
           { label: '$(debug-start) Verify Routing', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
+          { label: '$(arrow-swap) Activate Profile', value: 'activate' },
           { label: '$(wand) Open Setup Wizard', value: 'setup' },
-          { label: '$(settings-gear) Open Guided Setup Panel', value: 'guided-setup' },
           { label: '$(notebook) Export Diagnostics', value: 'diagnostics' },
           { label: '$(gear) Show Models & Providers', value: 'models' }
         ], {
@@ -118,23 +115,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         switch (action.value) {
-          case 'control-center':
-            await vscode.commands.executeCommand('aidome-switchboard.openControlCenter');
-            break;
           case 'verify':
             await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
             break;
           case 'manage':
             await vscode.commands.executeCommand('aidome-switchboard.manageProfiles');
             break;
+          case 'activate':
+            await vscode.commands.executeCommand('aidome-switchboard.activateProfile');
+            break;
           case 'setup':
             await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
             break;
           case 'diagnostics':
             await vscode.commands.executeCommand('aidome-switchboard.exportDiagnostics');
-            break;
-          case 'guided-setup':
-            await vscode.commands.executeCommand('aidome-switchboard.openGuidedSetup');
             break;
           case 'models':
             await vscode.commands.executeCommand('aidome-switchboard.showModelsProviders');
@@ -156,29 +150,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.verifyRouting', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => verifyRouting(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.verifyRouting', async () => {
+      const outcome = await withErrorBoundary(() => verifyRouting(context));
       await handleBoundaryOutcome(outcome, logger, 'Verify routing');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => showModelsProviders(context, profileId));
-      await handleBoundaryOutcome(outcome, logger, 'Show models and providers');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.showModels', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => showModels(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async () => {
+      const outcome = await withErrorBoundary(() => showModelsProviders(context));
       await handleBoundaryOutcome(outcome, logger, 'Show models');
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async (profileId?: string) => {
-      const outcome = await withErrorBoundary(() => manageProfiles(context, profileId));
+    vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async () => {
+      const outcome = await withErrorBoundary(() => manageProfiles(context));
       await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
     })
   );
@@ -198,16 +185,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.openControlCenter', async () => {
-      const outcome = await withErrorBoundary(() => openControlCenter());
-      await handleBoundaryOutcome(outcome, logger, 'Open control center');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.openGuidedSetup', async () => {
-      const outcome = await withErrorBoundary(() => openGuidedStepsView());
-      await handleBoundaryOutcome(outcome, logger, 'Open guided setup');
+    vscode.commands.registerCommand('aidome-switchboard.activateProfile', async (rawProfileId?: unknown) => {
+      if (rawProfileId !== undefined && typeof rawProfileId !== 'string') {
+        vscode.window.showErrorMessage('activateProfile expects a string profileId.');
+        return;
+      }
+      let profileId: string | undefined = rawProfileId;
+      if (!profileId) {
+        const profileStore = new ProfileStore(context);
+        const profiles = await profileStore.getProfiles();
+        if (profiles.length === 0) {
+          vscode.window.showWarningMessage('No profiles exist yet. Run setup or Manage Profiles first.');
+          return;
+        }
+        const pick = await vscode.window.showQuickPick<vscode.QuickPickItem & { profileId: string }>(
+          profiles
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(p => {
+              let displayUrl = p.baseUrl;
+              try {
+                const u = new URL(p.baseUrl);
+                if (u.username || u.password) { u.username = '***'; u.password = ''; displayUrl = u.toString(); }
+              } catch { /* non-URL, show as-is */ }
+              return { label: p.name, description: displayUrl, detail: p.dialect, profileId: p.id };
+            }),
+          { placeHolder: 'Select a profile to activate', matchOnDetail: true }
+        );
+        if (!pick) {
+          return;
+        }
+        profileId = pick.profileId;
+      }
+      const resolvedId = profileId;
+      const outcome = await withErrorBoundary(async () => {
+        const result = await activateProfileAndReapplyMappings(context, resolvedId);
+        const notice = getProfileActivationNotice(result);
+        if (notice.kind === 'success') {
+          vscode.window.showInformationMessage(notice.message);
+        } else if (notice.kind === 'warning') {
+          vscode.window.showWarningMessage(notice.message);
+        } else {
+          vscode.window.showErrorMessage(notice.message);
+        }
+      });
+      await handleBoundaryOutcome(outcome, logger, 'Activate profile');
     })
   );
 

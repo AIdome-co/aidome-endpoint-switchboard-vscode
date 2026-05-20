@@ -88,23 +88,20 @@ describe('package.json Marketplace Readiness', () => {
     expect(packageJson.engines.vscode).toMatch(/^\^?\d+\.\d+\.\d+$/);
   });
 
-  it('should have core and control-center commands registered', () => {
+  it('should have all 7 commands registered', () => {
     expect(packageJson.contributes).toBeDefined();
     expect(packageJson.contributes.commands).toBeDefined();
     expect(Array.isArray(packageJson.contributes.commands)).toBe(true);
+    expect(packageJson.contributes.commands.length).toBe(7);
 
     const commandIds = packageJson.contributes.commands.map((c: any) => c.command);
-    expect(commandIds).toEqual(expect.arrayContaining([
-      'aidome-switchboard.setupSwitchboard',
-      'aidome-switchboard.verifyRouting',
-      'aidome-switchboard.showModelsProviders',
-      'aidome-switchboard.showModels',
-      'aidome-switchboard.manageProfiles',
-      'aidome-switchboard.resetSwitchboard',
-      'aidome-switchboard.exportDiagnostics',
-      'aidome-switchboard.openControlCenter',
-      'aidome-switchboard.openGuidedSetup'
-    ]));
+    expect(commandIds).toContain('aidome-switchboard.setupSwitchboard');
+    expect(commandIds).toContain('aidome-switchboard.verifyRouting');
+    expect(commandIds).toContain('aidome-switchboard.showModelsProviders');
+    expect(commandIds).toContain('aidome-switchboard.manageProfiles');
+    expect(commandIds).toContain('aidome-switchboard.resetSwitchboard');
+    expect(commandIds).toContain('aidome-switchboard.exportDiagnostics');
+    expect(commandIds).toContain('aidome-switchboard.activateProfile');
   });
 
   it('should contribute advanced runtime configuration settings', () => {

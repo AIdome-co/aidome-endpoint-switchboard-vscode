@@ -10,16 +10,12 @@ import { loadRegistry } from '../core/registry/registryLoader';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { updateStatusBar } from '../ui/statusBar';
-import { getOutputChannel, showOutput, showPlan } from '../ui/output';
-import { renderDetectionSummary } from '../ui/wizard/renderResults';
+import { showPlan } from '../ui/output';
+import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
-import { Plan } from '../core/orchestration/planBuilder';
-
-const VIEW_OUTPUT_ACTION = 'View Output';
-const VERIFY_ROUTING_ACTION = 'Verify Routing';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
@@ -61,7 +57,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     }
     
     const summary = renderDetectionSummary(detected);
-    const outputChannel = getOutputChannel();
+    const outputChannel = vscode.window.createOutputChannel('AIdome Setup');
     outputChannel.appendLine(summary);
     outputChannel.show();
 
@@ -109,6 +105,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     
     showPlan(plan);
     
+    const planSummary = renderPlanSummary(plan);
     const proceed = await vscode.window.showInformationMessage(
       `Configuration plan ready with ${plan.steps.length} steps. Review the plan in the output channel.\n\nProceed with configuration?`,
       { modal: true },
@@ -134,8 +131,10 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       
-      const selectedAction = await showSetupSuccess(plan, profile.name, result.appliedSteps.length);
-      await handleSetupAction(selectedAction);
+      await showSuccess(
+        `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
+        'Verify'
+      );
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
       // Partial success: some assistants configured, some failed.
@@ -153,23 +152,17 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         await profileStore.setActiveProfile(profile.id);
         updateStatusBar(profile.name);
         logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
-        const guidedAssistantCount = getGuidedAssistantCount(plan);
-        const selectedAction = await showError(
+        await showError(
           `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
-          `${failed.length} failed: ${failed.join(', ')}.` +
-          `${guidedAssistantCount > 0
-            ? ` Manual follow-up is open in the AIdome setup panel for ${guidedAssistantCount} assistant${guidedAssistantCount === 1 ? '' : 's'}.`
-            : ' Check the output channel for details.'}`,
-          VIEW_OUTPUT_ACTION
+          `${failed.length} failed: ${failed.join(', ')}. Check the output channel for details.`,
+          'View Output'
         );
-        await handleSetupAction(selectedAction);
       } else {
         logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
-        const selectedAction = await showError(
+        await showError(
           `Configuration failed for all assistants. Check the output channel for details.`,
-          VIEW_OUTPUT_ACTION
+          'View Output'
         );
-        await handleSetupAction(selectedAction);
       }
     }
   } catch (error) {
@@ -191,50 +184,6 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   } finally {
     // Reset wizard running flag
     wizardRunning = false;
-  }
-}
-
-async function showSetupSuccess(
-  plan: Plan,
-  profileName: string,
-  appliedAssistantCount: number
-): Promise<string | undefined> {
-  const guidedAssistantCount = getGuidedAssistantCount(plan);
-  if (guidedAssistantCount > 0) {
-    return await showWarning(
-      `Successfully configured ${appliedAssistantCount} assistant(s) to use ${profileName}, ` +
-      `but ${guidedAssistantCount} assistant${guidedAssistantCount === 1 ? '' : 's'} still ` +
-      `require manual follow-up in the AIdome Control Center before verification.`,
-      VIEW_OUTPUT_ACTION,
-      VERIFY_ROUTING_ACTION
-    );
-  }
-
-  return await showSuccess(
-    `Successfully configured ${appliedAssistantCount} assistant(s) to use ${profileName}`,
-    VERIFY_ROUTING_ACTION,
-    VIEW_OUTPUT_ACTION
-  );
-}
-
-function getGuidedAssistantCount(plan: Plan): number {
-  const assistantKeys = new Set(
-    plan.steps
-      .filter(step => step.action === 'show-guided-steps')
-      .map(step => step.assistantKey)
-  );
-
-  return assistantKeys.size;
-}
-
-async function handleSetupAction(action: string | undefined): Promise<void> {
-  if (action === VIEW_OUTPUT_ACTION) {
-    showOutput();
-    return;
-  }
-
-  if (action === VERIFY_ROUTING_ACTION) {
-    await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
   }
 }
 

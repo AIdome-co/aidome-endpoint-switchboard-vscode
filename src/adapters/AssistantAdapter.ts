@@ -6,13 +6,6 @@ import { Plan } from '../core/orchestration/planBuilder';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 
 /**
- * Optional context available while building assistant plans.
- */
-export interface AssistantBuildContext {
-  authSecret?: string;
-}
-
-/**
  * Verification result from an assistant adapter.
  */
 export interface VerificationResult {
@@ -35,10 +28,9 @@ export interface AssistantAdapter {
   /**
    * Builds a configuration plan for this assistant.
    * @param profile The endpoint profile to configure
-    * @param context Optional build context such as resolved secrets
    * @returns Promise resolving to the plan
    */
-    buildPlan(profile: EndpointProfile, context?: AssistantBuildContext): Promise<Plan>;
+  buildPlan(profile: EndpointProfile): Promise<Plan>;
 
   /**
    * Applies configuration changes for this assistant.

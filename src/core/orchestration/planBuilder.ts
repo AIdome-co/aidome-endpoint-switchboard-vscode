@@ -25,8 +25,6 @@ export interface GuidedStepsData {
   message: string;
   /** Ordered list of actionable instructions shown to the user. Provide this whenever possible. */
   steps?: string[];
-  /** Optional configuration file path relevant to the guided step. */
-  configPath?: string;
   /** The endpoint URL the user should paste into the setting. */
   baseUrl?: string;
   /** Adapter support tier (e.g. 'B', 'C'). */

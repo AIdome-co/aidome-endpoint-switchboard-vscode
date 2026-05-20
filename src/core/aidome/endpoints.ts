@@ -2,7 +2,7 @@
  * AIdome API endpoints.
  */
 
-import { httpGet, HttpError } from '../../util/http';
+import { httpGet } from '../../util/http';
 import { Logger } from '../../util/log';
 import { joinApiPath } from '../../util/apiUrl';
 import { AIdomeCapabilities, AIdomeProvider, AIdomeModel, AIdomeWhoAmI, AIdomeError } from './types';
@@ -70,19 +70,10 @@ export async function getProviders(
       headers['Authorization'] = `Bearer ${authToken}`;
     }
     
-    const result = await httpGet<unknown>(url, headers);
-    const providers = normalizeProvidersResponse(result);
-    logger.debug(`Fetched ${providers.length} providers`);
-    return providers;
+    const result = await httpGet<AIdomeProvider[]>(url, headers);
+    logger.debug(`Fetched ${result.length} providers`);
+    return result;
   } catch (error) {
-    if (error instanceof HttpError) {
-      if (error.status === 404) {
-        logger.info('Providers endpoint is not exposed by this gateway; provider inventory will need to be derived from models.');
-      } else {
-        logger.error('Failed to fetch providers', error);
-      }
-      throw error;
-    }
     logger.error('Failed to fetch providers', error instanceof Error ? error : undefined);
     throw wrapError(error, 'Failed to fetch providers');
   }
@@ -109,15 +100,11 @@ export async function getModels(
       headers['Authorization'] = `Bearer ${authToken}`;
     }
     
-    const result = await httpGet<unknown>(url, headers);
-    const models = normalizeModelsResponse(result);
-    logger.debug(`Fetched ${models.length} models`);
-    return models;
+    const result = await httpGet<AIdomeModel[]>(url, headers);
+    logger.debug(`Fetched ${result.length} models`);
+    return result;
   } catch (error) {
     logger.error('Failed to fetch models', error instanceof Error ? error : undefined);
-    if (error instanceof HttpError) {
-      throw error;
-    }
     throw wrapError(error, 'Failed to fetch models');
   }
 }
@@ -170,80 +157,4 @@ function wrapError(error: unknown, message: string): AIdomeError {
       originalError: error instanceof Error ? error.message : String(error)
     }
   };
-}
-
-function normalizeProvidersResponse(result: unknown): AIdomeProvider[] {
-  return getArrayPayload(result).map(item => normalizeProvider(item));
-}
-
-function normalizeModelsResponse(result: unknown): AIdomeModel[] {
-  return getArrayPayload(result).map(item => normalizeModel(item));
-}
-
-function getArrayPayload(result: unknown): unknown[] {
-  if (Array.isArray(result)) {
-    return result;
-  }
-
-  if (isRecord(result) && Array.isArray(result['data'])) {
-    return result['data'];
-  }
-
-  return [];
-}
-
-function normalizeProvider(value: unknown): AIdomeProvider {
-  const record = isRecord(value) ? value : {};
-  const id = getString(record, 'id') || getString(record, 'name') || 'unknown';
-  return {
-    id,
-    name: getString(record, 'name') || id,
-    type: getString(record, 'type') || 'unknown',
-    status: getString(record, 'status') === 'inactive' ? 'inactive' : 'active',
-    supportedModels: getStringArray(record, 'supportedModels')
-  };
-}
-
-function normalizeModel(value: unknown): AIdomeModel {
-  const record = isRecord(value) ? value : {};
-  const id = getString(record, 'id') || getString(record, 'name') || 'unknown';
-  return {
-    id,
-    name: getString(record, 'name') || id,
-    provider: getString(record, 'provider') || getString(record, 'owned_by') || 'unknown',
-    contextWindow: getNumber(record, [
-      'contextWindow',
-      'context_window',
-      'maxContextWindow',
-      'max_context_window',
-      'contextLength',
-      'context_length'
-    ]),
-    capabilities: getStringArray(record, 'capabilities')
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object';
-}
-
-function getString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function getStringArray(record: Record<string, unknown>, key: string): string[] {
-  const value = record[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function getNumber(record: Record<string, unknown>, keys: string[]): number {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-  }
-
-  return 0;
 }

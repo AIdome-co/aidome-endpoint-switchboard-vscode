@@ -226,17 +226,16 @@ export function getProfileActivationNotice(
 
   return {
     kind: 'success',
-    message: `Active profile switched to "${profileName}". Reapplied ${result.appliedAssistantKeys.length} assistant(s).`
+    message: `Active profile switched to "${profileName}" and ${result.appliedAssistantKeys.length} assistant(s) updated.`
   };
 }
 
 function buildAutomatedReapplyPlan(plan: Plan): Plan {
-  const steps = plan.steps.filter(step => AUTOMATED_REAPPLY_ACTIONS.has(step.action));
-  const assistantKeys = [...new Set(steps.map(step => step.assistantKey))];
-
+  const automatedSteps = plan.steps.filter(step => AUTOMATED_REAPPLY_ACTIONS.has(step.action));
+  const assistantKeys = [...new Set(automatedSteps.map(step => step.assistantKey))];
   return {
     ...plan,
-    assistantKeys,
-    steps
+    steps: automatedSteps,
+    assistantKeys
   };
 }

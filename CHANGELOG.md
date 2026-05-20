@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-20
+
+### Added
+
+- Standalone `AIdome: Activate Profile` command (`aidome-switchboard.activateProfile`) — switch the active profile and automatically reapply automated adapter mappings. Accessible from both the command palette and the status-bar quick-actions menu.
+- Profile selector now sorts alphabetically and shows dialect as detail line.
+- URL credential redaction in profile QuickPick display.
+- Typed QuickPick generics for status-bar actions and profile selector.
+
+### Removed
+
+- Reverted Control Center feature (PR #53) — the multi-page product panel, guided-steps compatibility layer, and associated UI complexity have been removed in favour of the simpler command-palette workflow.
+
+### Fixed
+
+- Resolved Vitest v4 / ES2022 test mock incompatibility (`Class constructors cannot be invoked without 'new'`) across `applier`, `claudeCodePlanApplier`, and `setupSwitchboard` test suites.
+
 ## [1.2.0] - 2026-05-17
 
 ## [1.1.0] - 2026-05-14
@@ -13,7 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Upgraded Claude Code to Tier B automated gateway configuration using shared `~/.claude/settings.json` for `ANTHROPIC_BASE_URL`, plus VS Code login-prompt suppression and credential guidance.
-- Improved setup UX for guided configurations by surfacing manual follow-up messaging, wiring notification actions to verify routing and open the output channel, and clarifying Claude Code's Anthropic Messages gateway requirement.
 - Fixed endpoint verification to send stored profile auth tokens during reachability and model-list checks, and normalized versioned path joins so `/v1` base URLs no longer produce duplicated `/v1/v1/...` probes.
 - Improved dialect validation so the verifier probes the configured API route and flags `openai.responses` vs `openai.chat_completions` mismatches instead of reporting a false pass.
 - Fixed the TLS verifier to treat an authorized TLS handshake as a pass even when Node cannot extract peer certificate metadata, avoiding false warnings on valid endpoints.

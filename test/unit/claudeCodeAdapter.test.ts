@@ -139,7 +139,7 @@ describe('ClaudeCodeAdapter', () => {
     });
 
     it('should include patched settings content in edit-config-file step', async () => {
-      const plan = await adapter.buildPlan(mockProfile, { authSecret: 'aid_pat_test' });
+      const plan = await adapter.buildPlan(mockProfile);
 
       const editStep = plan.steps.find(s => s.action === 'edit-config-file');
       expect(editStep).toBeDefined();
@@ -147,8 +147,7 @@ describe('ClaudeCodeAdapter', () => {
       expect(editStep?.data.format).toBe('json');
 
       const updatedSettings = JSON.parse(editStep?.newValue as string);
-      expect(updatedSettings.env.ANTHROPIC_BASE_URL).toBe('https://aidome.example.com');
-      expect(updatedSettings.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
+      expect(updatedSettings.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
       expect(updatedSettings.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
     });
 
@@ -160,20 +159,7 @@ describe('ClaudeCodeAdapter', () => {
       expect(settingStep?.newValue).toBe(true);
 
       const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
-      expect(authStep?.data.envVarName).toBe('ANTHROPIC_API_KEY');
-      const guidanceSteps = authStep?.data.steps as string[];
-      expect(guidanceSteps).toContain(
-        'Save a gateway API key on this profile to have AIdome write ANTHROPIC_API_KEY into Claude Code settings automatically, or set ANTHROPIC_API_KEY manually.'
-      );
-      expect(guidanceSteps).toContain(
-        'Use an Anthropic Messages-compatible gateway endpoint; raw OpenAI Chat Completions endpoints are not supported by Claude Code.'
-      );
-    });
-
-    it('should omit auth guidance when a stored profile secret is available', async () => {
-      const plan = await adapter.buildPlan(mockProfile, { authSecret: 'aid_pat_test' });
-
-      expect(plan.steps.find(s => s.action === 'show-guided-steps')).toBeUndefined();
+      expect(authStep?.data.envVarName).toBe('ANTHROPIC_AUTH_TOKEN');
     });
 
     it('should respect CLAUDE_CONFIG_DIR in plan targets and guidance', async () => {
