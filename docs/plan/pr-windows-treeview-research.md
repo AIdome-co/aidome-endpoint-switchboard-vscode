@@ -11,7 +11,7 @@
 | # | Feature | Status | Files Changed |
 |---|---------|--------|---------------|
 | 1 | AnythingLLM Windows paths: `C:\Program Files` → `process.env['ProgramFiles']` | ✅ Done | `src/adapters/anythingllm/adapter.ts` |
-| 2 | Claude Code platform-aware config path via `getConfigDir('Claude')` | ✅ Done | `src/adapters/claudeCode/claudeCodeConfigPatcher.ts` |
+| 2 | Claude Code platform-aware config path via `getConfigDir('Claude')` | ⚠️ **REGRESSION** — Claude Code CLI uses `~/.claude/` on ALL platforms (incl. Windows). `%APPDATA%\Claude` is Claude Desktop, not CLI. Original `expandTilde('~/.claude/settings.json')` was correct. | `src/adapters/claudeCode/claudeCodeConfigPatcher.ts` |
 | 3 | AssistantsTreeView: flat list with tier badges + status icons | ✅ Done | `src/ui/assistantsTreeView.ts`, `src/extension.ts`, `package.json` |
 | 4 | First-run "Configure Now" notification (one-time, globalState guard) | ✅ Done | `src/extension.ts` |
 | 5 | Setup → tree refresh on success/partial-success | ✅ Done | `src/commands/setupSwitchboard.ts` |
@@ -62,7 +62,7 @@
 
 | Assistant | Config Location | Source | Our Alignment |
 |-----------|----------------|--------|:-------------:|
-| Claude Code CLI | `~/.claude/settings.json` (Linux), `%APPDATA%\Claude\settings.json` (Win), `~/Library/Application Support/Claude/settings.json` (macOS) | [anthropics/claude-code](https://github.com/anthropics/claude-code) — `CLAUDE_CONFIG_DIR` env var | ✅ 90% (missing XDG) |
+| Claude Code CLI | `~/.claude/settings.json` on **all** platforms (Win/macOS/Linux). `%APPDATA%\Claude` is for Claude Desktop app only. | [anthropics/claude-code](https://github.com/anthropics/claude-code) — `CLAUDE_CONFIG_DIR` env var; [inventivehq.com guide](https://inventivehq.com/knowledge-base/claude/where-configuration-files-are-stored) | ⚠️ **REGRESSION** — `getConfigDir('Claude')` now resolves to `%APPDATA%\Claude` on Win and `~/Library/Application Support/Claude` on macOS, but CLI uses `~/.claude` universally. Original code (`expandTilde('~/.claude/settings.json')`) was correct. |
 | AnythingLLM Desktop | `%LocalAppData%\AnythingLLM` or `%ProgramFiles%\AnythingLLM` (Win) | [Mintplex-Labs/anything-llm](https://github.com/Mintplex-Labs/anything-llm) | ✅ 100% |
 | GitHub Copilot | `github.copilot.advanced` → `debug.overrideProxyUrl` in VS Code settings | [microsoft/vscode-copilot-release](https://github.com/microsoft/vscode-copilot-release) — undocumented, found in extension package.json | ✅ (undocumented API) |
 | Continue | `~/.continue/config.json` (JSONC) | [continuedev/continue](https://github.com/continuedev/continue) — [Configuration Docs](https://docs.continue.dev/reference) | ✅ |
@@ -182,6 +182,45 @@ Sorted from most recommended to least recommended design approach:
 
 ---
 
-## 8. Bottom Line
+## 8. Architecture Diagram
 
-**Verdict: ✅ MERGEABLE** — All gates pass (compile ✅, lint ✅, 629/629 tests ✅, security invariants ✅). The Windows path fixes are the highest-value changes and follow industry best practice exactly. The TreeView and first-run notification are solid foundations at ~60% feature completeness versus industry leaders, with clear P1–P3 follow-ups documented above.
+```
+┌─────────────────────────── VS Code ────────────────────────────┐
+│                                                                 │
+│  ┌─── Explorer Panel ──────────────────────┐                   │
+│  │  ┌─ AIdome Assistants (TreeView) ─────┐ │  ┌─ Status Bar ─┐│
+│  │  │  ✅ Continue        Tier A         │ │  │ AIdome: prod ││
+│  │  │  ✅ Cline           Tier A         │ │  └──────────────┘│
+│  │  │  ⚠️  Roo Code       Tier A         │ │                   │
+│  │  │  ○  AnythingLLM    Tier B          │ │  ┌─ Notification ┐│
+│  │  │  ○  Codex CLI      Tier C          │ │  │ Configure Now ││
+│  │  └────────────────────────────────────┘ │  │ Later         ││
+│  └─────────────────────────────────────────┘  └───────────────┘│
+│                                                                 │
+│  ┌─── Extension Backend ───────────────────────────────────────┐│
+│  │                                                              ││
+│  │  extension.ts                                                ││
+│  │    ├─ registerTreeDataProvider('assistantsView', provider)   ││
+│  │    ├─ registerCommand('refreshAssistantsView')               ││
+│  │    └─ globalState first-run guard                            ││
+│  │                                                              ││
+│  │  AssistantsTreeProvider                                      ││
+│  │    ├─ getChildren() → loadRegistry() + ProfileStore          ││
+│  │    ├─ refresh() → EventEmitter.fire()                        ││
+│  │    └─ isInstalled = true ← HARDCODED (gap #8)               ││
+│  │                                                              ││
+│  │  setupSwitchboard.ts                                         ││
+│  │    └─ on success → executeCommand('refreshAssistantsView')   ││
+│  │                                                              ││
+│  │  Adapters                                                    ││
+│  │    ├─ AnythingLLM: process.env.ProgramFiles ✅                ││
+│  │    └─ Claude Code: getConfigDir('Claude') ⚠️ WRONG for CLI   ││
+│  └──────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 9. Bottom Line
+
+**Verdict: ⚠️ NEEDS FIX BEFORE MERGE** — All gates pass (compile ✅, lint ✅, 629/629 tests ✅, security invariants ✅), but the Claude Code CLI config path change introduced a **regression**: `getConfigDir('Claude')` resolves to `%APPDATA%\Claude` on Windows and `~/Library/Application Support/Claude` on macOS, which are Claude Desktop paths — the CLI uses `~/.claude/` universally on all platforms. The original code was correct. Revert `claudeCodeConfigPatcher.ts` to use `expandTilde('~/.claude/settings.json')` as the default fallback. The AnythingLLM `ProgramFiles` env-var fix, TreeView, and first-run notification are sound (~60% feature parity with industry leaders). Clear P1–P3 follow-ups documented above.
