@@ -6,11 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [1.2.1] - 2026-05-18
+## [1.3.0] - 2026-05-20
 
 ### Added
 
 - Standalone `AIdome: Activate Profile` command (`aidome-switchboard.activateProfile`) — switch the active profile and automatically reapply automated adapter mappings. Accessible from both the command palette and the status-bar quick-actions menu.
+- Profile selector now sorts alphabetically and shows dialect as detail line.
+- URL credential redaction in profile QuickPick display.
+- Typed QuickPick generics for status-bar actions and profile selector.
 
 ### Removed
 

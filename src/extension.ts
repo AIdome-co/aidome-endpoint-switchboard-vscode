@@ -99,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
       try {
-        const action = await vscode.window.showQuickPick([
+        const action = await vscode.window.showQuickPick<vscode.QuickPickItem & { value: string }>([
           { label: '$(debug-start) Verify Routing', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
           { label: '$(arrow-swap) Activate Profile', value: 'activate' },
@@ -199,8 +199,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         const pick = await vscode.window.showQuickPick<vscode.QuickPickItem & { profileId: string }>(
-          profiles.map(p => ({ label: p.name, description: p.baseUrl, profileId: p.id })),
-          { placeHolder: 'Select a profile to activate' }
+          profiles
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(p => {
+              let displayUrl = p.baseUrl;
+              try {
+                const u = new URL(p.baseUrl);
+                if (u.username || u.password) { u.username = '***'; u.password = ''; displayUrl = u.toString(); }
+              } catch { /* non-URL, show as-is */ }
+              return { label: p.name, description: displayUrl, detail: p.dialect, profileId: p.id };
+            }),
+          { placeHolder: 'Select a profile to activate', matchOnDetail: true }
         );
         if (!pick) {
           return;

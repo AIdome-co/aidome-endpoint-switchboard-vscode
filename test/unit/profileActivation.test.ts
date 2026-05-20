@@ -214,6 +214,63 @@ describe('activateProfileAndReapplyMappings', () => {
     expect(result.failedAssistantKeys).toEqual(['continue']);
     expect(mockSetActiveProfile).toHaveBeenCalledWith('profile-1');
   });
+
+  it('returns failed without activating when all assistant reapply steps fail', async () => {
+    mockGetProfiles.mockResolvedValue([baseProfile]);
+    mockGetAssistantMappings.mockResolvedValue([{ assistantKey: 'cline' }]);
+    mockBuildPlan.mockResolvedValue({
+      id: 'plan-total-fail',
+      profileId: 'profile-1',
+      assistantKeys: ['cline'],
+      steps: [
+        { id: 's1', action: 'set-vscode-setting', assistantKey: 'cline', targetPath: 'x', newValue: 'y', data: {}, reversible: true, description: 'set' },
+      ],
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    });
+    mockApplyPlan.mockResolvedValue({
+      success: false,
+      appliedSteps: [],
+      failedSteps: [{ id: 's1' }],
+      changeLogEntry: {},
+      assistantResults: new Map([['cline', { success: false }]]),
+    });
+
+    const result = await activateProfileAndReapplyMappings(fakeContext, 'profile-1');
+
+    expect(result.status).toBe('failed');
+    expect(result.failedAssistantKeys).toEqual(['cline']);
+    expect(result.appliedAssistantKeys).toEqual([]);
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns failed when setActiveProfile throws during successful reapply', async () => {
+    mockGetProfiles.mockResolvedValue([baseProfile]);
+    mockGetAssistantMappings.mockResolvedValue([{ assistantKey: 'cline' }]);
+    mockBuildPlan.mockResolvedValue({
+      id: 'plan-setactive-fail',
+      profileId: 'profile-1',
+      assistantKeys: ['cline'],
+      steps: [
+        { id: 's1', action: 'set-vscode-setting', assistantKey: 'cline', targetPath: 'x', newValue: 'y', data: {}, reversible: true, description: 'set' },
+      ],
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    });
+    mockApplyPlan.mockResolvedValue({
+      success: true,
+      appliedSteps: [{ id: 's1' }],
+      failedSteps: [],
+      changeLogEntry: {},
+      assistantResults: new Map([['cline', { success: true }]]),
+    });
+    mockSetActiveProfile.mockRejectedValue(new Error('Storage quota exceeded'));
+
+    const result = await activateProfileAndReapplyMappings(fakeContext, 'profile-1');
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toBe('Storage quota exceeded');
+  });
 });
 
 describe('getProfileActivationNotice', () => {
