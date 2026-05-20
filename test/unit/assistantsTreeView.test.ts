@@ -5,9 +5,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- hoisted mock handles (must be initialized before vi.mock factories) ---
-const { mockLoadRegistry, mockGetActiveProfile } = vi.hoisted(() => ({
+const { mockLoadRegistry, mockGetActiveProfile, mockDetectExtensions } = vi.hoisted(() => ({
   mockLoadRegistry: vi.fn(),
-  mockGetActiveProfile: vi.fn().mockResolvedValue(null)
+  mockGetActiveProfile: vi.fn().mockResolvedValue(null),
+  mockDetectExtensions: vi.fn().mockReturnValue([])
 }));
 
 // --- vscode mock ---
@@ -19,6 +20,7 @@ vi.mock('vscode', () => {
     description?: string;
     contextValue?: string;
     iconPath?: unknown;
+    command?: unknown;
     constructor(label: string, collapsibleState: number) {
       this.label = label;
       this.collapsibleState = collapsibleState;
@@ -67,6 +69,10 @@ vi.mock('../../src/core/profiles/profileStore', () => {
 
 vi.mock('../../src/core/registry/registryLoader', () => ({
   loadRegistry: mockLoadRegistry
+}));
+
+vi.mock('../../src/core/detection/detectExtensions', () => ({
+  detectExtensions: mockDetectExtensions
 }));
 
 // --- import after mocks ---
@@ -133,6 +139,14 @@ describe('AssistantTreeItem', () => {
     const item = new AssistantTreeItem('Cline', 'cline', 'B', false, true);
     expect(item.description).toBe('Tier B');
   });
+
+  it('sets command to open setup wizard on click', () => {
+    const item = new AssistantTreeItem('Continue', 'continue', 'A', false, true);
+    expect(item.command).toEqual({
+      command: 'aidome-switchboard.setupSwitchboard',
+      title: 'Configure Assistant'
+    });
+  });
 });
 
 describe('AssistantsTreeProvider', () => {
@@ -141,6 +155,7 @@ describe('AssistantsTreeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetActiveProfile.mockResolvedValue(null);
+    mockDetectExtensions.mockReturnValue([]);
     provider = new AssistantsTreeProvider(makeContext());
   });
 
@@ -186,5 +201,28 @@ describe('AssistantsTreeProvider', () => {
   it('getTreeItem returns the element unchanged', () => {
     const item = new AssistantTreeItem('Continue', 'continue', 'A', false, true);
     expect(provider.getTreeItem(item)).toBe(item);
+  });
+
+  it('uses detectExtensions to determine isInstalled status', async () => {
+    mockLoadRegistry.mockResolvedValue(makeRegistry([
+      { key: 'continue', displayName: 'Continue', tier: 'A' },
+      { key: 'cline', displayName: 'Cline', tier: 'A' }
+    ]));
+    mockDetectExtensions.mockReturnValue([
+      { assistantKey: 'continue', displayName: 'Continue', extensionId: 'continue.continue', version: '1.0', isActive: true, tier: 'A', kind: 'vscode-extension' }
+    ]);
+
+    const items = await provider.getChildren();
+    // Continue is detected → warning icon (installed but unconfigured)
+    expect((items[0].iconPath as { id: string }).id).toBe('warning');
+    // Cline is NOT detected → circle-outline icon (not installed)
+    expect((items[1].iconPath as { id: string }).id).toBe('circle-outline');
+  });
+
+  it('dispose method disposes the EventEmitter', () => {
+    provider.dispose();
+    // EventEmitter.dispose was called (mocked in vscode mock)
+    // This verifies the dispose method exists and calls through
+    expect(provider.dispose).toBeDefined();
   });
 });

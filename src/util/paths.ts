@@ -58,8 +58,13 @@ export function getConfigDir(appName: string): string {
       return path.join(process.env.APPDATA || path.join(getHomeDir(), 'AppData', 'Roaming'), appName);
     case 'darwin':
       return path.join(getHomeDir(), 'Library', 'Application Support', appName);
-    default:
+    default: {
+      const xdgConfig = process.env['XDG_CONFIG_HOME'];
+      if (xdgConfig) {
+        return path.join(xdgConfig, appName.toLowerCase());
+      }
       return path.join(getHomeDir(), `.${appName.toLowerCase()}`);
+    }
   }
 }
 

@@ -74,7 +74,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Register assistants tree view (synchronous registration — VS Code may call getChildren immediately)
   const treeProvider = new AssistantsTreeProvider(context);
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('aidome-switchboard.assistantsView', treeProvider)
+    vscode.window.registerTreeDataProvider('aidome-switchboard.assistantsView', treeProvider),
+    { dispose: () => treeProvider.dispose() }
   );
 
   // Defer status bar and non-essential initialization

@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { loadRegistry } from '../core/registry/registryLoader';
 import { ProfileStore } from '../core/profiles/profileStore';
+import { detectExtensions } from '../core/detection/detectExtensions';
 import { Logger } from '../util/log';
 
 /**
@@ -31,6 +32,12 @@ export class AssistantTreeItem extends vscode.TreeItem {
     } else {
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
     }
+
+    // Click action: open setup wizard for unconfigured assistants
+    this.command = {
+      command: 'aidome-switchboard.setupSwitchboard',
+      title: 'Configure Assistant'
+    };
   }
 }
 
@@ -44,6 +51,11 @@ export class AssistantsTreeProvider implements vscode.TreeDataProvider<Assistant
   private logger = Logger.getInstance();
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  /** Dispose the internal EventEmitter. */
+  dispose(): void {
+    this._onDidChangeTreeData.dispose();
+  }
 
   /** Fire a change event to trigger a tree refresh. */
   refresh(): void {
@@ -60,10 +72,14 @@ export class AssistantsTreeProvider implements vscode.TreeDataProvider<Assistant
       const profileStore = new ProfileStore(this.context);
       const activeProfile = await profileStore.getActiveProfile();
 
+      // Detect actually installed extensions
+      const detectedExtensions = detectExtensions(registry);
+      const installedKeys = new Set(detectedExtensions.map(d => d.assistantKey));
+
       return registry.assistants.map(assistant => {
         // If there's an active profile, Tier A/B assistants are considered configured
         const isConfigured = !!activeProfile && (assistant.endpointSwitching.tier === 'A' || assistant.endpointSwitching.tier === 'B');
-        const isInstalled = true; // Detection is async; treat all as installed in tree
+        const isInstalled = installedKeys.has(assistant.key);
         return new AssistantTreeItem(
           assistant.displayName,
           assistant.key,

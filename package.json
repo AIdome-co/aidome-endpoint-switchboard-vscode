@@ -149,6 +149,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "aidome-switchboard.assistantsView",
+        "contents": "No AI assistants detected.\n[Run Setup Wizard](command:aidome-switchboard.setupSwitchboard)\nInstall a supported AI assistant extension and click Refresh."
+      }
+    ],
     "menus": {
       "view/title": [
         {
