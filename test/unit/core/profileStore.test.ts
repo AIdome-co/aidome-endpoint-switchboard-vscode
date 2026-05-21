@@ -252,6 +252,53 @@ describe('ProfileStore', () => {
       expect(profiles).toHaveLength(1);
       expect(profiles[0].id).toBe('prof-1');
     });
+
+    it('removes legacy profileName mappings before deleting the profile record', async () => {
+      const profileToDelete: EndpointProfile = {
+        id: 'prof-legacy',
+        name: 'legacy-profile',
+        baseUrl: 'https://api.legacy.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+      const profileToKeep: EndpointProfile = {
+        id: 'prof-keep',
+        name: 'keep-profile',
+        baseUrl: 'https://api.keep.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+
+      await profileStore.saveProfile(profileToDelete);
+      await profileStore.saveProfile(profileToKeep);
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: 'legacy-profile',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        },
+        {
+          assistantKey: 'continue',
+          profileId: 'prof-keep',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        }
+      ]);
+
+      await profileStore.deleteProfile('prof-legacy');
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([
+        {
+          assistantKey: 'continue',
+          profileId: 'prof-keep',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        }
+      ]);
+    });
   });
 
   describe('active profile management', () => {
@@ -306,6 +353,15 @@ describe('ProfileStore', () => {
       expect(mappings).toEqual([]);
     });
 
+    it('should reset mappings when stored state is not an array', async () => {
+      await context.globalState.update('aidome.switchboard.mappings', 'invalid-data');
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([]);
+      expect(context.globalState.get('aidome.switchboard.mappings')).toEqual([]);
+    });
+
     it('should save and retrieve assistant mapping', async () => {
       const mapping: AssistantMapping = {
         assistantKey: 'continue',
@@ -319,24 +375,85 @@ describe('ProfileStore', () => {
       expect(mappings[0]).toEqual(mapping);
     });
 
-    it('should update existing mapping by assistant key', async () => {
+    it('should update existing mapping by assistant key and profile ID', async () => {
       const originalMapping: AssistantMapping = {
         assistantKey: 'continue',
-        profileId: 'prof-1'
+        profileId: 'prof-1',
+        appliedMode: 'settings'
       };
 
       await profileStore.saveAssistantMapping(originalMapping);
 
       const updatedMapping: AssistantMapping = {
         assistantKey: 'continue',
-        profileId: 'prof-2'
+        profileId: 'prof-1',
+        appliedMode: 'configFile'
       };
 
       await profileStore.saveAssistantMapping(updatedMapping);
       const mappings = await profileStore.getAssistantMappings();
 
       expect(mappings).toHaveLength(1);
-      expect(mappings[0].profileId).toBe('prof-2');
+      expect(mappings[0].profileId).toBe('prof-1');
+      expect(mappings[0].appliedMode).toBe('configFile');
+    });
+
+    it('should preserve mappings for the same assistant across multiple profiles', async () => {
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-1'
+      });
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-2'
+      });
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toHaveLength(2);
+      expect(mappings).toEqual(expect.arrayContaining([
+        { assistantKey: 'claude-code', profileId: 'prof-1' },
+        { assistantKey: 'claude-code', profileId: 'prof-2' }
+      ]));
+    });
+
+    it('should normalize legacy profileName mappings to profileId and dedupe duplicates', async () => {
+      await profileStore.saveProfile({
+        id: 'prof-1',
+        name: 'Production',
+        baseUrl: 'https://api.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      });
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: 'Production',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-21T00:00:00.000Z'
+        },
+        {
+          assistantKey: 'cline',
+          profileId: 'prof-1',
+          appliedMode: 'configFile',
+          appliedAt: '2026-05-22T00:00:00.000Z'
+        },
+        {
+          assistantKey: '',
+          profileId: 'prof-1'
+        }
+      ]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([
+        {
+          assistantKey: 'cline',
+          profileId: 'prof-1',
+          appliedMode: 'configFile',
+          appliedAt: '2026-05-22T00:00:00.000Z'
+        }
+      ]);
     });
 
     it('should handle multiple assistant mappings', async () => {
@@ -355,6 +472,107 @@ describe('ProfileStore', () => {
       const mappings = await profileStore.getAssistantMappings();
 
       expect(mappings).toHaveLength(2);
+    });
+
+    it('should delete only the targeted profile mapping for an assistant', async () => {
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-1'
+      });
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-2'
+      });
+
+      await profileStore.deleteAssistantMapping('claude-code', 'prof-1');
+
+      const mappings = await profileStore.getAssistantMappings();
+      expect(mappings).toEqual([{ assistantKey: 'claude-code', profileId: 'prof-2' }]);
+    });
+
+    it('should leave mappings unchanged when deleting a different assistant key', async () => {
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-1'
+      });
+
+      await profileStore.deleteAssistantMapping('continue');
+
+      const mappings = await profileStore.getAssistantMappings();
+      expect(mappings).toEqual([{ assistantKey: 'claude-code', profileId: 'prof-1' }]);
+    });
+
+    it('should leave mappings unchanged when the profile scope does not match', async () => {
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-1'
+      });
+      await profileStore.saveAssistantMapping({
+        assistantKey: 'claude-code',
+        profileId: 'prof-2'
+      });
+
+      await profileStore.deleteAssistantMapping('claude-code', 'prof-3');
+
+      const mappings = await profileStore.getAssistantMappings();
+      expect(mappings).toEqual(expect.arrayContaining([
+        { assistantKey: 'claude-code', profileId: 'prof-1' },
+        { assistantKey: 'claude-code', profileId: 'prof-2' }
+      ]));
+    });
+
+    it('should preserve unknown legacy profileName values as profileId strings', async () => {
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: 'legacy-profile'
+        }
+      ]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([{ assistantKey: 'cline', profileId: 'legacy-profile' }]);
+    });
+
+    it('should drop array entries from stored mappings', async () => {
+      await context.globalState.update('aidome.switchboard.mappings', [[]]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([]);
+    });
+
+    it('should drop legacy profileName values that are not strings', async () => {
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: 123
+        }
+      ]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([]);
+    });
+
+    it('should drop mappings that still have no profile after normalization', async () => {
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: '   '
+        }
+      ]);
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([]);
+    });
+
+    it('should reject invalid mappings when saving', async () => {
+      await expect(profileStore.saveAssistantMapping({
+        assistantKey: '   ',
+        profileId: 'prof-1'
+      })).rejects.toThrow('Invalid assistant mapping');
     });
   });
 

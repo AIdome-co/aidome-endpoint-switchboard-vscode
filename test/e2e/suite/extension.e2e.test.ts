@@ -18,6 +18,7 @@ const DECLARED_COMMANDS: readonly string[] = [
   'aidome-switchboard.verifyRouting',
   'aidome-switchboard.showModelsProviders',
   'aidome-switchboard.manageProfiles',
+  'aidome-switchboard.assignProfileAssistants',
   'aidome-switchboard.resetSwitchboard',
   'aidome-switchboard.exportDiagnostics',
   'aidome-switchboard.activateProfile',
@@ -72,6 +73,19 @@ describe('AIdome Endpoint Switchboard — E2E', function () {
       commands.includes(PROGRAMMATIC_COMMAND),
       `Expected '${PROGRAMMATIC_COMMAND}' to be registered`
     );
+  });
+
+  it('executes the non-interactive refresh command without throwing', async () => {
+    await assert.doesNotReject(async () => {
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+    });
+  });
+
+  it('gracefully handles invalid argument shapes for profile-scoped commands', async () => {
+    await assert.doesNotReject(async () => {
+      await vscode.commands.executeCommand('aidome-switchboard.assignProfileAssistants', { invalid: true });
+      await vscode.commands.executeCommand('aidome-switchboard.activateProfile', 42);
+    });
   });
 
   it('exposes the expected command count and no duplicates', async () => {

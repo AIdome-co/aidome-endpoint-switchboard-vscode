@@ -38,7 +38,7 @@ vi.mock('../../../src/util/log', () => ({
   LogLevel: { Debug: 0, Info: 1, Warning: 2, Error: 3 }
 }));
 
-import { generateDiagnostics, formatAsMarkdown, DiagnosticsReport } from '../../../src/core/orchestration/diagnostics';
+import { generateDiagnostics, generateDiagnosticReport, formatAsMarkdown, DiagnosticsReport } from '../../../src/core/orchestration/diagnostics';
 import { LogEntry } from '../../../src/util/log';
 
 // Minimal mock for vscode.ExtensionContext
@@ -108,6 +108,126 @@ describe('generateDiagnostics — recentLogs', () => {
     logs.push({ timestamp: 'x', level: 'DEBUG', message: 'injected' });
     expect(report.recentLogs).toHaveLength(2);
   });
+
+  it('maps profile assistants by profileId and assistant configured profiles by profile names', async () => {
+    const report = await generateDiagnostics(context as any, {
+      profiles: [
+        {
+          id: 'profile-1',
+          name: 'Prod',
+          baseUrl: 'https://prod.example.com/v1',
+          dialect: 'openai.chat_completions',
+          profileType: 'custom',
+          authRef: 'prod-token'
+        },
+        {
+          id: 'profile-2',
+          name: 'Stage',
+          baseUrl: 'https://stage.example.com/v1',
+          dialect: 'openai.chat_completions',
+          profileType: 'custom'
+        }
+      ],
+      assistants: [
+        {
+          assistantKey: 'cline',
+          displayName: 'Cline',
+          extensionId: 'saoudrizwan.claude-dev',
+          version: '1.0.0',
+          isActive: true,
+          tier: 'A',
+          kind: 'vscode-extension'
+        }
+      ],
+      mappings: [
+        {
+          assistantKey: 'cline',
+          profileId: 'profile-1',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-21T00:00:00.000Z'
+        },
+        {
+          assistantKey: 'cline',
+          profileId: 'profile-2',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-21T00:00:00.000Z'
+        }
+      ]
+    });
+
+    expect(report.profiles).toEqual([
+      expect.objectContaining({ name: 'Prod', mappedAssistants: ['cline'], authConfigured: true }),
+      expect.objectContaining({ name: 'Stage', mappedAssistants: ['cline'], authConfigured: false })
+    ]);
+    expect(report.detectedAssistants).toEqual([
+      expect.objectContaining({ key: 'cline', configuredProfiles: ['Prod', 'Stage'] })
+    ]);
+  });
+
+  it('falls back to raw profile ids and omits configuredProfiles when an assistant has no mappings', async () => {
+    const report = await generateDiagnostics(context as any, {
+      profiles: [
+        {
+          id: 'profile-1',
+          name: 'Prod',
+          baseUrl: 'https://prod.example.com/v1',
+          dialect: 'openai.chat_completions',
+          profileType: 'custom'
+        }
+      ],
+      assistants: [
+        {
+          assistantKey: 'cline',
+          displayName: 'Cline',
+          extensionId: 'saoudrizwan.claude-dev',
+          version: '1.0.0',
+          isActive: true,
+          tier: 'A',
+          kind: 'vscode-extension'
+        },
+        {
+          assistantKey: 'continue',
+          displayName: 'Continue',
+          extensionId: 'continue.continue',
+          version: '1.0.0',
+          isActive: true,
+          tier: 'A',
+          kind: 'vscode-extension'
+        }
+      ],
+      mappings: [
+        {
+          assistantKey: 'cline',
+          profileId: 'external-profile'
+        }
+      ]
+    });
+
+    expect(report.detectedAssistants).toEqual([
+      expect.objectContaining({ key: 'cline', configuredProfiles: ['external-profile'] }),
+      expect.objectContaining({ key: 'continue', configuredProfiles: undefined })
+    ]);
+  });
+
+  it('omits configuredProfiles when assistants are provided without mappings', async () => {
+    const report = await generateDiagnostics(context as any, {
+      assistants: [
+        {
+          assistantKey: 'cline',
+          displayName: 'Cline',
+          extensionId: 'saoudrizwan.claude-dev',
+          version: '1.0.0',
+          isActive: true,
+          tier: 'A',
+          kind: 'vscode-extension'
+        }
+      ]
+    });
+
+    expect(report.detectedAssistants).toEqual([
+      expect.objectContaining({ key: 'cline', configuredProfiles: undefined })
+    ]);
+  });
 });
 
 describe('formatAsMarkdown — Recent Logs section', () => {
@@ -160,5 +280,80 @@ describe('formatAsMarkdown — Recent Logs section', () => {
     expect(markdown).toContain('[WARNING] log message 59');
     // Entry 9 is not among the last 50 (which start at index 10)
     expect(markdown).not.toContain('[WARNING] log message 9');
+  });
+
+  it('renders configured profile names as a comma-separated list in the assistants table', () => {
+    const report: DiagnosticsReport = {
+      ...baseReport,
+      detectedAssistants: [
+        {
+          key: 'cline',
+          displayName: 'Cline',
+          kind: 'vscode-extension',
+          detected: true,
+          version: '1.0.0',
+          tier: 'A',
+          configuredProfiles: ['Prod', 'Stage']
+        }
+      ]
+    };
+
+    const markdown = formatAsMarkdown(report);
+
+    expect(markdown).toContain('| Assistant | Tier | Detected | Version | Profiles |');
+    expect(markdown).toContain('| Cline | A | ✅ | 1.0.0 | Prod, Stage |');
+  });
+
+  it('renders em dash for assistants with no configured profiles and unknown mapping metadata', () => {
+    const enhancedReport: DiagnosticsReport = {
+      ...baseReport,
+      detectedAssistants: [
+        {
+          key: 'cline',
+          displayName: 'Cline',
+          kind: 'vscode-extension',
+          detected: true,
+          version: '1.0.0',
+          tier: 'A',
+          configuredProfiles: undefined
+        }
+      ]
+    };
+
+    const legacyReport = generateDiagnosticReport({
+      timestamp: '2026-05-21T00:00:00.000Z',
+      systemInfo: {
+        extensionVersion: '1.2.3',
+        vscodeVersion: '1.85.0',
+        platform: 'linux x64',
+        nodeVersion: process.version,
+      },
+      remoteContext: {
+        isRemote: false,
+        remoteType: 'local',
+        hostInfo: 'Local machine',
+        isLocalhost: true,
+        warningMessages: [],
+      },
+      profiles: [],
+      assistants: [],
+      clis: [],
+      mappings: [
+        {
+          assistantKey: 'cline',
+          profileId: 'external-profile'
+        }
+      ],
+      verificationResults: [],
+      errors: []
+    });
+
+    const markdown = formatAsMarkdown(enhancedReport);
+    const legacyMarkdown = formatAsMarkdown(legacyReport);
+
+    expect(markdown).toContain('| Cline | A | ✅ | 1.0.0 | — |');
+    expect(legacyMarkdown).toContain('- **cline** → external-profile');
+    expect(legacyMarkdown).toContain('  - Mode: unknown');
+    expect(legacyMarkdown).toContain('  - Applied: unknown');
   });
 });
