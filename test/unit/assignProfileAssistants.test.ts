@@ -292,6 +292,32 @@ describe('assignProfileAssistants', () => {
     expect(mockShowSuccess).toHaveBeenCalledWith('Detached 1 assistant(s) from "OpenAI Prod".');
   });
 
+  it('does not detach assigned assistants that were omitted from the picker', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        profileName: profile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      },
+      {
+        assistantKey: 'unknown-assistant',
+        profileId: profile.id,
+        profileName: profile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      }
+    ]);
+    mockShowQuickPick.mockResolvedValue([{ assistantKey: 'cline', label: 'Cline' }]);
+
+    await assignProfileAssistants({} as any, profile.id);
+
+    expect(mockBuildPlan).toHaveBeenCalledWith(profile, ['cline']);
+    expect(mockDeleteAssistantMapping).not.toHaveBeenCalledWith('unknown-assistant', profile.id);
+    expect(mockShowSuccess).toHaveBeenCalledWith(expect.stringContaining('Assigned "OpenAI Prod" to 1 assistant'));
+  });
+
   it('marks an assistant as picked when it is assigned to the current and another profile', async () => {
     const otherProfile: EndpointProfile = {
       ...profile,

@@ -71,7 +71,10 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
-import { activateProfileAndReapplyMappings } from '../../src/commands/activateProfile';
+import {
+  activateProfileAndReapplyMappings,
+  getProfileActivationNotice
+} from '../../src/commands/activateProfile';
 
 describe('activateProfileAndReapplyMappings', () => {
   const profile: EndpointProfile = {
@@ -207,5 +210,292 @@ describe('activateProfileAndReapplyMappings', () => {
     expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
     expect(result.status).toBe('active-only');
     expect(result.skippedAssistantKeys).toEqual(['anythingllm']);
+  });
+
+  it('returns failed when the profile ID does not exist', async () => {
+    const result = await activateProfileAndReapplyMappings({} as any, 'missing-profile');
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toContain('missing-profile');
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns failed when buildPlan throws', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      }
+    ]);
+    mockBuildPlan.mockRejectedValueOnce(new Error('Registry load failed'));
+
+    const result = await activateProfileAndReapplyMappings({} as any, profile.id);
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toBe('Registry load failed');
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns partial when some assistants fail to reapply', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      },
+      {
+        assistantKey: 'continue',
+        profileId: profile.id,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      }
+    ]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-3',
+      profileId: profile.id,
+      assistantKeys: ['cline', 'continue'],
+      createdAt: '2026-05-16T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true
+        },
+        {
+          id: 'step-2',
+          action: 'set-vscode-setting',
+          description: 'Set Continue base URL',
+          assistantKey: 'continue',
+          targetPath: 'continue.apiBase',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+    mockApplyPlan.mockResolvedValueOnce({
+      success: false,
+      appliedSteps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true
+        }
+      ],
+      failedSteps: [
+        {
+          id: 'step-2',
+          action: 'set-vscode-setting',
+          description: 'Set Continue base URL',
+          assistantKey: 'continue',
+          targetPath: 'continue.apiBase',
+          data: {},
+          reversible: true,
+          error: 'settings update failed'
+        }
+      ],
+      changeLogEntry: { id: 'entry-2', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
+      assistantResults: new Map([
+        ['cline', { success: true }],
+        ['continue', { success: false }]
+      ])
+    });
+
+    const result = await activateProfileAndReapplyMappings({} as any, profile.id);
+
+    expect(result.status).toBe('partial');
+    expect(result.appliedAssistantKeys).toEqual(['cline']);
+    expect(result.failedAssistantKeys).toEqual(['continue']);
+    expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
+  });
+
+  it('returns failed without activating when all assistant reapply steps fail', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      }
+    ]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-4',
+      profileId: profile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-16T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+    mockApplyPlan.mockResolvedValueOnce({
+      success: false,
+      appliedSteps: [],
+      failedSteps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true,
+          error: 'settings update failed'
+        }
+      ],
+      changeLogEntry: { id: 'entry-3', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
+      assistantResults: new Map([
+        ['cline', { success: false }]
+      ])
+    });
+
+    const result = await activateProfileAndReapplyMappings({} as any, profile.id);
+
+    expect(result.status).toBe('failed');
+    expect(result.failedAssistantKeys).toEqual(['cline']);
+    expect(result.appliedAssistantKeys).toEqual([]);
+    expect(mockSetActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it('returns failed when setActiveProfile throws after a successful reapply', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      }
+    ]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-5',
+      profileId: profile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-16T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+    mockApplyPlan.mockResolvedValueOnce({
+      success: true,
+      appliedSteps: [
+        {
+          id: 'step-1',
+          action: 'set-vscode-setting',
+          description: 'Set Cline base URL',
+          assistantKey: 'cline',
+          targetPath: 'cline.baseUrl',
+          data: {},
+          reversible: true
+        }
+      ],
+      failedSteps: [],
+      changeLogEntry: { id: 'entry-4', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
+      assistantResults: new Map([
+        ['cline', { success: true }]
+      ])
+    });
+    mockSetActiveProfile.mockRejectedValueOnce(new Error('Storage quota exceeded'));
+
+    const result = await activateProfileAndReapplyMappings({} as any, profile.id);
+
+    expect(result.status).toBe('failed');
+    expect(result.errorMessage).toBe('Storage quota exceeded');
+  });
+});
+
+describe('getProfileActivationNotice', () => {
+  const profile: EndpointProfile = {
+    id: 'profile-1',
+    name: 'claude-test3',
+    baseUrl: 'https://demo-lab-vm-8a4ad0fc.aidome.cloud/v1',
+    dialect: 'openai.chat_completions',
+    profileType: 'aidome',
+    createdAt: '2026-05-16T00:00:00.000Z',
+    updatedAt: '2026-05-16T00:00:00.000Z'
+  };
+
+  it('returns success for full activation', () => {
+    const notice = getProfileActivationNotice({
+      status: 'success',
+      profile,
+      mappedAssistantKeys: ['cline'],
+      appliedAssistantKeys: ['cline'],
+      failedAssistantKeys: [],
+      skippedAssistantKeys: []
+    });
+
+    expect(notice.kind).toBe('success');
+    expect(notice.message).toContain('claude-test3');
+  });
+
+  it('returns warning for active-only activation with skipped assistants', () => {
+    const notice = getProfileActivationNotice({
+      status: 'active-only',
+      profile,
+      mappedAssistantKeys: ['anythingllm'],
+      appliedAssistantKeys: [],
+      failedAssistantKeys: [],
+      skippedAssistantKeys: ['anythingllm']
+    });
+
+    expect(notice.kind).toBe('warning');
+    expect(notice.message).toContain('require manual switching');
+  });
+
+  it('returns warning for partial activation', () => {
+    const notice = getProfileActivationNotice({
+      status: 'partial',
+      profile,
+      mappedAssistantKeys: ['cline', 'continue'],
+      appliedAssistantKeys: ['cline'],
+      failedAssistantKeys: ['continue'],
+      skippedAssistantKeys: []
+    });
+
+    expect(notice.kind).toBe('warning');
+    expect(notice.message).toContain('1 failed');
+  });
+
+  it('returns error for failed activation', () => {
+    const notice = getProfileActivationNotice({
+      status: 'failed',
+      profile,
+      mappedAssistantKeys: [],
+      appliedAssistantKeys: [],
+      failedAssistantKeys: [],
+      skippedAssistantKeys: [],
+      errorMessage: 'Profile not found.'
+    });
+
+    expect(notice.kind).toBe('error');
+    expect(notice.message).toBe('Profile not found.');
   });
 });

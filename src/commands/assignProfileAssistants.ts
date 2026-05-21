@@ -59,11 +59,12 @@ export async function assignProfileAssistants(
   }
 
   const selectedAssistantKeys = selected.map(item => item.assistantKey);
+  const visibleAssistantKeys = new Set(items.map(item => item.assistantKey));
   const currentlyAssignedAssistantKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
     .map(mapping => mapping.assistantKey);
   const deselectedAssistantKeys = currentlyAssignedAssistantKeys
-    .filter(assistantKey => !selectedAssistantKeys.includes(assistantKey));
+    .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey));
 
   if (selectedAssistantKeys.length === 0 && deselectedAssistantKeys.length === 0) {
     await showWarning('No assistants selected. Nothing changed.');

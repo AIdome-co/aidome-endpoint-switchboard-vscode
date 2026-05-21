@@ -252,6 +252,53 @@ describe('ProfileStore', () => {
       expect(profiles).toHaveLength(1);
       expect(profiles[0].id).toBe('prof-1');
     });
+
+    it('removes legacy profileName mappings before deleting the profile record', async () => {
+      const profileToDelete: EndpointProfile = {
+        id: 'prof-legacy',
+        name: 'legacy-profile',
+        baseUrl: 'https://api.legacy.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+      const profileToKeep: EndpointProfile = {
+        id: 'prof-keep',
+        name: 'keep-profile',
+        baseUrl: 'https://api.keep.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom'
+      };
+
+      await profileStore.saveProfile(profileToDelete);
+      await profileStore.saveProfile(profileToKeep);
+      await context.globalState.update('aidome.switchboard.mappings', [
+        {
+          assistantKey: 'cline',
+          profileName: 'legacy-profile',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        },
+        {
+          assistantKey: 'continue',
+          profileId: 'prof-keep',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        }
+      ]);
+
+      await profileStore.deleteProfile('prof-legacy');
+
+      const mappings = await profileStore.getAssistantMappings();
+
+      expect(mappings).toEqual([
+        {
+          assistantKey: 'continue',
+          profileId: 'prof-keep',
+          appliedMode: 'settings',
+          appliedAt: '2026-05-20T00:00:00.000Z'
+        }
+      ]);
+    });
   });
 
   describe('active profile management', () => {

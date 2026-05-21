@@ -95,10 +95,10 @@ export class ProfileStore {
    */
   async deleteProfile(profileId: string): Promise<void> {
     const profiles = await this.getProfiles();
-    const filtered = profiles.filter(p => p.id !== profileId);
-    await this.context.globalState.update(PROFILES_KEY, filtered);
     const mappings = await this.getAssistantMappings();
+    const filtered = profiles.filter(p => p.id !== profileId);
     const remainingMappings = mappings.filter(mapping => mapping.profileId !== profileId);
+    await this.context.globalState.update(PROFILES_KEY, filtered);
     await this.context.globalState.update(MAPPINGS_KEY, remainingMappings);
     await this.updateMetadata();
   }
