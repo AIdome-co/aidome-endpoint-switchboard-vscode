@@ -22,6 +22,7 @@ import {
   getProfileActivationNotice
 } from './commands/activateProfile';
 import { AssistantsTreeProvider } from './ui/assistantsTreeView';
+import { assignProfileAssistants } from './commands/assignProfileAssistants';
 
 const STATE_VERSION_KEY = 'aidome.switchboard.stateVersion';
 const CURRENT_STATE_VERSION = '1';
@@ -130,6 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           { label: '$(debug-start) Verify Routing', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
           { label: '$(arrow-swap) Activate Profile', value: 'activate' },
+          { label: '$(plug) Assign Assistants to Profile', value: 'assign' },
           { label: '$(wand) Open Setup Wizard', value: 'setup' },
           { label: '$(notebook) Export Diagnostics', value: 'diagnostics' },
           { label: '$(gear) Show Models & Providers', value: 'models' }
@@ -150,6 +152,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             break;
           case 'activate':
             await vscode.commands.executeCommand('aidome-switchboard.activateProfile');
+            break;
+          case 'assign':
+            await vscode.commands.executeCommand('aidome-switchboard.assignProfileAssistants');
             break;
           case 'setup':
             await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
@@ -173,6 +178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.setupSwitchboard', async () => {
       const outcome = await withErrorBoundary(() => setupSwitchboard(context));
       await handleBoundaryOutcome(outcome, logger, 'Setup');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -194,6 +200,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async () => {
       const outcome = await withErrorBoundary(() => manageProfiles(context));
       await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidome-switchboard.assignProfileAssistants', async (rawProfileId?: unknown) => {
+      if (rawProfileId !== undefined && typeof rawProfileId !== 'string') {
+        vscode.window.showErrorMessage('assignProfileAssistants expects a string profileId.');
+        return;
+      }
+      const outcome = await withErrorBoundary(() => assignProfileAssistants(context, rawProfileId));
+      await handleBoundaryOutcome(outcome, logger, 'Assign profile assistants');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -201,6 +220,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.resetSwitchboard', async () => {
       const outcome = await withErrorBoundary(() => resetSwitchboard(context));
       await handleBoundaryOutcome(outcome, logger, 'Reset');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -248,7 +268,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = await activateProfileAndReapplyMappings(context, resolvedId);
         const notice = getProfileActivationNotice(result);
         if (notice.kind === 'success') {
-          vscode.window.showInformationMessage(notice.message);
+          if (result.status === 'active-only' && result.mappedAssistantKeys.length === 0) {
+            const action = await vscode.window.showInformationMessage(notice.message, 'Assign Assistants');
+            if (action === 'Assign Assistants') {
+              await vscode.commands.executeCommand('aidome-switchboard.assignProfileAssistants', resolvedId);
+            }
+          } else {
+            vscode.window.showInformationMessage(notice.message);
+          }
         } else if (notice.kind === 'warning') {
           vscode.window.showWarningMessage(notice.message);
         } else {
@@ -256,6 +283,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       });
       await handleBoundaryOutcome(outcome, logger, 'Activate profile');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 

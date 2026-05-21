@@ -71,14 +71,22 @@ export class AssistantsTreeProvider implements vscode.TreeDataProvider<Assistant
       const registry = await loadRegistry();
       const profileStore = new ProfileStore(this.context);
       const activeProfile = await profileStore.getActiveProfile();
+      const activeProfileMappings = activeProfile
+        ? await profileStore.getAssistantMappings()
+        : [];
+      const activeAssistantKeys = new Set(
+        activeProfileMappings
+          .filter(mapping => mapping.profileId === activeProfile?.id)
+          .map(mapping => mapping.assistantKey)
+      );
 
       // Detect actually installed extensions
       const detectedExtensions = detectExtensions(registry);
       const installedKeys = new Set(detectedExtensions.map(d => d.assistantKey));
 
       return registry.assistants.map(assistant => {
-        // If there's an active profile, Tier A/B assistants are considered configured
-        const isConfigured = !!activeProfile && (assistant.endpointSwitching.tier === 'A' || assistant.endpointSwitching.tier === 'B');
+        // An assistant is configured if it has a mapping for the active profile
+        const isConfigured = activeAssistantKeys.has(assistant.key);
         const isInstalled = installedKeys.has(assistant.key);
         return new AssistantTreeItem(
           assistant.displayName,
