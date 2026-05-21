@@ -53,8 +53,8 @@ describe('Pre-Release Validation', () => {
       for (const cmd of commandIds) {
         const cmdName = cmd.replace('aidome-switchboard.', '');
         
-        // Special case for statusBarAction - handled in extension.ts
-        if (cmdName === 'statusBarAction') {
+        // Special case for commands handled inline in extension.ts (no separate command file)
+        if (cmdName === 'statusBarAction' || cmdName === 'refreshAssistantsView') {
           continue;
         }
         

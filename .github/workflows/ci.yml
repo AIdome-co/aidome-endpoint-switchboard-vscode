@@ -4,27 +4,33 @@ on:
   pull_request:
     branches: [main, develop]
     paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
       - ".github/dependabot.yml"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/PULL_REQUEST_TEMPLATE*"
       - ".github/copilot-instructions.md"
       - ".github/instructions/**"
+      - ".github/references/**"
       - ".github/skills/**"
-      - "AGENTS.md"
-      - "CLAUDE.md"
+      - ".github/agents/**"
   push:
     branches: [main, develop]
     # Keep this list duplicated: GitHub Actions workflow parsing here does not reliably
     # support YAML anchors/aliases for shared trigger filters.
     paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
       - ".github/dependabot.yml"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/PULL_REQUEST_TEMPLATE*"
       - ".github/copilot-instructions.md"
       - ".github/instructions/**"
+      - ".github/references/**"
       - ".github/skills/**"
-      - "AGENTS.md"
-      - "CLAUDE.md"
+      - ".github/agents/**"
 
 permissions:
   contents: read

@@ -103,6 +103,7 @@ describe('package.json Marketplace Readiness', () => {
     expect(commandIds).toContain('aidome-switchboard.resetSwitchboard');
     expect(commandIds).toContain('aidome-switchboard.exportDiagnostics');
     expect(commandIds).toContain('aidome-switchboard.activateProfile');
+    expect(commandIds).toContain('aidome-switchboard.refreshAssistantsView');
   });
 
   it('should contribute advanced runtime configuration settings', () => {

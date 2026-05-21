@@ -44,12 +44,12 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     const paths: string[] = [];
     
     if (platform === 'win32') {
-      // Windows paths
+      // Windows paths — use env vars so non-default drive letters are handled correctly
       paths.push(
         path.join(homeDir, 'AppData', 'Local', 'AnythingLLM'),
         path.join(homeDir, 'AppData', 'Local', 'Programs', 'AnythingLLM'),
-        'C:\\Program Files\\AnythingLLM',
-        'C:\\Program Files (x86)\\AnythingLLM'
+        path.join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'AnythingLLM'),
+        path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'AnythingLLM')
       );
     } else if (platform === 'darwin') {
       // macOS paths

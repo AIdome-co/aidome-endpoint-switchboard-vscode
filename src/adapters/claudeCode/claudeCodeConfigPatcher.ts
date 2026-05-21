@@ -20,7 +20,6 @@ interface ClaudeCodeSettings {
  * @returns Config file path
  */
 export function getClaudeCodeSettingsPath(): string {
-  const defaultPath = expandTilde('~/.claude/settings.json');
   const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
   if (configDir) {
     const expandedConfigDir = expandTilde(configDir);
@@ -28,8 +27,9 @@ export function getClaudeCodeSettingsPath(): string {
       return path.join(expandedConfigDir, 'settings.json');
     }
   }
-
-  return defaultPath;
+  // Claude Code CLI uses ~/.claude/ on ALL platforms (Windows, macOS, Linux).
+  // Do not use getConfigDir('Claude') — that resolves to Claude Desktop paths.
+  return expandTilde('~/.claude/settings.json');
 }
 
 /**

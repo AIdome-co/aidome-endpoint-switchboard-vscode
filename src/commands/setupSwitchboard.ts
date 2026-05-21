@@ -136,6 +136,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     if (result.success) {
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
+      void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
       
       const action = await showSuccess(
         `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
@@ -160,6 +161,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         // the successfully configured ones start routing through it.
         await profileStore.setActiveProfile(profile.id);
         updateStatusBar(profile.name);
+        void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
         logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
         await showError(
           `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
