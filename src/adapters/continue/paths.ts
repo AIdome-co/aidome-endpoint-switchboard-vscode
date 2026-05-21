@@ -15,7 +15,9 @@ export function getContinueConfigDir(): string {
 
 /**
  * Gets the Continue.dev config file path.
- * Note: Continue.dev uses JSON format for configuration.
+ * Note: Continue.dev supports both JSON (config.json) and YAML (config.yaml)
+ * formats. This adapter targets config.json for backward compatibility and
+ * because the patcher uses JSON.parse/JSON.stringify.
  * @returns Config file path
  */
 export function getContinueConfigPath(): string {
