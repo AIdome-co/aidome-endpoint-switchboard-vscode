@@ -112,4 +112,88 @@ describe('Switchboard Claude auth secret hydration', () => {
     expect(mockGetSecret).not.toHaveBeenCalled();
     expect(step.data.envVars).not.toContain('ANTHROPIC_API_KEY');
   });
+
+  it('adds a guided fallback step when an assistant adapter build fails', async () => {
+    mockGetAdapter.mockResolvedValue({
+      buildPlan: vi.fn().mockRejectedValue(new Error('adapter exploded')),
+    });
+
+    const switchboard = new Switchboard(
+      {} as any,
+      { assistants: [], dialectCatalog: {} } as any,
+      { getProfiles: vi.fn(), saveAssistantMapping: vi.fn(), saveProfile: vi.fn() } as any,
+      { getSecret: mockGetSecret } as any
+    );
+
+    const plan = await switchboard.buildPlan(profile, ['anythingllm']);
+
+    expect(plan.assistantKeys).toEqual(['anythingllm']);
+    expect(plan.steps).toEqual([
+      expect.objectContaining({
+        action: 'show-guided-steps',
+        assistantKey: 'anythingllm',
+        reversible: false,
+      }),
+    ]);
+  });
+
+  it('persists applied assistant mappings by profileId even when the plan partially fails', async () => {
+    const profileStore = {
+      getProfiles: vi.fn().mockResolvedValue([profile]),
+      saveAssistantMapping: vi.fn().mockResolvedValue(undefined),
+      saveProfile: vi.fn(),
+    };
+    mockApplyPlan.mockResolvedValue({
+      success: false,
+      appliedSteps: [
+        {
+          id: 'step-1',
+          action: 'edit-config-file',
+          description: 'Configure Claude Code gateway environment',
+          assistantKey: 'claude-code',
+          data: {},
+          reversible: true,
+        },
+      ],
+      failedSteps: [
+        {
+          id: 'step-2',
+          action: 'set-vscode-setting',
+          description: 'Set another assistant base URL',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true,
+          error: 'settings failed',
+        },
+      ],
+      assistantResults: new Map([
+        ['claude-code', { success: true }],
+        ['cline', { success: false, reason: 'settings failed' }],
+      ]),
+    });
+
+    const switchboard = new Switchboard(
+      {} as any,
+      { assistants: [], dialectCatalog: {} } as any,
+      profileStore as any,
+      { getSecret: mockGetSecret } as any
+    );
+
+    await switchboard.applyPlan({
+      id: 'plan-apply',
+      profileId: profile.id,
+      assistantKeys: ['claude-code', 'cline'],
+      createdAt: '2026-05-20T00:00:00.000Z',
+      status: 'pending',
+      steps: [],
+    });
+
+    expect(profileStore.saveAssistantMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantKey: 'claude-code',
+        profileId: profile.id,
+        appliedMode: 'configFile',
+      })
+    );
+  });
 });

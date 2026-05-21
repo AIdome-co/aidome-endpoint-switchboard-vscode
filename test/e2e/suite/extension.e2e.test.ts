@@ -75,6 +75,19 @@ describe('AIdome Endpoint Switchboard — E2E', function () {
     );
   });
 
+  it('executes the non-interactive refresh command without throwing', async () => {
+    await assert.doesNotReject(async () => {
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+    });
+  });
+
+  it('gracefully handles invalid argument shapes for profile-scoped commands', async () => {
+    await assert.doesNotReject(async () => {
+      await vscode.commands.executeCommand('aidome-switchboard.assignProfileAssistants', { invalid: true });
+      await vscode.commands.executeCommand('aidome-switchboard.activateProfile', 42);
+    });
+  });
+
   it('exposes the expected command count and no duplicates', async () => {
     const commands = await vscode.commands.getCommands(true);
     const owned = commands.filter((c) => c.startsWith('aidome-switchboard.'));

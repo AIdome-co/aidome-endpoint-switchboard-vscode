@@ -212,6 +212,32 @@ describe('activateProfileAndReapplyMappings', () => {
     expect(result.skippedAssistantKeys).toEqual(['anythingllm']);
   });
 
+  it('logs "none" when mapped assistant keys are empty strings and no automatic steps exist', async () => {
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: '',
+        profileId: profile.id,
+        appliedMode: 'guided',
+        appliedAt: '2026-05-16T00:00:00.000Z'
+      }
+    ]);
+    mockBuildPlan.mockResolvedValue({
+      id: 'plan-empty-key',
+      profileId: profile.id,
+      assistantKeys: [''],
+      createdAt: '2026-05-16T00:00:00.000Z',
+      status: 'pending',
+      steps: []
+    });
+
+    const result = await activateProfileAndReapplyMappings({} as any, profile.id);
+
+    expect(result.status).toBe('active-only');
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      'Activated profile claude-test3 but no assigned assistants had automatic reapply steps: none'
+    );
+  });
+
   it('returns failed when the profile ID does not exist', async () => {
     const result = await activateProfileAndReapplyMappings({} as any, 'missing-profile');
 

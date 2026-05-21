@@ -20,6 +20,12 @@ const {
   mockApplyPlan,
   mockLoadRegistry,
   mockUpdateStatusBar,
+  mockActivateProfileAndReapplyMappings,
+  mockGetProfileActivationNotice,
+  mockAssignProfileAssistants,
+  mockGetSecret,
+  mockDeleteSecret,
+  mockStoreSecret,
   mockLoggerInfo,
   mockLoggerWarning,
   mockLoggerError
@@ -42,6 +48,12 @@ const {
   mockApplyPlan: vi.fn(),
   mockLoadRegistry: vi.fn(),
   mockUpdateStatusBar: vi.fn(),
+  mockActivateProfileAndReapplyMappings: vi.fn(),
+  mockGetProfileActivationNotice: vi.fn(),
+  mockAssignProfileAssistants: vi.fn(),
+  mockGetSecret: vi.fn(),
+  mockDeleteSecret: vi.fn(),
+  mockStoreSecret: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn(),
   mockLoggerError: vi.fn()
@@ -75,9 +87,9 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
   ProfileSecrets: vi.fn().mockImplementation(class {
-    getSecret = vi.fn();
-    deleteSecret = vi.fn();
-    storeSecret = vi.fn();
+    getSecret = mockGetSecret;
+    deleteSecret = mockDeleteSecret;
+    storeSecret = mockStoreSecret;
   })
 }));
 
@@ -126,7 +138,16 @@ vi.mock('../../src/ui/notifications', () => ({
 }));
 
 vi.mock('../../src/commands/assignProfileAssistants', () => ({
-  assignProfileAssistants: vi.fn()
+  assignProfileAssistants: mockAssignProfileAssistants
+}));
+
+vi.mock('../../src/commands/activateProfile', () => ({
+  activateProfileAndReapplyMappings: mockActivateProfileAndReapplyMappings,
+  buildAutomatedReapplyPlan: (plan: { steps: Array<{ action: string }> }) => ({
+    ...plan,
+    steps: plan.steps.filter((step) => step.action === 'set-vscode-setting' || step.action === 'edit-config-file')
+  }),
+  getProfileActivationNotice: mockGetProfileActivationNotice
 }));
 
 vi.mock('../../src/util/log', () => ({
@@ -154,6 +175,25 @@ describe('manageProfiles edit reapply flow', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowSuccess.mockReset();
+    mockShowWarning.mockReset();
+    mockShowError.mockReset();
+    mockGetProfiles.mockReset();
+    mockGetAssistantMappings.mockReset();
+    mockSaveProfile.mockReset();
+    mockSaveAssistantMapping.mockReset();
+    mockDeleteAssistantMapping.mockReset();
+    mockDeleteProfile.mockReset();
+    mockGetActiveProfileId.mockReset();
+    mockSetActiveProfile.mockReset();
+    mockBuildPlan.mockReset();
+    mockApplyPlan.mockReset();
+    mockLoadRegistry.mockReset();
+    mockActivateProfileAndReapplyMappings.mockReset();
+    mockGetProfileActivationNotice.mockReset();
+    mockAssignProfileAssistants.mockReset();
     mockWithProgress.mockImplementation(async (_options, task) => task({ report: vi.fn() }));
     mockGetProfiles.mockResolvedValue([profile]);
     mockGetAssistantMappings.mockResolvedValue([
@@ -177,6 +217,11 @@ describe('manageProfiles edit reapply flow', () => {
     mockGetActiveProfileId.mockResolvedValue(undefined);
     mockSetActiveProfile.mockResolvedValue(undefined);
     mockLoadRegistry.mockResolvedValue({ assistants: [], dialectCatalog: {} });
+    mockActivateProfileAndReapplyMappings.mockResolvedValue({ status: 'success' });
+    mockGetProfileActivationNotice.mockReturnValue({
+      kind: 'success',
+      message: 'Profile activated successfully'
+    });
     mockBuildPlan
       .mockResolvedValueOnce({
         id: 'plan-1',
@@ -274,6 +319,47 @@ describe('manageProfiles edit reapply flow', () => {
       expect.stringContaining('Manual-only assistants not updated automatically: anythingllm')
     );
   });
+
+  it('routes the Assign Assistants action through the profile-scoped command', async () => {
+    mockShowQuickPick.mockReset();
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
+      .mockResolvedValueOnce({ label: '$(plug) Assign Assistants (0)' })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const context = {} as any;
+    await manageProfiles(context);
+
+    expect(mockAssignProfileAssistants).toHaveBeenCalledWith(context, profile.id);
+  });
+
+  it('activates the selected profile from the Set Active Profile flow and shows the activation notice', async () => {
+    mockShowQuickPick.mockReset();
+    const secondProfile: EndpointProfile = {
+      ...profile,
+      id: 'profile-2',
+      name: 'OpenAI Stage',
+      baseUrl: 'https://stage.example.com/v1'
+    };
+    mockGetProfiles.mockResolvedValue([profile, secondProfile]);
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockGetProfileActivationNotice.mockReturnValue({
+      kind: 'warning',
+      message: 'Manual switching is still required for one assistant'
+    });
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(star) Set Active Profile' })
+      .mockResolvedValueOnce({ label: secondProfile.name, profile: secondProfile })
+      .mockResolvedValueOnce(undefined);
+
+    const context = {} as any;
+    await manageProfiles(context);
+
+    expect(mockActivateProfileAndReapplyMappings).toHaveBeenCalledWith(context, secondProfile.id);
+    expect(mockShowWarning).toHaveBeenCalledWith('Manual switching is still required for one assistant');
+  });
 });
 
 describe('manageProfiles delete reassign flow', () => {
@@ -298,6 +384,20 @@ describe('manageProfiles delete reassign flow', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockShowQuickPick.mockReset();
+    mockShowSuccess.mockReset();
+    mockShowWarning.mockReset();
+    mockShowError.mockReset();
+    mockGetProfiles.mockReset();
+    mockGetAssistantMappings.mockReset();
+    mockSaveAssistantMapping.mockReset();
+    mockDeleteAssistantMapping.mockReset();
+    mockDeleteProfile.mockReset();
+    mockGetActiveProfileId.mockReset();
+    mockSetActiveProfile.mockReset();
+    mockBuildPlan.mockReset();
+    mockApplyPlan.mockReset();
+    mockLoadRegistry.mockReset();
     mockWithProgress.mockImplementation(async (_options, task) => task({ report: vi.fn() }));
     mockSaveAssistantMapping.mockResolvedValue(undefined);
     mockDeleteAssistantMapping.mockResolvedValue(undefined);
@@ -532,6 +632,67 @@ describe('manageProfiles delete reassign flow', () => {
     expect(mockSetActiveProfile).not.toHaveBeenCalled();
     expect(mockShowError).toHaveBeenCalledWith(
       expect.stringContaining('The original profile was kept and previously switched assistants were restored')
+    );
+  });
+
+  it('keeps the source profile when reassignment fails before any assistant is switched', async () => {
+    mockGetProfiles.mockResolvedValue([sourceProfile, targetProfile]);
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: sourceProfile.id,
+        appliedMode: 'configFile',
+        appliedAt: '2026-05-18T00:00:00.000Z'
+      }
+    ]);
+    mockGetActiveProfileId.mockResolvedValue(sourceProfile.id);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-target-cline',
+      profileId: targetProfile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-18T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-1',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+    mockApplyPlan.mockResolvedValueOnce({
+      success: false,
+      appliedSteps: [],
+      failedSteps: [
+        {
+          id: 'step-1',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true,
+          error: 'write failed'
+        }
+      ],
+      assistantResults: new Map([['cline', { success: false }]])
+    });
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })
+      .mockResolvedValueOnce({ label: '$(trash) Delete Profile' })
+      .mockResolvedValueOnce({ label: '$(arrow-right) Reassign to another profile' })
+      .mockResolvedValueOnce({ label: targetProfile.name, profile: targetProfile })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    await manageProfiles({} as any);
+
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(mockSetActiveProfile).not.toHaveBeenCalledWith(targetProfile.id);
+    expect(mockShowError).toHaveBeenCalledWith(
+      'Failed to reassign assistants to "OpenAI Stage". The original profile was kept. Failed assistants: cline.'
     );
   });
 });
