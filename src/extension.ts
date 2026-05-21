@@ -178,6 +178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.setupSwitchboard', async () => {
       const outcome = await withErrorBoundary(() => setupSwitchboard(context));
       await handleBoundaryOutcome(outcome, logger, 'Setup');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -199,6 +200,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.manageProfiles', async () => {
       const outcome = await withErrorBoundary(() => manageProfiles(context));
       await handleBoundaryOutcome(outcome, logger, 'Manage profiles');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -210,6 +212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const outcome = await withErrorBoundary(() => assignProfileAssistants(context, rawProfileId));
       await handleBoundaryOutcome(outcome, logger, 'Assign profile assistants');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -217,6 +220,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.resetSwitchboard', async () => {
       const outcome = await withErrorBoundary(() => resetSwitchboard(context));
       await handleBoundaryOutcome(outcome, logger, 'Reset');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 
@@ -279,6 +283,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       });
       await handleBoundaryOutcome(outcome, logger, 'Activate profile');
+      await vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
     })
   );
 

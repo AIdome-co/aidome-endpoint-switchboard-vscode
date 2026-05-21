@@ -18,6 +18,7 @@ const DECLARED_COMMANDS: readonly string[] = [
   'aidome-switchboard.verifyRouting',
   'aidome-switchboard.showModelsProviders',
   'aidome-switchboard.manageProfiles',
+  'aidome-switchboard.assignProfileAssistants',
   'aidome-switchboard.resetSwitchboard',
   'aidome-switchboard.exportDiagnostics',
   'aidome-switchboard.activateProfile',

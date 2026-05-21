@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Fixed the Assistants TreeView to mark only assistants assigned to the active profile as configured, and stopped persisting Claude Code API keys into plaintext `settings.json` during gateway updates.
+
 ## [1.4.0] - 2026-05-20
 
 ### Added

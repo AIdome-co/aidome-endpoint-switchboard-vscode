@@ -5,9 +5,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- hoisted mock handles (must be initialized before vi.mock factories) ---
-const { mockLoadRegistry, mockGetActiveProfile, mockDetectExtensions } = vi.hoisted(() => ({
+const {
+  mockLoadRegistry,
+  mockGetActiveProfile,
+  mockGetAssistantMappings,
+  mockDetectExtensions
+} = vi.hoisted(() => ({
   mockLoadRegistry: vi.fn(),
   mockGetActiveProfile: vi.fn().mockResolvedValue(null),
+  mockGetAssistantMappings: vi.fn().mockResolvedValue([]),
   mockDetectExtensions: vi.fn().mockReturnValue([])
 }));
 
@@ -62,7 +68,10 @@ vi.mock('../../src/util/log', () => ({
 // Use a regular function (not arrow) so it can be called with new
 vi.mock('../../src/core/profiles/profileStore', () => {
   function ProfileStore() {
-    return { getActiveProfile: mockGetActiveProfile };
+    return {
+      getActiveProfile: mockGetActiveProfile,
+      getAssistantMappings: mockGetAssistantMappings
+    };
   }
   return { ProfileStore };
 });
@@ -155,6 +164,7 @@ describe('AssistantsTreeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetActiveProfile.mockResolvedValue(null);
+    mockGetAssistantMappings.mockResolvedValue([]);
     mockDetectExtensions.mockReturnValue([]);
     provider = new AssistantsTreeProvider(makeContext());
   });
@@ -171,7 +181,7 @@ describe('AssistantsTreeProvider', () => {
     expect(items[1].label).toBe('Cline');
   });
 
-  it('marks Tier A/B assistants as configured when active profile exists', async () => {
+  it('marks only assistants assigned to the active profile as configured', async () => {
     mockLoadRegistry.mockResolvedValue(makeRegistry([
       { key: 'continue', displayName: 'Continue', tier: 'A' },
       { key: 'anythingllm', displayName: 'AnythingLLM', tier: 'B' },
@@ -184,11 +194,29 @@ describe('AssistantsTreeProvider', () => {
       createdAt: '',
       updatedAt: ''
     });
+    mockGetAssistantMappings.mockResolvedValue([
+      { assistantKey: 'continue', profileId: 'p1' },
+      { assistantKey: 'gemini', profileId: 'other-profile' }
+    ]);
 
     const items = await provider.getChildren();
-    expect(items[0].contextValue).toBe('configured');   // Tier A
-    expect(items[1].contextValue).toBe('configured');   // Tier B
-    expect(items[2].contextValue).toBe('unconfigured'); // Tier C
+    expect(items[0].contextValue).toBe('configured');
+    expect(items[1].contextValue).toBe('unconfigured');
+    expect(items[2].contextValue).toBe('unconfigured');
+  });
+
+  it('ignores mappings when there is no active profile', async () => {
+    mockLoadRegistry.mockResolvedValue(makeRegistry([
+      { key: 'continue', displayName: 'Continue', tier: 'A' }
+    ]));
+    mockGetAssistantMappings.mockResolvedValue([
+      { assistantKey: 'continue', profileId: 'p1' }
+    ]);
+
+    const items = await provider.getChildren();
+
+    expect(items[0].contextValue).toBe('unconfigured');
+    expect(mockGetAssistantMappings).not.toHaveBeenCalled();
   });
 
   it('returns empty array on error without throwing', async () => {

@@ -115,14 +115,7 @@ describe('Claude Code Config Patcher', () => {
       expect(updated).not.toContain('ANTHROPIC_API_KEY');
     });
 
-    it('should write ANTHROPIC_API_KEY when a profile secret is provided', () => {
-      const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, 'aid_pat_test');
-      const parsed = JSON.parse(updated);
-
-      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
-    });
-
-    it('should remove a previously written ANTHROPIC_API_KEY when auth is explicitly unavailable', () => {
+    it('should remove a previously persisted ANTHROPIC_API_KEY from settings output', () => {
       const existing = JSON.stringify({
         env: {
           ANTHROPIC_API_KEY: 'stale-key',
@@ -130,7 +123,7 @@ describe('Claude Code Config Patcher', () => {
         }
       });
 
-      const updated = buildClaudeCodeSettingsContent(mockProfile, existing, null);
+      const updated = buildClaudeCodeSettingsContent(mockProfile, existing);
       const parsed = JSON.parse(updated);
 
       expect(parsed.env.ANTHROPIC_API_KEY).toBeUndefined();

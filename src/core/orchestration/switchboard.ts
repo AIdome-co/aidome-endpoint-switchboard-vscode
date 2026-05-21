@@ -14,7 +14,6 @@ import { Verifier, VerificationResult } from './verifier';
 import { detectExtensions, DetectedAssistant } from '../detection/detectExtensions';
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
 import { getAdapter } from '../../adapters/adapters.index';
-import { buildClaudeCodeSettingsContent } from '../../adapters/claudeCode/claudeCodeConfigPatcher';
 import { Logger } from '../../util/log';
 import { startTimer } from '../../util/operationTimer';
 import { withRetry } from '../../util/retry';
@@ -111,7 +110,7 @@ export class Switchboard {
 
       try {
         // Build plan for this assistant
-        const assistantPlan = await this.hydrateAssistantPlan(profile, assistantKey, await adapter.buildPlan(profile));
+        const assistantPlan = await adapter.buildPlan(profile);
         
         // Merge steps into main plan
         for (const step of assistantPlan.steps) {
@@ -250,37 +249,4 @@ export class Switchboard {
     }
   }
 
-  private async hydrateAssistantPlan(
-    profile: EndpointProfile,
-    assistantKey: string,
-    assistantPlan: Plan
-  ): Promise<Plan> {
-    if (assistantKey !== 'claude-code' || !profile.authRef) {
-      return assistantPlan;
-    }
-
-    const authSecret = await this.profileSecrets.getSecret(profile.authRef);
-
-    return {
-      ...assistantPlan,
-      steps: assistantPlan.steps.map(step => {
-        if (step.assistantKey !== 'claude-code' || step.action !== 'edit-config-file' || typeof step.newValue !== 'string') {
-          return step;
-        }
-
-        const envVars = Array.isArray(step.data.envVars)
-          ? step.data.envVars.filter((item): item is string => typeof item === 'string')
-          : [];
-
-        return {
-          ...step,
-          newValue: buildClaudeCodeSettingsContent(profile, step.newValue, authSecret ?? null),
-          data: {
-            ...step.data,
-            envVars: [...new Set([...envVars, 'ANTHROPIC_API_KEY'])]
-          }
-        };
-      })
-    };
-  }
 }

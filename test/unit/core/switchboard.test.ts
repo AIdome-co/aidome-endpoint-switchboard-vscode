@@ -91,7 +91,7 @@ describe('Switchboard Claude auth secret hydration', () => {
     mockVerifyEndpoint.mockResolvedValue({ status: 'success', checks: [] });
   });
 
-  it('injects ANTHROPIC_API_KEY into Claude edit-config-file steps when the profile has a stored secret', async () => {
+  it('does not inject SecretStorage auth into Claude edit-config-file steps', async () => {
     mockGetSecret.mockResolvedValue('aid_pat_test');
     mockGetAdapter.mockResolvedValue({
       buildPlan: vi.fn().mockResolvedValue(basePlan),
@@ -108,41 +108,8 @@ describe('Switchboard Claude auth secret hydration', () => {
     const step = plan.steps[0];
     const settings = JSON.parse(step.newValue as string);
 
-    expect(mockGetSecret).toHaveBeenCalledWith(profile.authRef);
-    expect(settings.env.ANTHROPIC_API_KEY).toBe('aid_pat_test');
-    expect(step.data.envVars).toContain('ANTHROPIC_API_KEY');
-  });
-
-  it('removes a stale ANTHROPIC_API_KEY when the profile expects secret-managed auth but no secret is stored', async () => {
-    mockGetSecret.mockResolvedValue(undefined);
-    mockGetAdapter.mockResolvedValue({
-      buildPlan: vi.fn().mockResolvedValue({
-        ...basePlan,
-        steps: [
-          {
-            ...basePlan.steps[0],
-            newValue: JSON.stringify({
-              env: {
-                ANTHROPIC_API_KEY: 'stale-key',
-                EXISTING_VAR: 'kept',
-              },
-            }),
-          },
-        ],
-      }),
-    });
-
-    const switchboard = new Switchboard(
-      {} as any,
-      { assistants: [], dialectCatalog: {} } as any,
-      {} as any,
-      { getSecret: mockGetSecret } as any
-    );
-
-    const plan = await switchboard.buildPlan(profile, ['claude-code']);
-    const settings = JSON.parse(plan.steps[0].newValue as string);
-
     expect(settings.env.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(settings.env.EXISTING_VAR).toBe('kept');
+    expect(mockGetSecret).not.toHaveBeenCalled();
+    expect(step.data.envVars).not.toContain('ANTHROPIC_API_KEY');
   });
 });
