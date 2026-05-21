@@ -8,13 +8,19 @@ import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { validateUrl } from '../core/profiles/profileValidator';
 import { EndpointProfile, AssistantMapping } from '../core/profiles/profileTypes';
 import { Verifier, VerificationReport } from '../core/orchestration/verifier';
+import { Switchboard } from '../core/orchestration/switchboard';
 import { detectRemote } from '../core/detection/detectRemote';
+import { loadRegistry } from '../core/registry/registryLoader';
 import { getOutputChannel } from '../ui/output';
 import { updateStatusBar } from '../ui/statusBar';
 import { showError, showSuccess, showWarning } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
-import { activateProfileAndReapplyMappings, getProfileActivationNotice } from './activateProfile';
+import {
+  activateProfileAndReapplyMappings,
+  buildAutomatedReapplyPlan,
+  getProfileActivationNotice
+} from './activateProfile';
 import { assignProfileAssistants } from './assignProfileAssistants';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
@@ -23,6 +29,17 @@ interface ProfileQuickPickItem extends vscode.QuickPickItem {
 
 interface DialectQuickPickItem extends vscode.QuickPickItem {
   dialect?: Dialect;
+}
+
+interface ReapplyNotice {
+  kind: 'success' | 'warning' | 'error';
+  message: string;
+}
+
+interface AutomaticProfileApplyResult {
+  appliedAssistantKeys: string[];
+  skippedAssistantKeys: string[];
+  failedAssistantKeys: string[];
 }
 
 /**
@@ -401,7 +418,12 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
   const mappings = await profileStore.getAssistantMappings();
-  const assistantCount = mappings.filter(m => m.profileId === profile.id).length;
+  const mappedAssistantKeys = [...new Set(
+    mappings
+      .filter(mapping => mapping.profileId === profile.id)
+      .map(mapping => mapping.assistantKey)
+  )];
+  const assistantCount = mappedAssistantKeys.length;
   
   const fieldOptions: vscode.QuickPickItem[] = [
     {
@@ -559,6 +581,10 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
     profile.updatedAt = new Date().toISOString();
     await profileStore.saveProfile(profile);
     logger.info(`Profile updated: ${profile.name}`);
+    let updateNotice: ReapplyNotice = {
+      kind: 'success',
+      message: `Profile "${profile.name}" updated successfully`
+    };
     
     // Offer to re-verify
     const shouldVerify = await vscode.window.showQuickPick(
@@ -590,14 +616,117 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
       );
       
       if (shouldReapply?.value) {
-        await showSuccess('Configuration re-application would be handled by the setup flow.');
+        const reapplyNotice = await reapplyEditedProfileMappings(context, profile, mappedAssistantKeys);
+        updateNotice = {
+          kind: reapplyNotice.kind,
+          message: `Profile "${profile.name}" updated successfully. ${reapplyNotice.message}`
+        };
       }
     }
-    
-    await showSuccess(`Profile "${profile.name}" updated successfully`);
+
+    if (updateNotice.kind === 'success') {
+      await showSuccess(updateNotice.message);
+    } else if (updateNotice.kind === 'warning') {
+      await showWarning(updateNotice.message);
+    } else {
+      await showError(updateNotice.message);
+    }
   }
   
   await showProfileDetails(context, profile);
+}
+
+async function reapplyEditedProfileMappings(
+  context: vscode.ExtensionContext,
+  profile: EndpointProfile,
+  mappedAssistantKeys: string[]
+): Promise<ReapplyNotice> {
+  const logger = Logger.getInstance();
+  const profileStore = new ProfileStore(context);
+
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Re-applying ${profile.name}...`,
+      cancellable: false
+    },
+    async progress => {
+      progress.report({ message: `Preparing ${mappedAssistantKeys.length} mapped assistant(s)...` });
+
+      try {
+        const registry = await loadRegistry();
+        const profileSecrets = new ProfileSecrets(context);
+        const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
+        const result = await applyAutomaticProfileToAssistants(
+          switchboard,
+          profile,
+          mappedAssistantKeys,
+          progress,
+          `Applying ${profile.name} to`
+        );
+        const { appliedAssistantKeys, skippedAssistantKeys, failedAssistantKeys } = result;
+        const skippedSuffix = skippedAssistantKeys.length > 0
+          ? ` Manual-only assistants not updated automatically: ${skippedAssistantKeys.join(', ')}.`
+          : '';
+
+        if (appliedAssistantKeys.length === 0 && failedAssistantKeys.length === 0) {
+          logger.info(
+            `Profile ${profile.name} was updated but no mapped assistants had automatic reapply steps: ${skippedAssistantKeys.join(', ') || 'none'}`
+          );
+          return {
+            kind: 'warning',
+            message: `No mapped assistants for "${profile.name}" support automatic reapply.${skippedSuffix}`
+          };
+        }
+
+        if (failedAssistantKeys.length === 0) {
+          logger.info(`Reapplied profile ${profile.name} to mapped assistants: ${appliedAssistantKeys.join(', ')}`);
+          return {
+            kind: skippedAssistantKeys.length > 0 ? 'warning' : 'success',
+            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}".${skippedSuffix}`
+          };
+        }
+
+        if (appliedAssistantKeys.length > 0) {
+          logger.warning(
+            `Reapplied profile ${profile.name} with partial assistant success`,
+            undefined,
+            {
+              appliedAssistantKeys,
+              failedAssistantKeys,
+              skippedAssistantKeys
+            }
+          );
+          return {
+            kind: 'warning',
+            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}", but ${failedAssistantKeys.length} failed.${skippedSuffix}`
+          };
+        }
+
+        logger.error(
+          `Failed to reapply mapped assistants for profile ${profile.name}`,
+          undefined,
+          { failedAssistantKeys, skippedAssistantKeys }
+        );
+        const failureSuffix = failedAssistantKeys.length > 0
+          ? ` Failed assistants: ${failedAssistantKeys.join(', ')}.`
+          : '';
+        return {
+          kind: 'error',
+          message: `Failed to reapply automatic configuration for "${profile.name}".${failureSuffix}${skippedSuffix}`
+        };
+      } catch (error) {
+        logger.error(
+          `Failed to reapply updated profile ${profile.name}`,
+          error instanceof Error ? error : undefined
+        );
+        return {
+          kind: 'error',
+          message: `Failed to reapply automatic configuration for "${profile.name}": ${error instanceof Error ? error.message : String(error)}`
+        };
+      }
+    }
+  );
 }
 
 /**
@@ -609,6 +738,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   const mappings = await profileStore.getAssistantMappings();
   const profileMappings = mappings.filter(m => m.profileId === profile.id);
   const assistantCount = profileMappings.length;
+  const activeProfileId = await profileStore.getActiveProfileId();
   
   let confirmMessage = `Delete profile '${profile.name}'?`;
   if (assistantCount > 0) {
@@ -650,6 +780,11 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
     return;
   }
   
+  let reassignedProfile: EndpointProfile | undefined;
+  let completionNotice:
+    | { kind: 'success' | 'warning' | 'error'; message: string }
+    | undefined;
+
   if (choice.label.includes('Reassign')) {
     // Show reassignment dialog
     const otherProfiles = (await profileStore.getProfiles()).filter(p => p.id !== profile.id);
@@ -668,14 +803,25 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
       await showProfileDetails(context, profile);
       return;
     }
-    
-    // Update mappings
-    for (const mapping of profileMappings) {
-      mapping.profileId = targetProfile.profile.id;
-      await profileStore.saveAssistantMapping(mapping);
+
+    const reassignmentNotice = await reassignMappedAssistantsToProfile(
+      context,
+      profile,
+      targetProfile.profile,
+      profileMappings
+    );
+
+    if (reassignmentNotice.kind === 'error') {
+      await showError(reassignmentNotice.message);
+      await showProfileDetails(context, profile);
+      return;
     }
-    
-    await showSuccess(`${assistantCount} assistant mapping${assistantCount !== 1 ? 's' : ''} reassigned to "${targetProfile.profile.name}"`);
+
+    reassignedProfile = targetProfile.profile;
+    completionNotice = {
+      kind: reassignmentNotice.kind,
+      message: `Profile "${profile.name}" deleted. ${reassignmentNotice.message}`
+    };
   }
   
   // Delete the profile
@@ -688,21 +834,207 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   }
   
   // Update status bar if this was the active profile
-  const activeProfileId = await profileStore.getActiveProfileId();
   if (profile.id === activeProfileId) {
-    const remaining = await profileStore.getProfiles();
-    if (remaining.length > 0) {
-      await profileStore.setActiveProfile(remaining[0].id);
-      updateStatusBar(remaining[0].name);
+    if (reassignedProfile) {
+      await profileStore.setActiveProfile(reassignedProfile.id);
+      updateStatusBar(reassignedProfile.name);
     } else {
-      updateStatusBar(undefined);
+      const remaining = await profileStore.getProfiles();
+      if (remaining.length > 0) {
+        await profileStore.setActiveProfile(remaining[0].id);
+        updateStatusBar(remaining[0].name);
+      } else {
+        updateStatusBar(undefined);
+      }
     }
   }
-  
-  await showSuccess(`Profile "${profile.name}" deleted successfully`);
+
+  if (completionNotice?.kind === 'warning') {
+    await showWarning(completionNotice.message);
+  } else if (completionNotice?.kind === 'success') {
+    await showSuccess(completionNotice.message);
+  } else {
+    await showSuccess(`Profile "${profile.name}" deleted successfully`);
+  }
   logger.info(`Profile deleted: ${profile.name}`);
   
   await showMainMenu(context);
+}
+
+async function applyAutomaticProfileToAssistants(
+  switchboard: Switchboard,
+  profile: EndpointProfile,
+  assistantKeys: string[],
+  progress: vscode.Progress<{ message?: string }> | undefined,
+  progressPrefix: string,
+  onFailureCleanup?: (assistantKey: string) => Promise<void>
+): Promise<AutomaticProfileApplyResult> {
+  const appliedAssistantKeys: string[] = [];
+  const skippedAssistantKeys: string[] = [];
+  const failedAssistantKeys: string[] = [];
+
+  for (const [index, assistantKey] of assistantKeys.entries()) {
+    progress?.report({
+      message: `${progressPrefix} ${assistantKey} (${index + 1}/${assistantKeys.length})...`
+    });
+
+    const plan = await switchboard.buildPlan(profile, [assistantKey]);
+    const reapplyPlan = buildAutomatedReapplyPlan(plan);
+
+    if (reapplyPlan.steps.length === 0) {
+      skippedAssistantKeys.push(assistantKey);
+      continue;
+    }
+
+    const applyResult = await switchboard.applyPlan(reapplyPlan);
+    const assistantSucceeded = applyResult.assistantResults.get(assistantKey)?.success === true;
+
+    if (assistantSucceeded) {
+      appliedAssistantKeys.push(assistantKey);
+      continue;
+    }
+
+    failedAssistantKeys.push(assistantKey);
+    if (onFailureCleanup) {
+      await onFailureCleanup(assistantKey);
+    }
+  }
+
+  return {
+    appliedAssistantKeys,
+    skippedAssistantKeys,
+    failedAssistantKeys
+  };
+}
+
+async function reassignMappedAssistantsToProfile(
+  context: vscode.ExtensionContext,
+  sourceProfile: EndpointProfile,
+  targetProfile: EndpointProfile,
+  sourceMappings: AssistantMapping[]
+): Promise<ReapplyNotice> {
+  const logger = Logger.getInstance();
+  const profileStore = new ProfileStore(context);
+  const assistantKeys = [...new Set(sourceMappings.map(mapping => mapping.assistantKey))];
+
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Reassigning assistants to ${targetProfile.name}...`,
+      cancellable: false
+    },
+    async progress => {
+      progress.report({ message: `Preparing ${assistantKeys.length} assistant(s)...` });
+
+      try {
+        const registry = await loadRegistry();
+        const profileSecrets = new ProfileSecrets(context);
+        const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
+        const targetResult = await applyAutomaticProfileToAssistants(
+          switchboard,
+          targetProfile,
+          assistantKeys,
+          progress,
+          `Applying ${targetProfile.name} to`,
+          async assistantKey => {
+            await profileStore.deleteAssistantMapping(assistantKey, targetProfile.id);
+          }
+        );
+
+        if (targetResult.failedAssistantKeys.length > 0) {
+          if (targetResult.appliedAssistantKeys.length > 0) {
+            const restoreResult = await applyAutomaticProfileToAssistants(
+              switchboard,
+              sourceProfile,
+              targetResult.appliedAssistantKeys,
+              progress,
+              `Restoring ${sourceProfile.name} for`
+            );
+
+            if (restoreResult.failedAssistantKeys.length === 0) {
+              for (const assistantKey of targetResult.appliedAssistantKeys) {
+                await profileStore.deleteAssistantMapping(assistantKey, targetProfile.id);
+              }
+
+              logger.warning(
+                `Reassignment to ${targetProfile.name} aborted after a failed assistant apply; restored ${sourceProfile.name}`,
+                undefined,
+                {
+                  failedAssistantKeys: targetResult.failedAssistantKeys,
+                  restoredAssistantKeys: restoreResult.appliedAssistantKeys
+                }
+              );
+              return {
+                kind: 'error',
+                message: `Failed to reassign assistants to "${targetProfile.name}". The original profile was kept and previously switched assistants were restored to "${sourceProfile.name}". Failed assistants: ${targetResult.failedAssistantKeys.join(', ')}.`
+              };
+            }
+
+            logger.error(
+              `Reassignment to ${targetProfile.name} failed and restoration to ${sourceProfile.name} was incomplete`,
+              undefined,
+              {
+                failedAssistantKeys: targetResult.failedAssistantKeys,
+                restoreFailedAssistantKeys: restoreResult.failedAssistantKeys
+              }
+            );
+            return {
+              kind: 'error',
+              message: `Failed to reassign assistants to "${targetProfile.name}" and automatic restoration to "${sourceProfile.name}" was incomplete. Manual recovery may be required. Failed assistants: ${targetResult.failedAssistantKeys.join(', ')}. Restore failures: ${restoreResult.failedAssistantKeys.join(', ')}.`
+            };
+          }
+
+          logger.error(
+            `Reassignment to ${targetProfile.name} failed before any assistant configuration was switched`,
+            undefined,
+            { failedAssistantKeys: targetResult.failedAssistantKeys }
+          );
+          return {
+            kind: 'error',
+            message: `Failed to reassign assistants to "${targetProfile.name}". The original profile was kept. Failed assistants: ${targetResult.failedAssistantKeys.join(', ')}.`
+          };
+        }
+
+        for (const mapping of sourceMappings) {
+          if (targetResult.appliedAssistantKeys.includes(mapping.assistantKey)) {
+            continue;
+          }
+
+          await profileStore.saveAssistantMapping({
+            ...mapping,
+            profileId: targetProfile.id
+          });
+        }
+
+        const skippedSuffix = targetResult.skippedAssistantKeys.length > 0
+          ? ` Manual-only assistants still need manual switching: ${targetResult.skippedAssistantKeys.join(', ')}.`
+          : '';
+        const switchedCount = targetResult.appliedAssistantKeys.length + targetResult.skippedAssistantKeys.length;
+
+        logger.info(
+          `Reassigned ${switchedCount} assistant(s) from ${sourceProfile.name} to ${targetProfile.name}`,
+          {
+            appliedAssistantKeys: targetResult.appliedAssistantKeys,
+            skippedAssistantKeys: targetResult.skippedAssistantKeys
+          }
+        );
+
+        return {
+          kind: targetResult.skippedAssistantKeys.length > 0 ? 'warning' : 'success',
+          message: `${switchedCount} assistant mapping${switchedCount !== 1 ? 's' : ''} reassigned to "${targetProfile.name}".${skippedSuffix}`
+        };
+      } catch (error) {
+        logger.error(
+          `Failed to reassign assistants from ${sourceProfile.name} to ${targetProfile.name}`,
+          error instanceof Error ? error : undefined
+        );
+        return {
+          kind: 'error',
+          message: `Failed to reassign assistants to "${targetProfile.name}": ${error instanceof Error ? error.message : String(error)}`
+        };
+      }
+    }
+  );
 }
 
 /**

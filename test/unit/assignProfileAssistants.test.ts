@@ -11,6 +11,8 @@ const {
   mockGetProfiles,
   mockGetAssistantMappings,
   mockDeleteAssistantMapping,
+  mockSaveAssistantMapping,
+  mockGetActiveProfileId,
   mockDetectAll,
   mockBuildPlan,
   mockApplyPlan,
@@ -26,6 +28,8 @@ const {
   mockGetProfiles: vi.fn(),
   mockGetAssistantMappings: vi.fn(),
   mockDeleteAssistantMapping: vi.fn(),
+  mockSaveAssistantMapping: vi.fn(),
+  mockGetActiveProfileId: vi.fn(),
   mockDetectAll: vi.fn(),
   mockBuildPlan: vi.fn(),
   mockApplyPlan: vi.fn(),
@@ -54,6 +58,8 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
     getProfiles = mockGetProfiles;
     getAssistantMappings = mockGetAssistantMappings;
     deleteAssistantMapping = mockDeleteAssistantMapping;
+    saveAssistantMapping = mockSaveAssistantMapping;
+    getActiveProfileId = mockGetActiveProfileId;
   })
 }));
 
@@ -100,6 +106,7 @@ describe('assignProfileAssistants', () => {
     vi.clearAllMocks();
     mockWithProgress.mockImplementation(async (_title, task) => task({ report: vi.fn() }));
     mockGetProfiles.mockResolvedValue([profile]);
+    mockGetActiveProfileId.mockResolvedValue(undefined);
     mockGetAssistantMappings.mockResolvedValue([
       {
         assistantKey: 'cline',
@@ -182,6 +189,7 @@ describe('assignProfileAssistants', () => {
     mockShowQuickPick.mockResolvedValue([{ assistantKey: 'cline', label: 'Cline' }]);
     mockShowInformationMessage.mockResolvedValue('Apply');
     mockDeleteAssistantMapping.mockResolvedValue(undefined);
+    mockSaveAssistantMapping.mockResolvedValue(undefined);
   });
 
   it('builds and applies the selected assistants to the chosen profile', async () => {
@@ -269,7 +277,7 @@ describe('assignProfileAssistants', () => {
 
     expect(mockBuildPlan).toHaveBeenCalledWith(profile, ['cline']);
     expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('kilo-code', profile.id);
-    expect(mockShowSuccess).toHaveBeenCalledWith(expect.stringContaining('detached 1 assistant'));
+    expect(mockShowWarning).toHaveBeenCalledWith(expect.stringContaining('kilo-code has no remaining mapped profile'));
   });
 
   it('detaches all assistants when everything is unchecked', async () => {
@@ -289,7 +297,7 @@ describe('assignProfileAssistants', () => {
     expect(mockBuildPlan).not.toHaveBeenCalled();
     expect(mockApplyPlan).not.toHaveBeenCalled();
     expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('cline', profile.id);
-    expect(mockShowSuccess).toHaveBeenCalledWith('Detached 1 assistant(s) from "OpenAI Prod".');
+    expect(mockShowWarning).toHaveBeenCalledWith(expect.stringContaining('cline has no remaining mapped profile'));
   });
 
   it('does not detach assigned assistants that were omitted from the picker', async () => {
@@ -349,5 +357,195 @@ describe('assignProfileAssistants', () => {
     expect(items[0].assistantKey).toBe('cline');
     expect(items[0].picked).toBe(true);
     expect(items[0].detail).toContain('assigned to this profile');
+  });
+
+  it('switches a detached assistant to its only remaining mapped profile', async () => {
+    const otherProfile: EndpointProfile = {
+      ...profile,
+      id: 'profile-2',
+      name: 'OpenAI Stage',
+      baseUrl: 'https://stage.example.com/v1'
+    };
+    mockGetProfiles.mockResolvedValue([profile, otherProfile]);
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        profileName: profile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      },
+      {
+        assistantKey: 'cline',
+        profileId: otherProfile.id,
+        profileName: otherProfile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      }
+    ]);
+    mockShowQuickPick.mockResolvedValue([]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-2',
+      profileId: otherProfile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-18T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-2',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+
+    await assignProfileAssistants({} as any, profile.id);
+
+    expect(mockBuildPlan).toHaveBeenCalledWith(otherProfile, ['cline']);
+    expect(mockApplyPlan).toHaveBeenCalledWith(expect.objectContaining({
+      profileId: otherProfile.id,
+      assistantKeys: ['cline']
+    }));
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('cline', profile.id);
+    expect(mockShowSuccess).toHaveBeenCalledWith(expect.stringContaining('Auto-switched detached assistants to: cline -> OpenAI Stage'));
+  });
+
+  it('keeps the current profile attached when switching to a remaining mapped profile fails', async () => {
+    const otherProfile: EndpointProfile = {
+      ...profile,
+      id: 'profile-2',
+      name: 'OpenAI Stage',
+      baseUrl: 'https://stage.example.com/v1'
+    };
+    const sourceMapping = {
+      assistantKey: 'cline',
+      profileId: profile.id,
+      profileName: profile.name,
+      appliedMode: 'settings' as const,
+      appliedAt: '2026-05-17T00:00:00.000Z'
+    };
+    const targetMapping = {
+      assistantKey: 'cline',
+      profileId: otherProfile.id,
+      profileName: otherProfile.name,
+      appliedMode: 'settings' as const,
+      appliedAt: '2026-05-17T00:00:00.000Z'
+    };
+    mockGetProfiles.mockResolvedValue([profile, otherProfile]);
+    mockGetAssistantMappings.mockResolvedValue([sourceMapping, targetMapping]);
+    mockShowQuickPick.mockResolvedValue([]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-3',
+      profileId: otherProfile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-18T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-3',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+    mockApplyPlan.mockResolvedValueOnce({
+      success: false,
+      appliedSteps: [],
+      failedSteps: [
+        {
+          id: 'step-3',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true,
+          error: 'write failed'
+        }
+      ],
+      changeLogEntry: {
+        id: 'entry-2',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: otherProfile.name,
+        steps: []
+      },
+      assistantResults: new Map([['cline', { success: false, reason: 'write failed' }]])
+    });
+
+    await assignProfileAssistants({} as any, profile.id);
+
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('cline', profile.id);
+    expect(mockSaveAssistantMapping).toHaveBeenCalledWith(sourceMapping);
+    expect(mockSaveAssistantMapping).toHaveBeenCalledWith(targetMapping);
+    expect(mockShowError).toHaveBeenCalledWith(expect.stringContaining('kept "OpenAI Prod" attached'));
+  });
+
+  it('uses the active remaining profile when multiple mapped profiles remain', async () => {
+    const stageProfile: EndpointProfile = {
+      ...profile,
+      id: 'profile-2',
+      name: 'OpenAI Stage',
+      baseUrl: 'https://stage.example.com/v1'
+    };
+    const devProfile: EndpointProfile = {
+      ...profile,
+      id: 'profile-3',
+      name: 'OpenAI Dev',
+      baseUrl: 'https://dev.example.com/v1'
+    };
+    mockGetProfiles.mockResolvedValue([profile, stageProfile, devProfile]);
+    mockGetActiveProfileId.mockResolvedValue(devProfile.id);
+    mockGetAssistantMappings.mockResolvedValue([
+      {
+        assistantKey: 'cline',
+        profileId: profile.id,
+        profileName: profile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      },
+      {
+        assistantKey: 'cline',
+        profileId: stageProfile.id,
+        profileName: stageProfile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      },
+      {
+        assistantKey: 'cline',
+        profileId: devProfile.id,
+        profileName: devProfile.name,
+        appliedMode: 'settings',
+        appliedAt: '2026-05-17T00:00:00.000Z'
+      }
+    ]);
+    mockShowQuickPick.mockResolvedValue([]);
+    mockBuildPlan.mockResolvedValueOnce({
+      id: 'plan-4',
+      profileId: devProfile.id,
+      assistantKeys: ['cline'],
+      createdAt: '2026-05-18T00:00:00.000Z',
+      status: 'pending',
+      steps: [
+        {
+          id: 'step-4',
+          action: 'edit-config-file',
+          description: 'Rewrite Cline config',
+          assistantKey: 'cline',
+          data: {},
+          reversible: true
+        }
+      ]
+    });
+
+    await assignProfileAssistants({} as any, profile.id);
+
+    expect(mockBuildPlan).toHaveBeenCalledWith(devProfile, ['cline']);
+    expect(mockShowSuccess).toHaveBeenCalledWith(expect.stringContaining('cline -> OpenAI Dev'));
   });
 });

@@ -8,6 +8,7 @@ import { AssistantEntry } from '../core/registry/registryTypes';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { Logger } from '../util/log';
+import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
   assistantKey: string;
@@ -15,6 +16,13 @@ interface AssistantSelectionItem extends vscode.QuickPickItem {
 
 interface ProfileSelectionItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
+}
+
+interface DetachAssistantOutcome {
+  detached: boolean;
+  switchedProfileName?: string;
+  warning?: string;
+  failure?: string;
 }
 
 export async function assignProfileAssistants(
@@ -34,6 +42,7 @@ export async function assignProfileAssistants(
   const registry = await loadRegistry();
   const switchboard = new Switchboard(context, registry, profileStore, profileSecrets);
   const mappings = await profileStore.getAssistantMappings();
+  const activeProfileId = await profileStore.getActiveProfileId();
 
   const detected = await withProgress(
     `Detecting assistants for ${profile.name}...`,
@@ -127,16 +136,35 @@ export async function assignProfileAssistants(
   }
 
   const detachedAssistantKeys: string[] = [];
+  const detachedSwitches: string[] = [];
+  const detachWarnings: string[] = [];
   const detachFailures: string[] = [];
 
   for (const assistantKey of deselectedAssistantKeys) {
-    try {
-      await profileStore.deleteAssistantMapping(assistantKey, profile.id);
+    const outcome = await detachAssistantFromProfile(
+      profileStore,
+      switchboard,
+      profiles,
+      mappings,
+      profile,
+      assistantKey,
+      activeProfileId
+    );
+
+    if (outcome.detached) {
       detachedAssistantKeys.push(assistantKey);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      detachFailures.push(`${assistantKey} (${reason})`);
-      logger.error(`Failed to detach ${assistantKey} from profile ${profile.name}`, error instanceof Error ? error : undefined);
+    }
+
+    if (outcome.switchedProfileName) {
+      detachedSwitches.push(`${assistantKey} -> ${outcome.switchedProfileName}`);
+    }
+
+    if (outcome.warning) {
+      detachWarnings.push(outcome.warning);
+    }
+
+    if (outcome.failure) {
+      detachFailures.push(`${assistantKey} (${outcome.failure})`);
     }
   }
 
@@ -146,22 +174,166 @@ export async function assignProfileAssistants(
   const guidedSuffix = guidedAssistantKeys.length > 0
     ? ` Guided follow-up is required for: ${guidedAssistantKeys.join(', ')}.`
     : '';
+  const detachSwitchSuffix = detachedSwitches.length > 0
+    ? ` Auto-switched detached assistants to: ${detachedSwitches.join(', ')}.`
+    : '';
+  const detachWarningSuffix = detachWarnings.length > 0
+    ? ` ${detachWarnings.join(' ')}`
+    : '';
   const summary = buildAssignmentOutcomeMessage(profile.name, succeededAssistantKeys.length, detachedAssistantKeys.length);
   const combinedFailures = [...failedAssistantKeys, ...detachFailures];
 
+  if (combinedFailures.length === 0 && detachWarnings.length === 0) {
+    await showSuccess(`${summary}${detachSwitchSuffix}${guidedSuffix}${skippedSuffix}`);
+    return;
+  }
+
   if (combinedFailures.length === 0) {
-    await showSuccess(`${summary}${guidedSuffix}${skippedSuffix}`);
+    await showWarning(`${summary}${detachSwitchSuffix}${guidedSuffix}${skippedSuffix}${detachWarningSuffix}`);
     return;
   }
 
   if (succeededAssistantKeys.length > 0 || detachedAssistantKeys.length > 0) {
-    await showWarning(`${summary} Failures: ${combinedFailures.join(', ')}.${guidedSuffix}${skippedSuffix}`);
+    await showWarning(`${summary}${detachSwitchSuffix} Failures: ${combinedFailures.join(', ')}.${guidedSuffix}${skippedSuffix}${detachWarningSuffix}`);
     return;
   }
 
   await showError(
-    `Failed to update assistants for "${profile.name}".${combinedFailures.length > 0 ? ` Failures: ${combinedFailures.join(', ')}.` : ''}${skippedSuffix}`
+    `Failed to update assistants for "${profile.name}".${combinedFailures.length > 0 ? ` Failures: ${combinedFailures.join(', ')}.` : ''}${skippedSuffix}${detachWarningSuffix}`
   );
+}
+
+async function detachAssistantFromProfile(
+  profileStore: ProfileStore,
+  switchboard: Switchboard,
+  profiles: EndpointProfile[],
+  mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
+  currentProfile: EndpointProfile,
+  assistantKey: string,
+  activeProfileId: string | undefined
+): Promise<DetachAssistantOutcome> {
+  const currentMapping = mappings.find(mapping => (
+    mapping.assistantKey === assistantKey && mapping.profileId === currentProfile.id
+  ));
+
+  if (!currentMapping) {
+    return {
+      detached: false,
+      failure: `mapping for "${currentProfile.name}" was not found`
+    };
+  }
+
+  const remainingMappings = mappings.filter(mapping => (
+    mapping.assistantKey === assistantKey && mapping.profileId !== currentProfile.id
+  ));
+  const remainingProfiles = [...new Map(
+    remainingMappings
+      .map(mapping => [mapping.profileId, profiles.find(profile => profile.id === mapping.profileId)])
+      .filter((entry): entry is [string, EndpointProfile] => Boolean(entry[1]))
+  ).values()];
+  const fallbackProfile = selectDetachFallbackProfile(remainingProfiles, activeProfileId);
+
+  try {
+    await profileStore.deleteAssistantMapping(assistantKey, currentProfile.id);
+  } catch (error) {
+    return {
+      detached: false,
+      failure: error instanceof Error ? error.message : String(error)
+    };
+  }
+
+  if (!fallbackProfile) {
+    if (remainingProfiles.length === 0) {
+      return {
+        detached: true,
+        warning: `${assistantKey} has no remaining mapped profile, so its current configuration was left unchanged.`
+      };
+    }
+
+    return {
+      detached: true,
+      warning: `${assistantKey} remains mapped to ${remainingProfiles.map(profile => `"${profile.name}"`).join(', ')}, so its current configuration was left unchanged because no single fallback profile could be chosen.`
+    };
+  }
+
+  const fallbackMappingSnapshot = remainingMappings.find(mapping => mapping.profileId === fallbackProfile.id);
+
+  try {
+    const plan = await switchboard.buildPlan(fallbackProfile, [assistantKey]);
+    const reapplyPlan = buildAutomatedReapplyPlan(plan);
+
+    if (reapplyPlan.steps.length === 0) {
+      return {
+        detached: true,
+        warning: `${assistantKey} remains mapped to "${fallbackProfile.name}", but requires manual switching.`
+      };
+    }
+
+    const applyResult = await switchboard.applyPlan(reapplyPlan);
+    const assistantResult = applyResult.assistantResults.get(assistantKey);
+
+    if (assistantResult?.success) {
+      return {
+        detached: true,
+        switchedProfileName: fallbackProfile.name
+      };
+    }
+
+    const restoreIssues = await restoreDetachMappings(profileStore, [currentMapping, fallbackMappingSnapshot]);
+    const failureDetail = assistantResult?.reason ? `: ${assistantResult.reason}` : '';
+    const restoreSuffix = restoreIssues.length > 0
+      ? ` Mapping restore issues: ${restoreIssues.join(', ')}.`
+      : '';
+    return {
+      detached: false,
+      failure: `failed to switch to "${fallbackProfile.name}"${failureDetail}; kept "${currentProfile.name}" attached.${restoreSuffix}`
+    };
+  } catch (error) {
+    const restoreIssues = await restoreDetachMappings(profileStore, [currentMapping, fallbackMappingSnapshot]);
+    const restoreSuffix = restoreIssues.length > 0
+      ? ` Mapping restore issues: ${restoreIssues.join(', ')}.`
+      : '';
+    return {
+      detached: false,
+      failure: `failed to switch to "${fallbackProfile.name}": ${error instanceof Error ? error.message : String(error)}; kept "${currentProfile.name}" attached.${restoreSuffix}`
+    };
+  }
+}
+
+function selectDetachFallbackProfile(
+  remainingProfiles: EndpointProfile[],
+  activeProfileId: string | undefined
+): EndpointProfile | undefined {
+  if (remainingProfiles.length === 1) {
+    return remainingProfiles[0];
+  }
+
+  if (!activeProfileId) {
+    return undefined;
+  }
+
+  return remainingProfiles.find(profile => profile.id === activeProfileId);
+}
+
+async function restoreDetachMappings(
+  profileStore: ProfileStore,
+  snapshots: Array<Awaited<ReturnType<ProfileStore['getAssistantMappings']>>[number] | undefined>
+): Promise<string[]> {
+  const restoreIssues: string[] = [];
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) {
+      continue;
+    }
+
+    try {
+      await profileStore.saveAssistantMapping(snapshot);
+    } catch (error) {
+      restoreIssues.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return restoreIssues;
 }
 
 function buildAssignmentConfirmationMessage(profileName: string, assignCount: number, detachCount: number): string {

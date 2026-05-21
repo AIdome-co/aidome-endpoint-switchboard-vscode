@@ -234,7 +234,7 @@ export function getProfileActivationNotice(
   };
 }
 
-function buildAutomatedReapplyPlan(plan: Plan): Plan {
+export function buildAutomatedReapplyPlan(plan: Plan): Plan {
   const automatedSteps = plan.steps.filter(step => AUTOMATED_REAPPLY_ACTIONS.has(step.action));
   const assistantKeys = [...new Set(automatedSteps.map(step => step.assistantKey))];
   return {
