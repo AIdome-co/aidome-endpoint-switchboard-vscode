@@ -115,8 +115,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const proceed = await vscode.window.showInformationMessage(
       `Configuration plan ready with ${plan.steps.length} steps. Review the plan in the output channel.\n\nProceed with configuration?`,
       { modal: true },
-      'Apply',
-      'Cancel'
+      'Apply'
     );
     
     if (proceed !== 'Apply') {

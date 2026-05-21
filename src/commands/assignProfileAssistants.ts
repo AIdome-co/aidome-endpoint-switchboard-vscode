@@ -109,8 +109,7 @@ export async function assignProfileAssistants(
   const confirmation = await vscode.window.showInformationMessage(
     buildAssignmentConfirmationMessage(profile.name, selectedAssistantKeys.length, deselectedAssistantKeys.length),
     { modal: true },
-    'Apply',
-    'Cancel'
+    'Apply'
   );
 
   if (confirmation !== 'Apply') {
