@@ -88,11 +88,11 @@ describe('package.json Marketplace Readiness', () => {
     expect(packageJson.engines.vscode).toMatch(/^\^?\d+\.\d+\.\d+$/);
   });
 
-  it('should have all 8 commands registered', () => {
+  it('should have all 9 commands registered', () => {
     expect(packageJson.contributes).toBeDefined();
     expect(packageJson.contributes.commands).toBeDefined();
     expect(Array.isArray(packageJson.contributes.commands)).toBe(true);
-    expect(packageJson.contributes.commands.length).toBe(8);
+    expect(packageJson.contributes.commands.length).toBe(9);
 
     const commandIds = packageJson.contributes.commands.map((c: any) => c.command);
     expect(commandIds).toContain('aidome-switchboard.setupSwitchboard');
