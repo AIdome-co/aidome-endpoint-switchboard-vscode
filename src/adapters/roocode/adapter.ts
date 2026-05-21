@@ -1,5 +1,10 @@
 /**
  * Adapter for Roo Code assistant.
+ *
+ * ⚠️ DEFUNCT: Roo Code shut down on May 15, 2026. The extension and
+ * documentation are no longer maintained. This adapter is retained for
+ * backward compatibility with users who may still have the extension
+ * installed, but no further updates are expected.
  */
 
 import * as vscode from 'vscode';
