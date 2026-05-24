@@ -288,11 +288,11 @@
         ],
         "notes": [
           "Claude Code supports LLM gateways through shared user settings environment variables used by both the CLI and VS Code extension (default ~/.claude/settings.json, or CLAUDE_CONFIG_DIR/settings.json when overridden).",
-          "This adapter writes ANTHROPIC_BASE_URL and enables gateway model discovery for Anthropic Messages-compatible gateways, then disables the VS Code login prompt for third-party provider setups.",
+          "This adapter writes ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY from the active profile's stored secret, and enables gateway model discovery for Anthropic Messages-compatible gateways, then disables the VS Code login prompt for third-party provider setups.",
           "OpenAI Chat Completions endpoints are not directly supported by Claude Code unless the gateway translates them to Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict.",
           "Gateway model discovery requires Claude Code v2.1.129 or later, runs only for Anthropic Messages gateways, and only adds models whose IDs begin with claude or anthropic.",
-          "Gateway authentication must use ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or apiKeyHelper from a secure environment source; the adapter does not write plaintext secrets to Claude Code settings.",
-          "Tier B rather than A because credential injection cannot be fully automated without violating the extension SecretStorage invariant."
+          "When a profile is activated, the adapter rewrites the shared Claude settings file so ANTHROPIC_API_KEY follows the active assigned profile; if no saved secret exists for that profile, the adapter clears the key and warns.",
+          "Tier B rather than A because Claude Code still relies on a single shared settings file and may require a restart to pick up the newly written profile key immediately."
         ],
         "configFileHints": [
           {
@@ -301,7 +301,7 @@
             "fields": [
               "env.ANTHROPIC_BASE_URL",
               "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
-              "apiKeyHelper"
+              "env.ANTHROPIC_API_KEY"
             ]
           }
         ],

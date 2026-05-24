@@ -317,6 +317,30 @@ describe('extension activate', () => {
     expect(mockHandleBoundaryOutcome).toHaveBeenCalledWith({ kind: 'success' }, expect.anything(), 'Assign profile assistants');
   });
 
+  it('rejects non-string profile ids for the show models command', async () => {
+    const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
+
+    await activate(context);
+
+    const handler = registeredCommands.get('aidome-switchboard.showModelsProviders');
+    await handler?.({ profileId: 'bad' });
+
+    expect(mockShowErrorMessage).toHaveBeenCalledWith('showModelsProviders expects a string profileId.');
+    expect(mockShowModelsProviders).not.toHaveBeenCalled();
+  });
+
+  it('routes valid show models arguments through the error boundary handler', async () => {
+    const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
+
+    await activate(context);
+
+    const handler = registeredCommands.get('aidome-switchboard.showModelsProviders');
+    await handler?.('profile-1');
+
+    expect(mockShowModelsProviders).toHaveBeenCalledWith(context, 'profile-1');
+    expect(mockHandleBoundaryOutcome).toHaveBeenCalledWith({ kind: 'success' }, expect.anything(), 'Show models');
+  });
+
   it('warns when activating a profile with no saved profiles', async () => {
     const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
     mockGetProfiles.mockResolvedValue([]);

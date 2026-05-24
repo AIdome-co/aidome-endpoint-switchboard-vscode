@@ -105,7 +105,7 @@
       },
       {
         "command": "aidome-switchboard.verifyRouting",
-        "title": "Verify Endpoint Routing",
+        "title": "Verify All Profile Routes",
         "category": "AIdome"
       },
       {
@@ -194,7 +194,7 @@
           {
             "id": "verify",
             "title": "Verify Your Configuration",
-            "description": "Run the 7-step verification pipeline to ensure your endpoint is reachable and correctly configured.\n\n[Verify Routing](command:aidome-switchboard.verifyRouting)",
+            "description": "Run the 7-step verification pipeline to ensure your configured profile routes are reachable and correctly configured.\n\n[Verify All Profile Routes](command:aidome-switchboard.verifyRouting)",
             "media": {
               "markdown": "resources/walkthrough/verify.md"
             }

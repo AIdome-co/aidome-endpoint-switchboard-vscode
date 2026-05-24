@@ -458,7 +458,7 @@ describe('assignProfileAssistants', () => {
     expect(items).toHaveLength(1);
     expect(items[0].assistantKey).toBe('cline');
     expect(items[0].picked).toBe(true);
-    expect(items[0].detail).toContain('Detected as VS Code extension');
+    expect(items[0].detail).toContain('assigned to this profile');
   });
 
   it('shows an error when the requested profile does not exist', async () => {
@@ -1038,8 +1038,8 @@ describe('assignProfileAssistants', () => {
     const items = mockShowQuickPick.mock.calls[0][0] as Array<{ label: string; detail?: string }>;
     expect(items).toEqual([
       expect.objectContaining({
-        label: 'Claude Code (Extension + CLI)',
-        detail: 'Detected as VS Code extension and CLI'
+        label: 'Claude Code',
+        detail: 'Detected as extension and CLI'
       })
     ]);
   });
@@ -1086,7 +1086,7 @@ describe('assignProfileAssistants', () => {
     ]);
   });
 
-  it('shows a warning when previously assigned assistants are no longer detected', async () => {
+  it('shows previously assigned assistants with raw profile ids when they are not currently detected', async () => {
     mockGetAssistantMappings.mockResolvedValue([
       {
         assistantKey: 'claude-code',
@@ -1119,12 +1119,16 @@ describe('assignProfileAssistants', () => {
       $schemaVersion: '0.1.0',
       updatedAt: '2026-05-18'
     });
+    mockShowQuickPick.mockResolvedValue(undefined);
 
     await assignProfileAssistants({} as any, profile.id);
 
-    expect(mockShowQuickPick).not.toHaveBeenCalled();
-    expect(mockShowWarning).toHaveBeenCalledWith(
-      'No switchable assistants are currently detected. Run setup after installing an assistant or CLI first.'
-    );
+    const items = mockShowQuickPick.mock.calls[0][0] as Array<{ label: string; detail?: string }>;
+    expect(items).toEqual([
+      expect.objectContaining({
+        label: 'Claude Code',
+        detail: 'Previously assigned · assigned to this profile and profile-missing'
+      })
+    ]);
   });
 });

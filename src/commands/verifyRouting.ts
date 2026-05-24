@@ -1,5 +1,5 @@
 /**
- * Verify Routing command handler.
+ * Verify All Profile Routes command handler.
  */
 
 import * as vscode from 'vscode';

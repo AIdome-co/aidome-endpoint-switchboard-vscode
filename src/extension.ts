@@ -128,7 +128,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
       try {
         const action = await vscode.window.showQuickPick<vscode.QuickPickItem & { value: string }>([
-          { label: '$(debug-start) Verify Routing', value: 'verify' },
+          { label: '$(debug-start) Verify All Profile Routes', value: 'verify' },
           { label: '$(list-unordered) Manage Profiles', value: 'manage' },
           { label: '$(arrow-swap) Activate Profile', value: 'activate' },
           { label: '$(plug) Assign Assistants to Profile', value: 'assign' },
@@ -190,8 +190,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async () => {
-      const outcome = await withErrorBoundary(() => showModelsProviders(context));
+    vscode.commands.registerCommand('aidome-switchboard.showModelsProviders', async (rawProfileId?: unknown) => {
+      if (rawProfileId !== undefined && typeof rawProfileId !== 'string') {
+        vscode.window.showErrorMessage('showModelsProviders expects a string profileId.');
+        return;
+      }
+
+      const outcome = await withErrorBoundary(() => showModelsProviders(context, rawProfileId));
       await handleBoundaryOutcome(outcome, logger, 'Show models');
     })
   );

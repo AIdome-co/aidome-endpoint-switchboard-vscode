@@ -17,6 +17,8 @@ const {
   mockAccess,
   mockReadFile,
   mockUnlink,
+  mockGetSecret,
+  mockShowWarningMessage,
 } = vi.hoisted(() => ({
   mockReadFileSafe: vi.fn(),
   mockFileExists: vi.fn(),
@@ -28,6 +30,8 @@ const {
   mockAccess: vi.fn(),
   mockReadFile: vi.fn(),
   mockUnlink: vi.fn(),
+  mockGetSecret: vi.fn(),
+  mockShowWarningMessage: vi.fn(),
 }));
 
 vi.mock('vscode', () => ({
@@ -44,6 +48,7 @@ vi.mock('vscode', () => ({
   window: {
     showInformationMessage: vi.fn(),
     showErrorMessage: vi.fn(),
+    showWarningMessage: mockShowWarningMessage,
   },
 }));
 
@@ -101,6 +106,7 @@ const profile: EndpointProfile = {
   id: 'claude-profile',
   name: 'Claude Profile',
   baseUrl: 'https://gateway.example.com/v1',
+  authRef: 'Claude Profile',
   createdAt: '2026-05-13T00:00:00.000Z',
   updatedAt: '2026-05-13T00:00:00.000Z',
 };
@@ -118,12 +124,16 @@ describe('Claude Code plan application through PlanApplier', () => {
     mockAccess.mockRejectedValue(createEnoentError());
     mockReadFile.mockResolvedValue('{}');
     mockUnlink.mockResolvedValue(undefined);
+    mockGetSecret.mockResolvedValue('aid_pat_test');
+    mockShowWarningMessage.mockResolvedValue(undefined);
   });
 
   it('applies a Claude Code plan without failing on the verification step', async () => {
     const adapter = new ClaudeCodeAdapter();
     const plan = await adapter.buildPlan(profile);
-    const applier = new PlanApplier({} as vscode.ExtensionContext);
+    const applier = new PlanApplier({
+      secrets: { get: mockGetSecret }
+    } as unknown as vscode.ExtensionContext);
 
     const result = await applier.applyPlan(plan, profile.name);
 
@@ -136,6 +146,10 @@ describe('Claude Code plan application through PlanApplier', () => {
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
+      expect.stringContaining('"ANTHROPIC_API_KEY": "aid_pat_test"')
+    );
+    expect(mockSafeWriteFile).toHaveBeenCalledWith(
+      '/home/user/.claude/settings.json',
       expect.not.stringContaining('ANTHROPIC_AUTH_TOKEN')
     );
     expect(mockUpdateConfig).toHaveBeenCalledWith('claudeCode.disableLoginPrompt', true, 1);
@@ -145,7 +159,9 @@ describe('Claude Code plan application through PlanApplier', () => {
   it('deletes a newly-created Claude Code settings file when a later step fails', async () => {
     const adapter = new ClaudeCodeAdapter();
     const plan = await adapter.buildPlan(profile);
-    const applier = new PlanApplier({} as vscode.ExtensionContext);
+    const applier = new PlanApplier({
+      secrets: { get: mockGetSecret }
+    } as unknown as vscode.ExtensionContext);
     mockUpdateConfig.mockRejectedValueOnce(new Error('settings update failed'));
 
     const result = await applier.applyPlan(plan, profile.name);
@@ -153,5 +169,33 @@ describe('Claude Code plan application through PlanApplier', () => {
     expect(result.success).toBe(false);
     expect(mockUnlink).toHaveBeenCalledWith('/home/user/.claude/settings.json');
     expect(mockRecordApply).not.toHaveBeenCalled();
+  });
+
+  it('clears a stale Claude Code auth key and warns when the active profile secret is missing', async () => {
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://old.example.com/v1',
+        ANTHROPIC_API_KEY: 'stale-key'
+      }
+    }));
+    mockGetSecret.mockResolvedValue(undefined);
+
+    const adapter = new ClaudeCodeAdapter();
+    const plan = await adapter.buildPlan(profile);
+    const applier = new PlanApplier({
+      secrets: { get: mockGetSecret }
+    } as unknown as vscode.ExtensionContext);
+
+    const result = await applier.applyPlan(plan, profile.name);
+
+    expect(result.success).toBe(true);
+    expect(mockSafeWriteFile).toHaveBeenCalledWith(
+      '/home/user/.claude/settings.json',
+      expect.not.stringContaining('stale-key')
+    );
+    expect(mockShowWarningMessage).toHaveBeenCalledWith(
+      'Claude Code auth key was cleared for "Claude Profile" because no saved profile secret was found.'
+    );
   });
 });

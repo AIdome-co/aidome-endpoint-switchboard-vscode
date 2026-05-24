@@ -78,7 +78,7 @@ Claude Code gateway routing:
 - Configures Claude Code user settings (`~/.claude/settings.json` by default, or `CLAUDE_CONFIG_DIR/settings.json` when overridden) with `env.ANTHROPIC_BASE_URL` for Anthropic Messages-compatible gateways.
 - Requires raw OpenAI `/v1/chat/completions` endpoints to be fronted by a gateway that exposes Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict semantics.
 - Enables `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; Claude Code uses that only on v2.1.129+ with Anthropic Messages gateways and only surfaces gateway models whose IDs begin with `claude` or `anthropic`.
-- Keeps authentication outside plaintext config; supply credentials via `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or Claude Code `apiKeyHelper`.
+- When Claude Code is assigned to a profile, profile activation rewrites `env.ANTHROPIC_API_KEY` in the shared Claude settings file from that profile's stored secret and clears it when the profile has no saved secret.
 
 ### Tier Explanation
 
@@ -130,7 +130,7 @@ All commands available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | Command | Description |
 |---------|-------------|
 | `AIdome: Setup Switchboard` | Launch the configuration wizard |
-| `AIdome: Verify Routing` | Verify endpoint connectivity (7-step pipeline) |
+| `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity (7-step pipeline) |
 | `AIdome: Show Models & Providers` | View available models from your gateway |
 | `AIdome: Manage Profiles` | Create, edit, delete endpoint profiles |
 | `AIdome: Reset Switchboard` | Undo changes, restore backups |
@@ -239,7 +239,7 @@ No. This extension is purely a configuration manager. It doesn't proxy, relay, o
 
 ### What if my gateway goes down?
 
-Your assistants will show connection errors. Use **`AIdome: Verify Routing`** to diagnose the issue.
+Your assistants will show connection errors. Use **`AIdome: Verify All Profile Routes`** to diagnose the issue.
 
 ### Can I use this without AIdome?
 

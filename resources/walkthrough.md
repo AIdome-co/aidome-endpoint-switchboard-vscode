@@ -34,7 +34,7 @@ The wizard will:
 
 After setup completes:
 
-1. Run: `AIdome: Verify Endpoint Routing`
+1. Run: `AIdome: Verify All Profile Routes`
 2. Check that all assistants show as configured
 3. Test with your AI assistant of choice
 

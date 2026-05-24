@@ -335,59 +335,6 @@ async function restoreDetachMappings(
   return restoreIssues;
 }
 
-function buildAssistantSelectionItems(
-  profile: EndpointProfile,
-  allProfiles: EndpointProfile[],
-  mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
-  registryAssistants: AssistantEntry[],
-  detected: Awaited<ReturnType<Switchboard['detectAll']>>
-): AssistantSelectionItem[] {
-  const assistantsByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant]));
-  const detectedExtensionKeys = new Set(detected.assistants
-    .filter(assistant => assistant.tier !== 'C')
-    .map(assistant => assistant.assistantKey));
-  const detectedCliKeys = new Set(detected.clis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
-    .map(cli => cli.assistantKey));
-  const candidateKeys = [...new Set([...detectedExtensionKeys, ...detectedCliKeys])];
-
-  const profilesById = new Map(allProfiles.map(p => [p.id, p]));
-  const currentlyAssignedKeys = new Set(
-    mappings
-      .filter(mapping => mapping.profileId === profile.id)
-      .map(mapping => mapping.assistantKey)
-  );
-
-  return candidateKeys.map(assistantKey => {
-    const registryAssistant = assistantsByKey.get(assistantKey);
-    const detectedAssistant = detected.assistants.find(item => item.assistantKey === assistantKey);
-    const detectedViaExtension = detectedExtensionKeys.has(assistantKey);
-    const detectedViaCli = detectedCliKeys.has(assistantKey);
-    const label = detectedViaExtension && detectedViaCli
-      ? `${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey} (Extension + CLI)`
-      : registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey;
-    const otherProfileNames = mappings
-      .filter(mapping => mapping.assistantKey === assistantKey && mapping.profileId !== profile.id)
-      .map(mapping => profilesById.get(mapping.profileId)?.name || mapping.profileId);
-    const description = otherProfileNames.length > 0
-      ? `Also assigned to: ${otherProfileNames.join(', ')}`
-      : assistantKey;
-    const detail = detectedViaExtension && detectedViaCli
-      ? 'Detected as VS Code extension and CLI'
-      : detectedViaExtension
-        ? 'Detected as VS Code extension'
-        : 'Detected as CLI';
-
-    return {
-      assistantKey,
-      label,
-      description,
-      detail,
-      picked: currentlyAssignedKeys.has(assistantKey)
-    };
-  }).sort((left, right) => left.label.localeCompare(right.label));
-}
-
 function buildAssignmentConfirmationMessage(profileName: string, assignCount: number, detachCount: number): string {
   if (assignCount > 0 && detachCount > 0) {
     return `Apply "${profileName}" to ${assignCount} assistant(s) and detach ${detachCount} assistant(s)?`;
@@ -446,4 +393,66 @@ async function resolveProfileSelection(
   );
 
   return selected?.profile;
+}
+
+function buildAssistantSelectionItems(
+  profile: EndpointProfile,
+  profiles: EndpointProfile[],
+  mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
+  assistants: AssistantEntry[],
+  detected: Awaited<ReturnType<Switchboard['detectAll']>>
+): AssistantSelectionItem[] {
+  const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
+  const detectedExtensionKeys = detected.assistants
+    .filter(assistant => assistant.tier !== 'C')
+    .map(assistant => assistant.assistantKey);
+  const detectedCliKeys = detected.clis
+    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
+    .map(cli => cli.assistantKey);
+  const assignedKeys = mappings
+    .filter(mapping => mapping.profileId === profile.id)
+    .map(mapping => mapping.assistantKey);
+  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])];
+
+  const items: AssistantSelectionItem[] = [];
+
+  for (const assistantKey of candidateKeys) {
+    const assistant = assistantsByKey.get(assistantKey);
+    if (!assistant || assistant.endpointSwitching.tier === 'C') {
+      continue;
+    }
+
+    const assistantMappings = mappings.filter(item => item.assistantKey === assistantKey);
+    const currentProfileMapping = assistantMappings.find(item => item.profileId === profile.id);
+    const otherProfileNames = [...new Set(assistantMappings
+      .filter(item => item.profileId !== profile.id)
+      .map(item => profiles.find(profileItem => profileItem.id === item.profileId)?.name || item.profileId))];
+    const detectedViaExtension = detected.assistants.some(item => item.assistantKey === assistantKey);
+    const detectedViaCli = detected.clis.some(item => item.assistantKey === assistantKey);
+    const detectionLabel = detectedViaExtension && detectedViaCli
+      ? 'Detected as extension and CLI'
+      : detectedViaExtension
+        ? 'Detected as extension'
+        : detectedViaCli
+          ? 'Detected as CLI'
+          : 'Previously assigned';
+
+    const assignmentLabel = currentProfileMapping
+      ? otherProfileNames.length > 0
+        ? `${detectionLabel} · assigned to this profile and ${otherProfileNames.join(', ')}`
+        : `${detectionLabel} · currently assigned to this profile`
+      : otherProfileNames.length > 0
+        ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
+        : detectionLabel;
+
+    items.push({
+      assistantKey,
+      label: assistant.displayName,
+      description: assistantKey,
+      detail: assignmentLabel,
+      picked: Boolean(currentProfileMapping)
+    });
+  }
+
+  return items.sort((left, right) => Number(Boolean(right.picked)) - Number(Boolean(left.picked)) || left.label.localeCompare(right.label));
 }

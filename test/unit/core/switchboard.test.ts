@@ -78,7 +78,9 @@ describe('Switchboard Claude auth secret hydration', () => {
           },
         }),
         data: {
-          envVars: ['ANTHROPIC_BASE_URL', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'],
+          configBuilder: 'claude-code-settings',
+          authRef: 'Claude Profile',
+          envVars: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'],
         },
         reversible: true,
       },
@@ -91,7 +93,7 @@ describe('Switchboard Claude auth secret hydration', () => {
     mockVerifyEndpoint.mockResolvedValue({ status: 'success', checks: [] });
   });
 
-  it('does not inject SecretStorage auth into Claude edit-config-file steps', async () => {
+  it('defers Claude SecretStorage auth injection until plan apply time', async () => {
     mockGetSecret.mockResolvedValue('aid_pat_test');
     mockGetAdapter.mockResolvedValue({
       buildPlan: vi.fn().mockResolvedValue(basePlan),
@@ -110,7 +112,7 @@ describe('Switchboard Claude auth secret hydration', () => {
 
     expect(settings.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(mockGetSecret).not.toHaveBeenCalled();
-    expect(step.data.envVars).not.toContain('ANTHROPIC_API_KEY');
+    expect(step.data.envVars).toContain('ANTHROPIC_API_KEY');
   });
 
   it('adds a guided fallback step when an assistant adapter build fails', async () => {

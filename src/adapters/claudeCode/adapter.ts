@@ -53,14 +53,19 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       targetPath: configPath,
       newValue: updatedContent,
       data: {
+        configBuilder: 'claude-code-settings',
         configPath,
         profileId: profile.id,
+        profileName: profile.name,
+        authRef: profile.authRef ?? profile.name,
         baseUrl: profile.baseUrl,
         format: 'json',
         envVars: [
           'ANTHROPIC_BASE_URL',
+          'ANTHROPIC_API_KEY',
           'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'
-        ]
+        ],
+        clearAuthWhenMissing: true
       },
       reversible: true
     });
@@ -76,17 +81,17 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     });
 
     const authGuidanceData = {
-      message: 'Claude Code authentication must be supplied outside plaintext config',
+      message: 'Claude Code authentication will follow the active profile secret',
       steps: [
         `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
-        'Provide gateway credentials using a secure environment source such as ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, or a Claude Code apiKeyHelper script.',
-        'Do not paste API keys into repository files or shared project settings.',
-        'Restart Claude Code or VS Code after updating credentials.'
+        'When this profile is activated, Switchboard writes the profile\'s saved Anthropic key into ANTHROPIC_API_KEY in that shared Claude settings file.',
+        'If no saved secret exists for this profile, Switchboard clears ANTHROPIC_API_KEY and Claude Code auth will fail until you save a key for the profile.',
+        'Restart Claude Code or VS Code after switching profiles if the active session does not pick up the new key immediately.'
       ],
       baseUrl: profile.baseUrl,
       tier: 'B',
       optional: false,
-      envVarName: 'ANTHROPIC_AUTH_TOKEN'
+      envVarName: 'ANTHROPIC_API_KEY'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
@@ -156,6 +161,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       const settings = parseJsonc<ClaudeCodeSettings>(content);
       const env = settings.env ?? {};
       const baseUrl = env.ANTHROPIC_BASE_URL;
+      const anthropicApiKey = env.ANTHROPIC_API_KEY;
 
       if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
         return {
@@ -173,6 +179,14 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         };
       }
 
+      if (typeof anthropicApiKey !== 'string' || anthropicApiKey.trim().length === 0) {
+        return {
+          success: false,
+          message: 'Claude Code settings do not have ANTHROPIC_API_KEY configured',
+          details: { extension: !!extension, cli: cliDetected, configPath }
+        };
+      }
+
       return {
         success: true,
         message: 'Claude Code gateway configuration verified',
@@ -181,6 +195,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
           cli: cliDetected,
           configPath,
           baseUrlConfigured: true,
+          apiKeyConfigured: true,
           gatewayModelDiscovery: env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY === '1'
         }
       };
