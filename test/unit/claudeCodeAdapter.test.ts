@@ -146,10 +146,13 @@ describe('ClaudeCodeAdapter', () => {
       expect(editStep).toBeDefined();
       expect(editStep?.targetPath).toBe('/home/user/.claude/settings.json');
       expect(editStep?.data.format).toBe('json');
+      expect(editStep?.data.configBuilder).toBe('claude-code-settings');
+      expect(editStep?.data.envVars).toContain('ANTHROPIC_API_KEY');
 
       const updatedSettings = JSON.parse(editStep?.newValue as string);
       expect(updatedSettings.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
       expect(updatedSettings.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
+      expect(updatedSettings.env.ANTHROPIC_API_KEY).toBeUndefined();
     });
 
     it('should include VS Code login prompt setting and auth guidance', async () => {
@@ -160,7 +163,7 @@ describe('ClaudeCodeAdapter', () => {
       expect(settingStep?.newValue).toBe(true);
 
       const authStep = plan.steps.find(s => s.action === 'show-guided-steps');
-      expect(authStep?.data.envVarName).toBe('ANTHROPIC_AUTH_TOKEN');
+      expect(authStep?.data.envVarName).toBe('ANTHROPIC_API_KEY');
     });
 
     it('should respect CLAUDE_CONFIG_DIR in plan targets and guidance', async () => {
@@ -213,6 +216,7 @@ describe('ClaudeCodeAdapter', () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
         env: {
           ANTHROPIC_BASE_URL: mockProfile.baseUrl,
+          ANTHROPIC_API_KEY: 'aid_pat_test',
           CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
         }
       }));
@@ -222,6 +226,24 @@ describe('ClaudeCodeAdapter', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('verified');
       expect(result.details?.baseUrlConfigured).toBe(true);
+      expect(result.details?.apiKeyConfigured).toBe(true);
+    });
+
+    it('should return failure when the managed Anthropic key is missing', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: mockProfile.baseUrl,
+          CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
+        }
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('ANTHROPIC_API_KEY');
     });
 
     it('should return failure when neither extension nor CLI is installed', async () => {

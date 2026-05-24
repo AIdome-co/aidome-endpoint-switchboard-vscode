@@ -7,6 +7,7 @@ import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
+import { AssistantEntry } from '../core/registry/registryTypes';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { updateStatusBar } from '../ui/statusBar';
@@ -19,6 +20,10 @@ import { UserCancellationError, ConfigurationError } from '../util/errors';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
+
+interface SetupAssistantSelectionItem extends vscode.QuickPickItem {
+  assistantKey: string;
+}
 
 /**
  * Handles the setupSwitchboard command.
@@ -75,14 +80,15 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       return;
     }
 
-    const switchableKeys = [
-      ...switchableAssistants.map(a => a.assistantKey),
-      ...detected.clis.map(c => c.assistantKey)
-    ];
+    const assistantSelectionItems = buildAssistantSelectionItems(
+      switchableAssistants,
+      detected.clis,
+      registry.assistants
+    );
 
     // Step 2/5 — Assistant selection
     logger.info('Setup wizard step 2/5: Assistant selection');
-    const selectedAssistants = await selectAssistants(switchableKeys);
+    const selectedAssistants = await selectAssistants(assistantSelectionItems);
     if (!selectedAssistants || selectedAssistants.length === 0) {
       // Cancellation already logged inside selectAssistants()
       return;
@@ -109,8 +115,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const proceed = await vscode.window.showInformationMessage(
       `Configuration plan ready with ${plan.steps.length} steps. Review the plan in the output channel.\n\nProceed with configuration?`,
       { modal: true },
-      'Apply',
-      'Cancel'
+      'Apply'
     );
     
     if (proceed !== 'Apply') {
@@ -132,10 +137,13 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
       
-      await showSuccess(
+      const action = await showSuccess(
         `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
         'Verify'
       );
+      if (action === 'Verify') {
+        await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
+      }
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
       // Partial success: some assistants configured, some failed.
@@ -189,19 +197,14 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
   }
 }
 
-async function selectAssistants(detectedKeys: string[]): Promise<string[] | undefined> {
+async function selectAssistants(items: SetupAssistantSelectionItem[]): Promise<string[] | undefined> {
   const logger = Logger.getInstance();
-  logger.info(`Offering ${detectedKeys.length} assistant(s) for selection: ${detectedKeys.join(', ')}`);
+  logger.info(`Offering ${items.length} assistant(s) for selection: ${items.map(item => item.assistantKey).join(', ')}`);
 
-  if (detectedKeys.length === 0) {
+  if (items.length === 0) {
     logger.warning('No switchable assistants to offer in selection QuickPick');
     return undefined;
   }
-
-  const items = detectedKeys.map(key => ({
-    label: key,
-    picked: true
-  }));
   
   const selected = await vscode.window.showQuickPick(items, {
     canPickMany: true,
@@ -220,8 +223,46 @@ async function selectAssistants(detectedKeys: string[]): Promise<string[] | unde
     return [];
   }
 
-  logger.info(`User selected ${selected.length} assistant(s): ${selected.map(s => s.label).join(', ')}`);
-  return selected.map(s => s.label);
+  logger.info(`User selected ${selected.length} assistant(s): ${selected.map(item => item.assistantKey).join(', ')}`);
+  return selected.map(item => item.assistantKey);
+}
+
+function buildAssistantSelectionItems(
+  detectedAssistants: Awaited<ReturnType<Switchboard['detectAll']>>['assistants'],
+  detectedClis: Awaited<ReturnType<Switchboard['detectAll']>>['clis'],
+  registryAssistants: AssistantEntry[]
+): SetupAssistantSelectionItem[] {
+  const assistantsByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant]));
+  const switchableExtensionKeys = detectedAssistants
+    .filter(assistant => assistant.tier !== 'C')
+    .map(assistant => assistant.assistantKey);
+  const switchableCliKeys = detectedClis
+    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
+    .map(cli => cli.assistantKey);
+  const candidateKeys = [...new Set([...switchableExtensionKeys, ...switchableCliKeys])];
+
+  return candidateKeys.map(assistantKey => {
+    const registryAssistant = assistantsByKey.get(assistantKey);
+    const detectedAssistant = detectedAssistants.find(item => item.assistantKey === assistantKey);
+    const detectedViaExtension = detectedAssistants.some(item => item.assistantKey === assistantKey);
+    const detectedViaCli = detectedClis.some(item => item.assistantKey === assistantKey);
+    const label = detectedViaExtension && detectedViaCli
+      ? `${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey} (Extension + CLI)`
+      : registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey;
+    const detail = detectedViaExtension && detectedViaCli
+      ? 'Detected as VS Code extension and CLI'
+      : detectedViaExtension
+        ? 'Detected as VS Code extension'
+        : 'Detected as CLI';
+
+    return {
+      assistantKey,
+      label,
+      description: assistantKey,
+      detail,
+      picked: true
+    };
+  }).sort((left, right) => left.label.localeCompare(right.label));
 }
 
 async function getOrCreateProfile(

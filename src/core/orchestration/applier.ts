@@ -9,6 +9,16 @@ import { createBackup, safeWriteFile } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
+import { ProfileSecrets } from '../profiles/profileSecrets';
+import { buildClaudeCodeSettingsContent } from '../../adapters/claudeCode/claudeCodeConfigPatcher';
+
+interface ClaudeCodeConfigStepData extends Record<string, unknown> {
+  configBuilder?: string;
+  baseUrl?: string;
+  authRef?: string;
+  profileName?: string;
+  clearAuthWhenMissing?: boolean;
+}
 
 /**
  * Result of applying a plan.
@@ -28,10 +38,12 @@ export interface ApplierResult {
 export class PlanApplier {
   private logger: Logger;
   private changeLog: ChangeLog;
+  private profileSecrets: ProfileSecrets;
 
   constructor(private context: vscode.ExtensionContext) {
     this.logger = Logger.getInstance();
     this.changeLog = new ChangeLog(context);
+    this.profileSecrets = new ProfileSecrets(context);
   }
 
   /**
@@ -251,9 +263,7 @@ export class PlanApplier {
     }
 
     // Write new content
-    const content = typeof step.newValue === 'string' 
-      ? step.newValue 
-      : JSON.stringify(step.newValue, null, 2);
+    const content = await this.resolveConfigFileContent(step, fileExists);
 
     const success = await safeWriteFile(step.targetPath, content);
     if (!success) {
@@ -261,6 +271,51 @@ export class PlanApplier {
     }
 
     this.logger.info(`Updated config file ${step.targetPath}`);
+  }
+
+  private async resolveConfigFileContent(step: PlanStep, fileExists: boolean): Promise<string> {
+    if (isClaudeCodeConfigStepData(step.data)) {
+      return await this.buildClaudeCodeConfigContent(step, fileExists, step.data);
+    }
+
+    return typeof step.newValue === 'string'
+      ? step.newValue
+      : JSON.stringify(step.newValue, null, 2);
+  }
+
+  private async buildClaudeCodeConfigContent(
+    step: PlanStep,
+    fileExists: boolean,
+    data: ClaudeCodeConfigStepData
+  ): Promise<string> {
+    if (!step.targetPath) {
+      throw new Error('targetPath is required for edit-config-file');
+    }
+
+    if (typeof data.baseUrl !== 'string' || data.baseUrl.trim().length === 0) {
+      throw new Error('baseUrl is required for Claude Code config edits');
+    }
+
+    const existingContent = fileExists
+      ? await fs.readFile(step.targetPath, 'utf-8')
+      : undefined;
+    const authRef = typeof data.authRef === 'string' && data.authRef.trim().length > 0
+      ? data.authRef.trim()
+      : undefined;
+    const profileName = typeof data.profileName === 'string' && data.profileName.trim().length > 0
+      ? data.profileName.trim()
+      : 'the active profile';
+    const anthropicApiKey = authRef
+      ? await this.profileSecrets.getSecret(authRef)
+      : undefined;
+
+    if (!anthropicApiKey && data.clearAuthWhenMissing === true) {
+      void vscode.window.showWarningMessage(
+        `Claude Code auth key was cleared for "${profileName}" because no saved profile secret was found.`
+      );
+    }
+
+    return buildClaudeCodeSettingsContent(data.baseUrl, existingContent, { anthropicApiKey });
   }
 
   /**
@@ -490,4 +545,8 @@ function isFileNotFoundError(error: unknown): boolean {
     && error !== null
     && 'code' in error
     && (error as { code?: unknown }).code === 'ENOENT';
+}
+
+function isClaudeCodeConfigStepData(data: Record<string, unknown>): data is ClaudeCodeConfigStepData {
+  return data.configBuilder === 'claude-code-settings';
 }

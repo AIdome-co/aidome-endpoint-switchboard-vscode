@@ -21,6 +21,7 @@ const {
   mockAccess,
   mockReadFile,
   mockUnlink,
+  mockShowWarningMessage,
 } = vi.hoisted(() => ({
   mockSafeWriteFile: vi.fn().mockResolvedValue(true),
   mockCreateBackup: vi.fn().mockResolvedValue('/tmp/backup.json'),
@@ -31,6 +32,7 @@ const {
   mockAccess: vi.fn(),
   mockReadFile: vi.fn().mockResolvedValue('{"existing":true}'),
   mockUnlink: vi.fn().mockResolvedValue(undefined),
+  mockShowWarningMessage: vi.fn(),
 }));
 
 vi.mock('../../../src/util/fsSafe', () => ({
@@ -66,6 +68,9 @@ vi.mock('vscode', () => ({
       get: mockGetConfig,
       update: mockUpdateConfig,
     })),
+  },
+  window: {
+    showWarningMessage: mockShowWarningMessage,
   },
   ConfigurationTarget: { Global: 1 },
   ExtensionContext: vi.fn(),

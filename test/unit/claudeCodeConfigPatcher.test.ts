@@ -108,11 +108,35 @@ describe('Claude Code Config Patcher', () => {
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
     });
 
-    it('should not write plaintext auth tokens', () => {
+    it('should write ANTHROPIC_API_KEY when a managed profile secret is provided', () => {
+      const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, {
+        anthropicApiKey: 'aid_pat_managed'
+      });
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_managed');
+    });
+
+    it('should not write plaintext auth tokens by default', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile);
 
       expect(updated).not.toContain('ANTHROPIC_AUTH_TOKEN');
       expect(updated).not.toContain('ANTHROPIC_API_KEY');
+    });
+
+    it('should remove a previously persisted ANTHROPIC_API_KEY from settings output', () => {
+      const existing = JSON.stringify({
+        env: {
+          ANTHROPIC_API_KEY: 'stale-key',
+          EXISTING_VAR: 'kept'
+        }
+      });
+
+      const updated = buildClaudeCodeSettingsContent(mockProfile, existing);
+      const parsed = JSON.parse(updated);
+
+      expect(parsed.env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(parsed.env.EXISTING_VAR).toBe('kept');
     });
 
     it('should reject unsafe endpoint URLs before writing settings', () => {
@@ -135,7 +159,6 @@ describe('Claude Code Config Patcher', () => {
       expect(parsed.env.EXISTING_VAR).toBe('kept');
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
     });
-
 
     it('should create a backup before patching existing settings', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
@@ -163,6 +186,19 @@ describe('Claude Code Config Patcher', () => {
       await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).rejects.toThrow(
         'Failed to write Claude Code settings to /path/to/settings.json'
       );
+    });
+
+    it('should pass a managed Anthropic key through patchClaudeCodeConfig when provided', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+
+      await patchClaudeCodeConfig(mockProfile, '/path/to/settings.json', {
+        anthropicApiKey: 'aid_pat_managed'
+      });
+
+      const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
+      const parsed = JSON.parse(writtenContent);
+      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_managed');
     });
   });
 });

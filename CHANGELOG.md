@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Changed
+- Fixed the Assistants TreeView to mark only assistants assigned to the active profile as configured, and stopped persisting Claude Code API keys into plaintext `settings.json` during gateway updates.
 - Updated Cline registry entry `kind` from `vscode-extension` to `multi-ide` to reflect multi-IDE support (VS Code, Cursor, Windsurf, JetBrains, Zed, Neovim)
 - Fixed Continue.dev registry/adapter mismatch: registry `configFileHints` now correctly references `config.json` (JSON format) to match the adapter implementation
 - Updated Copilot registry note to clarify `debug.overrideProxyUrl` may break in future releases

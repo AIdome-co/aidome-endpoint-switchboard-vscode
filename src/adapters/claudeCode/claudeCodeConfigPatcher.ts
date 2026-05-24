@@ -15,6 +15,10 @@ interface ClaudeCodeSettings {
   [key: string]: unknown;
 }
 
+export interface ClaudeCodeSettingsBuildOptions {
+  anthropicApiKey?: string;
+}
+
 /**
  * Gets the Claude Code shared settings path.
  * @returns Config file path
@@ -38,19 +42,35 @@ export function getClaudeCodeSettingsPath(): string {
  * @param content Existing settings content, if any
  * @returns Updated settings JSON content
  */
-export function buildClaudeCodeSettingsContent(profile: EndpointProfile, content?: string): string {
-  if (!validateUrl(profile.baseUrl)) {
+export function buildClaudeCodeSettingsContent(
+  profileOrBaseUrl: EndpointProfile | string,
+  content?: string,
+  options: ClaudeCodeSettingsBuildOptions = {}
+): string {
+  const baseUrl = typeof profileOrBaseUrl === 'string'
+    ? profileOrBaseUrl
+    : profileOrBaseUrl.baseUrl;
+
+  if (!validateUrl(baseUrl)) {
     throw new Error('Invalid Claude Code endpoint URL');
   }
 
   const settings = parseClaudeCodeSettings(content);
   const env = isStringRecord(settings.env) ? settings.env : {};
+  const anthropicApiKey = options.anthropicApiKey?.trim();
 
-  settings.env = {
+  const nextEnv: Record<string, string> = {
     ...env,
-    ANTHROPIC_BASE_URL: profile.baseUrl,
+    ANTHROPIC_BASE_URL: baseUrl,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
+  if (anthropicApiKey) {
+    nextEnv.ANTHROPIC_API_KEY = anthropicApiKey;
+  } else {
+    delete nextEnv.ANTHROPIC_API_KEY;
+  }
+
+  settings.env = nextEnv;
 
   return `${stringifyJsonc(settings, 2)}\n`;
 }
@@ -62,8 +82,9 @@ export function buildClaudeCodeSettingsContent(profile: EndpointProfile, content
  * @returns Promise resolving when complete
  */
 export async function patchClaudeCodeConfig(
-  profile: EndpointProfile,
-  configPath: string
+  profileOrBaseUrl: EndpointProfile | string,
+  configPath: string,
+  options: ClaudeCodeSettingsBuildOptions = {}
 ): Promise<void> {
   const content = await readFileSafe(configPath);
 
@@ -74,7 +95,7 @@ export async function patchClaudeCodeConfig(
     }
   }
 
-  const updated = buildClaudeCodeSettingsContent(profile, content);
+  const updated = buildClaudeCodeSettingsContent(profileOrBaseUrl, content, options);
   const success = await writeFileAtomic(configPath, updated);
   if (!success) {
     throw new Error(`Failed to write Claude Code settings to ${configPath}`);

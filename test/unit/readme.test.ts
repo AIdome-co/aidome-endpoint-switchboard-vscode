@@ -74,7 +74,7 @@ describe('README.md Marketplace Readiness', () => {
   it('should contain Commands reference', () => {
     expect(readmeContent).toContain('## Commands');
     expect(readmeContent).toContain('AIdome: Setup Switchboard');
-    expect(readmeContent).toContain('AIdome: Verify Routing');
+    expect(readmeContent).toContain('AIdome: Verify All Profile Routes');
     expect(readmeContent).toContain('AIdome: Show Models & Providers');
     expect(readmeContent).toContain('AIdome: Manage Profiles');
     expect(readmeContent).toContain('AIdome: Reset Switchboard');
