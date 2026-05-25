@@ -230,7 +230,7 @@
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",
-    "smol-toml": "^1.6.0"
+    "smol-toml": "^1.6.1"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2.13.0",
