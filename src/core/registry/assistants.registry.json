@@ -270,8 +270,8 @@
         ]
       },
       "endpointSwitching": {
-        "supported": "partially",
-        "tier": "B",
+        "supported": true,
+        "tier": "A",
         "preferredGatewayFrontDoor": "anthropic.messages",
         "configurationModes": [
           "config-file",
@@ -281,18 +281,17 @@
         "envVarHints": [
           "ANTHROPIC_BASE_URL",
           "ANTHROPIC_AUTH_TOKEN",
-          "ANTHROPIC_API_KEY",
           "ANTHROPIC_CUSTOM_HEADERS",
           "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
           "CLAUDE_CODE_API_KEY_HELPER_TTL_MS"
         ],
         "notes": [
           "Claude Code supports LLM gateways through shared user settings environment variables used by both the CLI and VS Code extension (default ~/.claude/settings.json, or CLAUDE_CONFIG_DIR/settings.json when overridden).",
-          "This adapter writes ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY from the active profile's stored secret, and enables gateway model discovery for Anthropic Messages-compatible gateways, then disables the VS Code login prompt for third-party provider setups.",
+          "This adapter writes ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN from the active profile's stored secret, clears any stale ANTHROPIC_API_KEY value, and enables gateway model discovery for Anthropic Messages-compatible gateways before disabling the VS Code login prompt for third-party provider setups.",
           "OpenAI Chat Completions endpoints are not directly supported by Claude Code unless the gateway translates them to Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict.",
           "Gateway model discovery requires Claude Code v2.1.129 or later, runs only for Anthropic Messages gateways, and only adds models whose IDs begin with claude or anthropic.",
-          "When a profile is activated, the adapter rewrites the shared Claude settings file so ANTHROPIC_API_KEY follows the active assigned profile; if no saved secret exists for that profile, the adapter clears the key and warns.",
-          "Tier B rather than A because Claude Code still relies on a single shared settings file and may require a restart to pick up the newly written profile key immediately."
+          "When a profile is activated, the adapter rewrites the shared Claude settings file so ANTHROPIC_AUTH_TOKEN follows the active assigned profile; if no saved secret exists for that profile, the adapter clears the token and warns.",
+          "In the rare case an already running Claude Code session does not pick up the rewritten token immediately, restart Claude Code or VS Code."
         ],
         "configFileHints": [
           {
@@ -301,7 +300,7 @@
             "fields": [
               "env.ANTHROPIC_BASE_URL",
               "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
-              "env.ANTHROPIC_API_KEY"
+              "env.ANTHROPIC_AUTH_TOKEN"
             ]
           }
         ],

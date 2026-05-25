@@ -16,7 +16,7 @@ interface ClaudeCodeSettings {
 }
 
 export interface ClaudeCodeSettingsBuildOptions {
-  anthropicApiKey?: string;
+  anthropicAuthToken?: string;
 }
 
 /**
@@ -57,18 +57,19 @@ export function buildClaudeCodeSettingsContent(
 
   const settings = parseClaudeCodeSettings(content);
   const env = isStringRecord(settings.env) ? settings.env : {};
-  const anthropicApiKey = options.anthropicApiKey?.trim();
+  const anthropicAuthToken = options.anthropicAuthToken?.trim();
 
   const nextEnv: Record<string, string> = {
     ...env,
     ANTHROPIC_BASE_URL: baseUrl,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
-  if (anthropicApiKey) {
-    nextEnv.ANTHROPIC_API_KEY = anthropicApiKey;
+  if (anthropicAuthToken) {
+    nextEnv.ANTHROPIC_AUTH_TOKEN = anthropicAuthToken;
   } else {
-    delete nextEnv.ANTHROPIC_API_KEY;
+    delete nextEnv.ANTHROPIC_AUTH_TOKEN;
   }
+  delete nextEnv.ANTHROPIC_API_KEY;
 
   settings.env = nextEnv;
 

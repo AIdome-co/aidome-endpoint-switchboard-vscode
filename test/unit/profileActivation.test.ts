@@ -132,7 +132,7 @@ describe('activateProfileAndReapplyMappings', () => {
           action: 'show-guided-steps',
           description: 'Show auth guidance',
           assistantKey: 'claude-code',
-          data: { steps: ['Use ANTHROPIC_API_KEY'] },
+          data: { steps: ['Use ANTHROPIC_AUTH_TOKEN'] },
           reversible: false
         },
         {

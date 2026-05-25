@@ -108,13 +108,13 @@ describe('Claude Code Config Patcher', () => {
       expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
     });
 
-    it('should write ANTHROPIC_API_KEY when a managed profile secret is provided', () => {
+    it('should write ANTHROPIC_AUTH_TOKEN when a managed profile secret is provided', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile, undefined, {
-        anthropicApiKey: 'aid_pat_managed'
+        anthropicAuthToken: 'aid_pat_managed'
       });
       const parsed = JSON.parse(updated);
 
-      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_managed');
+      expect(parsed.env.ANTHROPIC_AUTH_TOKEN).toBe('aid_pat_managed');
     });
 
     it('should not write plaintext auth tokens by default', () => {
@@ -124,9 +124,10 @@ describe('Claude Code Config Patcher', () => {
       expect(updated).not.toContain('ANTHROPIC_API_KEY');
     });
 
-    it('should remove a previously persisted ANTHROPIC_API_KEY from settings output', () => {
+    it('should remove previously persisted Claude auth env vars from settings output', () => {
       const existing = JSON.stringify({
         env: {
+          ANTHROPIC_AUTH_TOKEN: 'stale-token',
           ANTHROPIC_API_KEY: 'stale-key',
           EXISTING_VAR: 'kept'
         }
@@ -135,6 +136,7 @@ describe('Claude Code Config Patcher', () => {
       const updated = buildClaudeCodeSettingsContent(mockProfile, existing);
       const parsed = JSON.parse(updated);
 
+      expect(parsed.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
       expect(parsed.env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(parsed.env.EXISTING_VAR).toBe('kept');
     });
@@ -188,17 +190,17 @@ describe('Claude Code Config Patcher', () => {
       );
     });
 
-    it('should pass a managed Anthropic key through patchClaudeCodeConfig when provided', async () => {
+    it('should pass a managed Anthropic token through patchClaudeCodeConfig when provided', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ "env": {} }');
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
       await patchClaudeCodeConfig(mockProfile, '/path/to/settings.json', {
-        anthropicApiKey: 'aid_pat_managed'
+        anthropicAuthToken: 'aid_pat_managed'
       });
 
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       const parsed = JSON.parse(writtenContent);
-      expect(parsed.env.ANTHROPIC_API_KEY).toBe('aid_pat_managed');
+      expect(parsed.env.ANTHROPIC_AUTH_TOKEN).toBe('aid_pat_managed');
     });
   });
 });
