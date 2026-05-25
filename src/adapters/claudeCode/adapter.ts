@@ -62,7 +62,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         format: 'json',
         envVars: [
           'ANTHROPIC_BASE_URL',
-          'ANTHROPIC_API_KEY',
+          'ANTHROPIC_AUTH_TOKEN',
           'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'
         ],
         clearAuthWhenMissing: true
@@ -81,21 +81,21 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     });
 
     const authGuidanceData = {
-      message: 'Claude Code authentication will follow the active profile secret',
+      message: 'Claude Code profile-switch notes',
       steps: [
         `Claude Code will read ANTHROPIC_BASE_URL from ${configPath} for both the CLI and VS Code extension.`,
-        'When this profile is activated, Switchboard writes the profile\'s saved Anthropic key into ANTHROPIC_API_KEY in that shared Claude settings file.',
-        'If no saved secret exists for this profile, Switchboard clears ANTHROPIC_API_KEY and Claude Code auth will fail until you save a key for the profile.',
-        'Restart Claude Code or VS Code after switching profiles if the active session does not pick up the new key immediately.'
+        'When this profile is activated, Switchboard writes the profile\'s saved gateway token into ANTHROPIC_AUTH_TOKEN in that shared Claude settings file.',
+        'If no saved secret exists for this profile, Switchboard clears ANTHROPIC_AUTH_TOKEN and Claude Code auth will fail until you save a token for the profile.',
+        'If an already running Claude Code session does not pick up the new token immediately, restart Claude Code or VS Code.'
       ],
       baseUrl: profile.baseUrl,
-      tier: 'B',
-      optional: false,
-      envVarName: 'ANTHROPIC_API_KEY'
+      tier: 'A',
+      optional: true,
+      envVarName: 'ANTHROPIC_AUTH_TOKEN'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
-      description: 'Configure Claude Code gateway authentication',
+      description: 'Show Claude Code profile-switch notes',
       assistantKey: 'claude-code',
       data: authGuidanceData,
       reversible: false
@@ -161,7 +161,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
       const settings = parseJsonc<ClaudeCodeSettings>(content);
       const env = settings.env ?? {};
       const baseUrl = env.ANTHROPIC_BASE_URL;
-      const anthropicApiKey = env.ANTHROPIC_API_KEY;
+      const anthropicAuthToken = env.ANTHROPIC_AUTH_TOKEN;
 
       if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
         return {
@@ -179,10 +179,10 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
         };
       }
 
-      if (typeof anthropicApiKey !== 'string' || anthropicApiKey.trim().length === 0) {
+      if (typeof anthropicAuthToken !== 'string' || anthropicAuthToken.trim().length === 0) {
         return {
           success: false,
-          message: 'Claude Code settings do not have ANTHROPIC_API_KEY configured',
+          message: 'Claude Code settings do not have ANTHROPIC_AUTH_TOKEN configured',
           details: { extension: !!extension, cli: cliDetected, configPath }
         };
       }
@@ -195,7 +195,7 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
           cli: cliDetected,
           configPath,
           baseUrlConfigured: true,
-          apiKeyConfigured: true,
+          authTokenConfigured: true,
           gatewayModelDiscovery: env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY === '1'
         }
       };
@@ -213,6 +213,6 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'B';
+    return 'A';
   }
 }

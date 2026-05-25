@@ -68,7 +68,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | OpenAI Codex CLI | CLI | A — Full | ✅ Yes | OpenAI Responses |
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
-| Claude Code | CLI + Extension | B — Partial | ⚡ Partial | Anthropic Messages |
+| Claude Code | CLI + Extension | A — Full | ✅ Yes | Anthropic Messages |
 | GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
@@ -78,7 +78,7 @@ Claude Code gateway routing:
 - Configures Claude Code user settings (`~/.claude/settings.json` by default, or `CLAUDE_CONFIG_DIR/settings.json` when overridden) with `env.ANTHROPIC_BASE_URL` for Anthropic Messages-compatible gateways.
 - Requires raw OpenAI `/v1/chat/completions` endpoints to be fronted by a gateway that exposes Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict semantics.
 - Enables `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; Claude Code uses that only on v2.1.129+ with Anthropic Messages gateways and only surfaces gateway models whose IDs begin with `claude` or `anthropic`.
-- When Claude Code is assigned to a profile, profile activation rewrites `env.ANTHROPIC_API_KEY` in the shared Claude settings file from that profile's stored secret and clears it when the profile has no saved secret.
+- When Claude Code is assigned to a profile, profile activation rewrites `env.ANTHROPIC_AUTH_TOKEN` in the shared Claude settings file from that profile's stored secret, and clears any stale `env.ANTHROPIC_API_KEY` value so Claude Code stays in the gateway bearer-token path.
 
 ### Tier Explanation
 

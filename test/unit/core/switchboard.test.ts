@@ -80,7 +80,7 @@ describe('Switchboard Claude auth secret hydration', () => {
         data: {
           configBuilder: 'claude-code-settings',
           authRef: 'Claude Profile',
-          envVars: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'],
+          envVars: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'],
         },
         reversible: true,
       },
@@ -110,9 +110,10 @@ describe('Switchboard Claude auth secret hydration', () => {
     const step = plan.steps[0];
     const settings = JSON.parse(step.newValue as string);
 
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(settings.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(mockGetSecret).not.toHaveBeenCalled();
-    expect(step.data.envVars).toContain('ANTHROPIC_API_KEY');
+    expect(step.data.envVars).toContain('ANTHROPIC_AUTH_TOKEN');
   });
 
   it('adds a guided fallback step when an assistant adapter build fails', async () => {

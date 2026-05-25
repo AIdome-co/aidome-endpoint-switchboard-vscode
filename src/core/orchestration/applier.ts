@@ -305,17 +305,17 @@ export class PlanApplier {
     const profileName = typeof data.profileName === 'string' && data.profileName.trim().length > 0
       ? data.profileName.trim()
       : 'the active profile';
-    const anthropicApiKey = authRef
+    const anthropicAuthToken = authRef
       ? await this.profileSecrets.getSecret(authRef)
       : undefined;
 
-    if (!anthropicApiKey && data.clearAuthWhenMissing === true) {
+    if (!anthropicAuthToken && data.clearAuthWhenMissing === true) {
       void vscode.window.showWarningMessage(
-        `Claude Code auth key was cleared for "${profileName}" because no saved profile secret was found.`
+        `Claude Code auth token was cleared for "${profileName}" because no saved profile secret was found.`
       );
     }
 
-    return buildClaudeCodeSettingsContent(data.baseUrl, existingContent, { anthropicApiKey });
+    return buildClaudeCodeSettingsContent(data.baseUrl, existingContent, { anthropicAuthToken });
   }
 
   /**
@@ -378,8 +378,9 @@ export class PlanApplier {
    */
   private async applyGuidedSteps(step: PlanStep, _appliedStep: AppliedStep): Promise<void> {
     const output = getOutputChannel();
+    const isOptional = step.data.optional === true;
     output.appendLine('');
-    output.appendLine('=== Manual Configuration Steps ===');
+    output.appendLine(isOptional ? '=== Configuration Notes ===' : '=== Manual Configuration Steps ===');
     output.appendLine(`Assistant: ${step.assistantKey}`);
     output.appendLine('');
 

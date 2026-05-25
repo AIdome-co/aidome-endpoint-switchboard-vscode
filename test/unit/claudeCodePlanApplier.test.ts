@@ -146,11 +146,11 @@ describe('Claude Code plan application through PlanApplier', () => {
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.stringContaining('"ANTHROPIC_API_KEY": "aid_pat_test"')
+      expect.stringContaining('"ANTHROPIC_AUTH_TOKEN": "aid_pat_test"')
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.not.stringContaining('ANTHROPIC_AUTH_TOKEN')
+      expect.not.stringContaining('ANTHROPIC_API_KEY')
     );
     expect(mockUpdateConfig).toHaveBeenCalledWith('claudeCode.disableLoginPrompt', true, 1);
     expect(mockRecordApply).toHaveBeenCalledTimes(1);
@@ -171,7 +171,7 @@ describe('Claude Code plan application through PlanApplier', () => {
     expect(mockRecordApply).not.toHaveBeenCalled();
   });
 
-  it('clears a stale Claude Code auth key and warns when the active profile secret is missing', async () => {
+  it('clears stale Claude Code auth state and warns when the active profile secret is missing', async () => {
     mockAccess.mockResolvedValue(undefined);
     mockReadFile.mockResolvedValue(JSON.stringify({
       env: {
@@ -194,8 +194,16 @@ describe('Claude Code plan application through PlanApplier', () => {
       '/home/user/.claude/settings.json',
       expect.not.stringContaining('stale-key')
     );
+    expect(mockSafeWriteFile).toHaveBeenCalledWith(
+      '/home/user/.claude/settings.json',
+      expect.not.stringContaining('ANTHROPIC_API_KEY')
+    );
+    expect(mockSafeWriteFile).toHaveBeenCalledWith(
+      '/home/user/.claude/settings.json',
+      expect.not.stringContaining('ANTHROPIC_AUTH_TOKEN')
+    );
     expect(mockShowWarningMessage).toHaveBeenCalledWith(
-      'Claude Code auth key was cleared for "Claude Profile" because no saved profile secret was found.'
+      'Claude Code auth token was cleared for "Claude Profile" because no saved profile secret was found.'
     );
   });
 });

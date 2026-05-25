@@ -23,6 +23,7 @@ const {
   mockActivateProfileAndReapplyMappings,
   mockGetProfileActivationNotice,
   mockGetActiveProfile,
+  mockGetActiveProfileId,
   mockGetProfiles,
   mockCreateStatusBarItem,
   mockSetConfigured,
@@ -65,6 +66,7 @@ const {
     mockActivateProfileAndReapplyMappings: vi.fn(),
     mockGetProfileActivationNotice: vi.fn(),
     mockGetActiveProfile: vi.fn(),
+    mockGetActiveProfileId: vi.fn(),
     mockGetProfiles: vi.fn(),
     mockCreateStatusBarItem: vi.fn(() => ({ dispose: vi.fn(), show: vi.fn(), hide: vi.fn() })),
     mockSetConfigured: vi.fn(),
@@ -141,6 +143,7 @@ vi.mock('../../src/ui/statusBar', () => ({
 vi.mock('../../src/core/profiles/profileStore', () => ({
   ProfileStore: vi.fn().mockImplementation(class {
     getActiveProfile = mockGetActiveProfile;
+    getActiveProfileId = mockGetActiveProfileId;
     getProfiles = mockGetProfiles;
   }),
 }));
@@ -201,6 +204,7 @@ describe('extension activate', () => {
     registeredCommands.clear();
     vi.useFakeTimers();
     mockGetActiveProfile.mockResolvedValue(undefined);
+    mockGetActiveProfileId.mockResolvedValue(undefined);
     mockGetProfiles.mockResolvedValue([]);
     mockShowQuickPick.mockResolvedValue(undefined);
     mockShowInformationMessage.mockResolvedValue(undefined);
@@ -293,6 +297,29 @@ describe('extension activate', () => {
     expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.assignProfileAssistants');
   });
 
+  it('defers setup wizard launch from the status bar quick actions menu', async () => {
+    const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
+    mockGetActiveProfile.mockResolvedValue({
+      id: 'profile-1',
+      name: 'Production',
+      baseUrl: 'https://gateway.example.com',
+      dialect: 'openai.chat_completions',
+      profileType: 'custom',
+    });
+    mockShowQuickPick.mockResolvedValueOnce({ label: 'Open Setup Wizard', value: 'setup' });
+
+    await activate(context);
+
+    const handler = registeredCommands.get('aidome-switchboard.statusBarAction');
+    await handler?.();
+
+    expect(mockExecuteCommand).not.toHaveBeenCalledWith('aidome-switchboard.setupSwitchboard');
+
+    await vi.runAllTimersAsync();
+
+    expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.setupSwitchboard');
+  });
+
   it('rejects non-string profile ids for the assign assistants command', async () => {
     const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
 
@@ -352,6 +379,52 @@ describe('extension activate', () => {
 
     expect(mockShowWarningMessage).toHaveBeenCalledWith(
       'No profiles exist yet. Run setup or Manage Profiles first.'
+    );
+  });
+
+  it('marks the current active profile in the activate profile picker', async () => {
+    const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
+    mockGetProfiles.mockResolvedValue([
+      {
+        id: 'profile-1',
+        name: 'Production',
+        baseUrl: 'https://gateway.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom',
+      },
+      {
+        id: 'profile-2',
+        name: 'Staging',
+        baseUrl: 'https://staging.example.com',
+        dialect: 'anthropic.messages',
+        profileType: 'custom',
+      }
+    ]);
+    mockGetActiveProfileId.mockResolvedValue('profile-1');
+    mockShowQuickPick.mockResolvedValueOnce({
+      label: 'Production',
+      description: 'https://gateway.example.com/',
+      detail: '$(check) Currently active • openai.chat_completions',
+      profileId: 'profile-1'
+    });
+
+    await activate(context);
+
+    const handler = registeredCommands.get('aidome-switchboard.activateProfile');
+    await handler?.();
+
+    expect(mockShowQuickPick).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Production',
+          detail: '$(check) Currently active • openai.chat_completions',
+        }),
+        expect.objectContaining({
+          label: 'Staging',
+          detail: 'anthropic.messages',
+        })
+      ]),
+      expect.objectContaining({ placeHolder: 'Select a profile to activate', matchOnDetail: true })
     );
   });
 

@@ -157,7 +157,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await vscode.commands.executeCommand('aidome-switchboard.assignProfileAssistants');
             break;
           case 'setup':
-            await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+            // Defer setup until the quick-actions picker fully closes.
+            // Launching the setup wizard immediately here can strand its own
+            // QuickPick behind the action picker and trip the re-entry guard.
+            setTimeout(() => {
+              void vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+            }, 0);
             break;
           case 'diagnostics':
             await vscode.commands.executeCommand('aidome-switchboard.exportDiagnostics');
@@ -250,6 +255,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           vscode.window.showWarningMessage('No profiles exist yet. Run setup or Manage Profiles first.');
           return;
         }
+        const currentActiveId = await profileStore.getActiveProfileId();
         const pick = await vscode.window.showQuickPick<vscode.QuickPickItem & { profileId: string }>(
           profiles
             .sort((a, b) => a.name.localeCompare(b.name))
@@ -259,7 +265,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 const u = new URL(p.baseUrl);
                 if (u.username || u.password) { u.username = '***'; u.password = ''; displayUrl = u.toString(); }
               } catch { /* non-URL, show as-is */ }
-              return { label: p.name, description: displayUrl, detail: p.dialect, profileId: p.id };
+              const detail = p.id === currentActiveId
+                ? `$(check) Currently active • ${p.dialect}`
+                : p.dialect;
+              return { label: p.name, description: displayUrl, detail, profileId: p.id };
             }),
           { placeHolder: 'Select a profile to activate', matchOnDetail: true }
         );

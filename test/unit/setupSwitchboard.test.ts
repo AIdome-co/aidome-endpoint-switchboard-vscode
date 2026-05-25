@@ -293,7 +293,7 @@ describe('setupSwitchboard', () => {
 
   it('deduplicates assistants detected as both extension and CLI', async () => {
     mockDetectAll.mockResolvedValue({
-      assistants: [makeAssistant('claude-code', 'B', 'Claude Code')],
+      assistants: [makeAssistant('claude-code', 'A', 'Claude Code')],
       clis: [{ assistantKey: 'claude-code', command: 'claude', version: '1.0.0' }],
     });
     mockShowQuickPick.mockResolvedValueOnce(undefined);
