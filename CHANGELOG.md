@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-25
+
 - Promoted Claude Code to Tier A because profile activation now rewrites its shared gateway settings and Anthropic auth token automatically; the remaining restart guidance is advisory only.
 - Fixed Claude Code gateway setup for the VS Code panel by switching gateway auth rewrites from `ANTHROPIC_API_KEY` to `ANTHROPIC_AUTH_TOKEN`, and by clearing stale API-key settings that could force Claude Code back onto the wrong auth path.
 - Clarified and worked around an upstream Anthropic Claude Code panel/login bug where custom `ANTHROPIC_API_KEY` gateway credentials could still trigger login loops, 401 errors, or incorrect first-party auth state in the native VS Code panel. CLI and direct API-key flows may still work, but the panel now uses the more reliable bearer-token path when the gateway supports it.
