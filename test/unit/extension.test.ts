@@ -320,6 +320,29 @@ describe('extension activate', () => {
     expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.setupSwitchboard');
   });
 
+  it('reports deferred setup wizard launch failures from the status bar quick actions menu', async () => {
+    const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
+    const setupError = new Error('setup failed');
+    mockGetActiveProfile.mockResolvedValue({
+      id: 'profile-1',
+      name: 'Production',
+      baseUrl: 'https://gateway.example.com',
+      dialect: 'openai.chat_completions',
+      profileType: 'custom',
+    });
+    mockShowQuickPick.mockResolvedValueOnce({ label: 'Open Setup Wizard', value: 'setup' });
+    mockExecuteCommand.mockRejectedValueOnce(setupError);
+
+    await activate(context);
+
+    const handler = registeredCommands.get('aidome-switchboard.statusBarAction');
+    await handler?.();
+    await vi.runAllTimersAsync();
+
+    expect(mockLoggerError).toHaveBeenCalledWith('Error in statusBarAction command', setupError);
+    expect(mockShowErrorMessage).toHaveBeenCalledWith('Failed to execute action: setup failed');
+  });
+
   it('rejects non-string profile ids for the assign assistants command', async () => {
     const context = makeContext({ 'aidome.switchboard.stateVersion': '1' });
 

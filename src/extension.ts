@@ -126,6 +126,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(
     vscode.commands.registerCommand('aidome-switchboard.statusBarAction', async () => {
+      const reportStatusBarActionError = (error: unknown): void => {
+        const commandError = error instanceof Error ? error : new Error(String(error));
+        logger.error('Error in statusBarAction command', commandError);
+        void vscode.window.showErrorMessage('Failed to execute action: ' + commandError.message);
+      };
+
       try {
         const action = await vscode.window.showQuickPick<vscode.QuickPickItem & { value: string }>([
           { label: '$(debug-start) Verify All Profile Routes', value: 'verify' },
@@ -160,8 +166,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // Defer setup until the quick-actions picker fully closes.
             // Launching the setup wizard immediately here can strand its own
             // QuickPick behind the action picker and trip the re-entry guard.
-            setTimeout(() => {
-              void vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+            setTimeout(async () => {
+              try {
+                await vscode.commands.executeCommand('aidome-switchboard.setupSwitchboard');
+              } catch (error) {
+                reportStatusBarActionError(error);
+              }
             }, 0);
             break;
           case 'diagnostics':
@@ -172,8 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             break;
         }
       } catch (error) {
-        logger.error('Error in statusBarAction command', error as Error);
-        vscode.window.showErrorMessage('Failed to execute action: ' + (error as Error).message);
+        reportStatusBarActionError(error);
       }
     })
   );
