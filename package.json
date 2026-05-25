@@ -235,7 +235,7 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2.13.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^20.0.0",
+    "@types/node": "^25.8.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
