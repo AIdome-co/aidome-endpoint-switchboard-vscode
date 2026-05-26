@@ -8,6 +8,7 @@ import { Verifier } from '../../../src/core/orchestration/verifier';
 import { EndpointProfile } from '../../../src/core/profiles/profileTypes';
 
 const {
+  dnsLookupMock,
   httpRequestMock,
   MockHttpError,
   mockConfigGet,
@@ -16,6 +17,7 @@ const {
   mockLoggerInfo,
   mockLoggerWarning
 } = vi.hoisted(() => ({
+  dnsLookupMock: vi.fn(),
   httpRequestMock: vi.fn(),
   MockHttpError: class extends Error {
     constructor(
@@ -32,6 +34,10 @@ const {
   mockLoggerError: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn()
+}));
+
+vi.mock('dns/promises', () => ({
+  lookup: dnsLookupMock
 }));
 
 vi.mock('vscode', () => ({
@@ -78,6 +84,8 @@ describe('Verifier', () => {
     };
 
     httpRequestMock.mockReset();
+    dnsLookupMock.mockReset();
+    dnsLookupMock.mockResolvedValue({ address: '127.0.0.1', family: 4 });
     mockConfigGet.mockReset();
     mockLoggerDebug.mockReset();
     mockLoggerError.mockReset();
@@ -179,5 +187,104 @@ describe('Verifier', () => {
       status: 'passed',
       message: 'Validated dialect via /v1/chat/completions (HTTP 400)'
     });
+  });
+
+  it('uses dns.lookup for non-localhost DNS resolution', async () => {
+    profile.baseUrl = 'http://gateway.example.com';
+    profile.dialect = 'openai.chat_completions';
+
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://gateway.example.com') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: {}
+        };
+      }
+
+      if (url === 'http://gateway.example.com/health') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: { status: 'healthy' }
+        };
+      }
+
+      if (url === 'http://gateway.example.com/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'anthropic/claude-sonnet-4-6' }] }
+        };
+      }
+
+      if (url === 'http://gateway.example.com/v1/chat/completions') {
+        throw new MockHttpError(400, 'Bad Request', 'HTTP 400: Bad Request');
+      }
+
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'aid_pat_test_token'
+    });
+
+    expect(dnsLookupMock).toHaveBeenCalledWith('gateway.example.com');
+    expect(report.steps.find((step) => step.name === 'dns-resolution')).toMatchObject({
+      status: 'passed',
+      message: 'Hostname resolved successfully'
+    });
+  });
+
+  it('reports partial verification as warnings instead of failure', async () => {
+    profile.baseUrl = 'http://gateway.example.com';
+    profile.dialect = 'openai.chat_completions';
+    dnsLookupMock.mockRejectedValueOnce(new Error('lookup failed'));
+
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://gateway.example.com') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: {}
+        };
+      }
+
+      if (url === 'http://gateway.example.com/health') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: { status: 'healthy' }
+        };
+      }
+
+      if (url === 'http://gateway.example.com/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'anthropic/claude-sonnet-4-6' }] }
+        };
+      }
+
+      if (url === 'http://gateway.example.com/v1/chat/completions') {
+        throw new MockHttpError(400, 'Bad Request', 'HTTP 400: Bad Request');
+      }
+
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const result = await verifier.verifyEndpoint(profile, false, 'aid_pat_test_token');
+
+    expect(result.status).toBe('partial');
+    expect(result.actionableMessage).toContain('Verification completed with warnings');
+    expect(result.actionableMessage).not.toContain('Verification failed');
+    expect(result.checks.find((check) => check.name === 'dns-resolution')?.status).toBe('fail');
+    expect(result.checks.find((check) => check.name === 'tls-verification')?.status).toBe('warn');
   });
 });

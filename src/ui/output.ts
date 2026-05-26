@@ -89,7 +89,7 @@ export function showResults(results: Record<string, VerificationResult>): void {
     channel.appendLine('Checks:');
     
     result.checks.forEach(check => {
-      const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '○';
+      const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : check.status === 'warn' ? '⚠' : '○';
       channel.appendLine(`  ${icon} ${check.name}: ${check.message}`);
     });
     
