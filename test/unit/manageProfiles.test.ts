@@ -23,6 +23,7 @@ const {
   mockActivateProfileAndReapplyMappings,
   mockGetProfileActivationNotice,
   mockAssignProfileAssistants,
+  mockShowModelsProviders,
   mockGetSecret,
   mockDeleteSecret,
   mockStoreSecret,
@@ -51,6 +52,7 @@ const {
   mockActivateProfileAndReapplyMappings: vi.fn(),
   mockGetProfileActivationNotice: vi.fn(),
   mockAssignProfileAssistants: vi.fn(),
+  mockShowModelsProviders: vi.fn(),
   mockGetSecret: vi.fn(),
   mockDeleteSecret: vi.fn(),
   mockStoreSecret: vi.fn(),
@@ -141,6 +143,10 @@ vi.mock('../../src/commands/assignProfileAssistants', () => ({
   assignProfileAssistants: mockAssignProfileAssistants
 }));
 
+vi.mock('../../src/commands/showModelsProviders', () => ({
+  showModelsProviders: mockShowModelsProviders
+}));
+
 vi.mock('../../src/commands/activateProfile', () => ({
   activateProfileAndReapplyMappings: mockActivateProfileAndReapplyMappings,
   buildAutomatedReapplyPlan: (plan: { steps: Array<{ action: string }> }) => ({
@@ -194,6 +200,7 @@ describe('manageProfiles edit reapply flow', () => {
     mockActivateProfileAndReapplyMappings.mockReset();
     mockGetProfileActivationNotice.mockReset();
     mockAssignProfileAssistants.mockReset();
+    mockShowModelsProviders.mockReset();
     mockWithProgress.mockImplementation(async (_options, task) => task({ report: vi.fn() }));
     mockGetProfiles.mockResolvedValue([profile]);
     mockGetAssistantMappings.mockResolvedValue([
@@ -333,6 +340,21 @@ describe('manageProfiles edit reapply flow', () => {
     await manageProfiles(context);
 
     expect(mockAssignProfileAssistants).toHaveBeenCalledWith(context, profile.id);
+  });
+
+  it('routes Show Models & Providers through the profile-scoped command', async () => {
+    mockShowQuickPick.mockReset();
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
+      .mockResolvedValueOnce({ label: '$(gear) Show Models & Providers' })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const context = {} as any;
+    await manageProfiles(context);
+
+    expect(mockShowModelsProviders).toHaveBeenCalledWith(context, profile.id);
   });
 
   it('activates the selected profile from the Set Active Profile flow and shows the activation notice', async () => {

@@ -22,6 +22,7 @@ import {
   getProfileActivationNotice
 } from './activateProfile';
 import { assignProfileAssistants } from './assignProfileAssistants';
+import { showModelsProviders } from './showModelsProviders';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -369,6 +370,11 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
       detail: 'Run verification pipeline'
     },
     {
+      label: '$(gear) Show Models & Providers',
+      description: '',
+      detail: 'Fetch inventory for this profile'
+    },
+    {
       label: `$(plug) Assign Assistants (${assistantCount})`,
       description: '',
       detail: 'Attach or detach assistants for this profile'
@@ -399,6 +405,9 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
     await editProfileFlow(context, profile);
   } else if (selected.label.includes('Test Connection')) {
     await testConnection(context, profile);
+    await showProfileDetails(context, profile);
+  } else if (selected.label.includes('Show Models & Providers')) {
+    await showModelsProviders(context, profile.id);
     await showProfileDetails(context, profile);
   } else if (selected.label.includes('Assign Assistants')) {
     await assignProfileAssistants(context, profile.id);
