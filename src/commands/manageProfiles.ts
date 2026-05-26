@@ -380,14 +380,14 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
       detail: 'Attach or detach assistants for this profile'
     },
     {
-      label: '$(trash) Delete Profile',
-      description: '',
-      detail: 'Remove this profile'
-    },
-    {
       label: `$(link) View Mapped Assistants (${assistantCount})`,
       description: '',
       detail: 'See which assistants use this profile'
+    },
+    {
+      label: '$(trash) Delete Profile',
+      description: '',
+      detail: 'Remove this profile'
     }
   ];
   

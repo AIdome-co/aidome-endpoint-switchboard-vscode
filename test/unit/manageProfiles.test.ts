@@ -357,6 +357,21 @@ describe('manageProfiles edit reapply flow', () => {
     expect(mockShowModelsProviders).toHaveBeenCalledWith(context, profile.id);
   });
 
+  it('shows Delete Profile as the last profile action', async () => {
+    mockShowQuickPick.mockReset();
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    await manageProfiles({} as any);
+
+    const profileActionItems = mockShowQuickPick.mock.calls[1]?.[0] as Array<{ label: string }>;
+    expect(profileActionItems.at(-1)?.label).toBe('$(trash) Delete Profile');
+    expect(profileActionItems.at(-2)?.label).toBe('$(link) View Mapped Assistants (0)');
+  });
+
   it('activates the selected profile from the Set Active Profile flow and shows the activation notice', async () => {
     mockShowQuickPick.mockReset();
     const secondProfile: EndpointProfile = {
