@@ -175,8 +175,8 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
   const dialectOptions: DialectQuickPickItem[] = [
     {
       label: '$(search) Auto-detect',
-      description: 'Attempt to detect dialect from endpoint',
-      detail: 'Recommended for AIdome gateways',
+      description: 'Defaults to openai.chat_completions',
+      detail: 'Does not probe the endpoint; recommended for AIdome gateways',
       dialect: undefined
     },
     { label: '', kind: vscode.QuickPickItemKind.Separator },
@@ -221,12 +221,14 @@ async function createProfileFlow(context: vscode.ExtensionContext): Promise<void
     return;
   }
   
-  // Step 4: If auto-detect, use default for now (can be enhanced later)
-  // openai.chat_completions is the most widely supported dialect across LLM providers
+  // Auto-detect is currently a shortcut to the most widely supported dialect.
+  // It does not probe the endpoint or inspect capabilities during profile creation.
   let dialect: Dialect = dialectChoice.dialect || 'openai.chat_completions';
   
   if (!dialectChoice.dialect) {
-    await vscode.window.showInformationMessage('Auto-detect selected. Using openai.chat_completions as default.');
+    await vscode.window.showInformationMessage(
+      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
+    );
   }
   
   // Step 5: Auth token (optional)

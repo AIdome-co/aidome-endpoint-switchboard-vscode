@@ -33,6 +33,8 @@ const {
   mockApplyPlan,
   mockGetProfiles,
   mockSetActiveProfile,
+  mockSaveProfile,
+  mockStoreSecret,
 } = vi.hoisted(() => ({
   mockShowQuickPick: vi.fn(),
   mockShowInputBox: vi.fn(),
@@ -50,6 +52,8 @@ const {
   mockApplyPlan: vi.fn(),
   mockGetProfiles: vi.fn(async (): Promise<EndpointProfile[]> => []),
   mockSetActiveProfile: vi.fn(),
+  mockSaveProfile: vi.fn(),
+  mockStoreSecret: vi.fn(),
 }));
 
 // ---------- vscode mock ----------
@@ -127,7 +131,7 @@ vi.mock('../../src/core/registry/registryLoader', () => ({
 vi.mock('../../src/core/profiles/profileStore', () => ({
   ProfileStore: vi.fn(function (this: Record<string, unknown>) {
     this.getProfiles = mockGetProfiles;
-    this.saveProfile = vi.fn();
+    this.saveProfile = mockSaveProfile;
     this.getAssistantMappings = vi.fn(async () => []);
     this.setActiveProfile = mockSetActiveProfile;
     this.saveAssistantMapping = vi.fn();
@@ -136,7 +140,7 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
   ProfileSecrets: vi.fn(function (this: Record<string, unknown>) {
-    this.storeSecret = vi.fn();
+    this.storeSecret = mockStoreSecret;
     this.getSecret = vi.fn();
   }),
 }));
@@ -172,6 +176,8 @@ describe('setupSwitchboard', () => {
     mockWithProgress.mockImplementation(progressCallback);
     mockGetProfiles.mockResolvedValue([]);
     mockSetActiveProfile.mockResolvedValue(undefined);
+    mockSaveProfile.mockResolvedValue(undefined);
+    mockStoreSecret.mockResolvedValue(undefined);
     mockShowInformationMessage.mockResolvedValue(undefined);
     mockShowSuccess.mockResolvedValue(undefined);
   });
@@ -420,6 +426,47 @@ describe('setupSwitchboard', () => {
     expect(mockLoggerInfo).toHaveBeenCalledWith(
       'Setup cancelled - no profile selected'
     );
+  });
+
+  it('offers auto-detect in setup-wizard profile creation as a default to openai.chat_completions', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowInformationMessage.mockReset();
+
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', value: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard Auto Profile')
+      .mockResolvedValueOnce('https://wizard.example.com');
+    mockShowInformationMessage
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+    mockBuildPlan.mockResolvedValue({
+      profileId: 'profile-auto',
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockShowInformationMessage).toHaveBeenCalledWith(
+      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
+    );
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Wizard Auto Profile',
+      baseUrl: 'https://wizard.example.com',
+      dialect: 'openai.chat_completions',
+    }));
+    expect(mockStoreSecret).not.toHaveBeenCalled();
+    expect(mockBuildPlan).toHaveBeenCalled();
   });
 
   it('uses singular grammar when only one Tier C assistant detected', async () => {
