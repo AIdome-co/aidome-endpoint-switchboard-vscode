@@ -360,25 +360,33 @@ async function createNewProfile(
   if (!baseUrl) {
     return undefined;
   }
+
+  const dialectOptions = [
+    {
+      label: '$(search) Auto-detect',
+      description: 'Defaults to openai.chat_completions',
+      detail: 'Does not probe the endpoint; recommended for AIdome gateways',
+      value: undefined,
+    },
+    {
+      label: 'OpenAI Chat Completions',
+      description: 'Standard OpenAI /v1/chat/completions format',
+      value: 'openai.chat_completions'
+    },
+    {
+      label: 'Anthropic Messages',
+      description: 'Anthropic /v1/messages format',
+      value: 'anthropic.messages'
+    },
+    {
+      label: 'OpenAI Responses',
+      description: 'Newer /v1/responses format',
+      value: 'openai.responses'
+    }
+  ] satisfies Array<vscode.QuickPickItem & { value?: EndpointProfile['dialect'] }>;
   
   const dialectChoice = await vscode.window.showQuickPick(
-    [
-      { 
-        label: 'OpenAI Chat Completions', 
-        description: 'Standard OpenAI /v1/chat/completions format',
-        value: 'openai.chat_completions' 
-      },
-      { 
-        label: 'Anthropic Messages', 
-        description: 'Anthropic /v1/messages format',
-        value: 'anthropic.messages' 
-      },
-      { 
-        label: 'OpenAI Responses', 
-        description: 'Newer /v1/responses format',
-        value: 'openai.responses' 
-      }
-    ],
+    dialectOptions,
     {
       placeHolder: 'Select API dialect',
       title: 'AIdome Setup (Step 3/5): API Dialect',
@@ -388,6 +396,14 @@ async function createNewProfile(
   
   if (!dialectChoice) {
     return undefined;
+  }
+
+  const dialect = dialectChoice.value || 'openai.chat_completions';
+
+  if (!dialectChoice.value) {
+    await vscode.window.showInformationMessage(
+      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
+    );
   }
   
   let authToken: string | undefined;
@@ -422,7 +438,7 @@ async function createNewProfile(
     name: name.trim(),
     profileType: typeChoice.value as 'aidome' | 'custom',
     baseUrl: baseUrl.trim(),
-    dialect: dialectChoice.value as any,
+    dialect,
     authRef: authToken ? name.trim() : undefined,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()

@@ -187,6 +187,32 @@ describe('manageProfiles create profile verification outcomes', () => {
     }));
   });
 
+  it('uses openai.chat_completions as the auto-detect default without probing the endpoint', async () => {
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', dialect: undefined })
+      .mockResolvedValueOnce(undefined);
+    mockShowInputBox
+      .mockResolvedValueOnce('Auto Profile')
+      .mockResolvedValueOnce('https://api.auto.example.com/v1')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('');
+    mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('passed'));
+
+    await manageProfiles({} as any);
+
+    expect(mockShowInformationMessage).toHaveBeenCalledWith(
+      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
+    );
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Auto Profile',
+      baseUrl: 'https://api.auto.example.com/v1',
+      dialect: 'openai.chat_completions',
+    }));
+  });
+
   it('shows a warning when verification completes with warnings', async () => {
     mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('partial'));
 

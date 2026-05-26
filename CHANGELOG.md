@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added the same profile-creation `Auto-detect` dialect option to the Setup Wizard, clarifying that it defaults to `openai.chat_completions` and does not probe the endpoint.
+- Added a per-profile `Show Models & Providers` action in Manage Profiles so inventory can be fetched for the selected profile without switching the active profile first.
+- Reordered profile actions in Manage Profiles to keep `Delete Profile` as the final action in the per-profile menu.
+- Fixed verifier false negatives on split-DNS or internal hosts by switching the DNS precheck to the OS resolver path, and preserved warning states in legacy verification summaries and UI renderers.
+
 ## [1.4.2] - 2026-05-25
 
 - Promoted Claude Code to Tier A because profile activation now rewrites its shared gateway settings and Anthropic auth token automatically; the remaining restart guidance is advisory only.
