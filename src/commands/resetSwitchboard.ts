@@ -9,7 +9,7 @@ import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { getOutputChannel } from '../ui/output';
 import { updateStatusBar } from '../ui/statusBar';
-import { showWarning, showError, showSuccess } from '../ui/notifications';
+import { showInfo, showWarning, showError, showSuccess } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { safeWriteFile } from '../util/fsSafe';
 
@@ -94,7 +94,7 @@ async function resetSpecificAssistant(context: vscode.ExtensionContext): Promise
   const assistantKeys = [...new Set(allEntries.map(e => e.assistantKey))];
   
   if (assistantKeys.length === 0) {
-    await vscode.window.showInformationMessage('No assistants have change log entries.');
+    await showInfo('No assistants have change log entries.');
     return;
   }
   
@@ -180,7 +180,7 @@ async function resetAllForProfile(context: vscode.ExtensionContext): Promise<voi
   const profileNames = [...new Set(allEntries.map(e => e.profileName))];
   
   if (profileNames.length === 0) {
-    await vscode.window.showInformationMessage('No profiles have change log entries.');
+    await showInfo('No profiles have change log entries.');
     return;
   }
   
@@ -342,7 +342,7 @@ async function viewChangeHistory(context: vscode.ExtensionContext): Promise<void
   const entries = await changeLog.getEntries();
   
   if (entries.length === 0) {
-    await vscode.window.showInformationMessage('No change history available.');
+    await showInfo('No change history available.');
     return;
   }
   
@@ -370,7 +370,7 @@ async function viewChangeHistory(context: vscode.ExtensionContext): Promise<void
   output.appendLine('='.repeat(80));
   output.show();
   
-  await vscode.window.showInformationMessage(`Showing ${entries.length} change log entries in output channel.`);
+  await showInfo(`Showing ${entries.length} change log entries in output channel.`);
 }
 
 /**
@@ -394,7 +394,7 @@ async function undoStep(step: { type: string; target: string; oldValue: unknown;
       
     case 'set-env-var':
       // Cannot reliably undo environment variables
-      await vscode.window.showWarningMessage(
+      await showWarning(
         `Environment variable changes cannot be automatically undone. Please manually unset: ${step.target}`
       );
       logger.warning(`Cannot undo environment variable: ${step.target}`);

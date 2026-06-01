@@ -9,7 +9,7 @@ import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
 import { AssistantEntry } from '../core/registry/registryTypes';
 import { EndpointProfile } from '../core/profiles/profileTypes';
-import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
+import { showError, showInfo, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { updateStatusBar } from '../ui/statusBar';
 import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
@@ -17,6 +17,16 @@ import { Logger } from '../util/log';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
+import {
+  AUTO_DETECT_DIALECT_INFO_MESSAGE,
+  DEFAULT_AUTH_OPTIONS,
+  DEFAULT_PROFILE_TYPE_OPTIONS,
+  SETUP_DIALECT_OPTIONS,
+  type CreateProfileFlowOptions,
+  buildCreateProfileStepTitles,
+  createProfileFromPrompts,
+} from './profileCreation';
+import { verifyProfileConnection } from './profileVerification';
 
 // Mutex flag to prevent concurrent wizard runs
 let wizardRunning = false;
@@ -24,6 +34,78 @@ let wizardRunning = false;
 interface SetupAssistantSelectionItem extends vscode.QuickPickItem {
   assistantKey: string;
 }
+
+const SETUP_PROFILE_CREATION_TITLES = buildCreateProfileStepTitles(
+  {
+    name: 'Profile Name',
+    profileType: 'Profile Type',
+    baseUrl: 'Base URL',
+    dialect: 'API Dialect',
+    tenant: 'Tenant',
+    authentication: 'Authentication',
+    authToken: 'API Key',
+  },
+  {
+    flowTitle: 'AIdome Setup',
+    contextLabel: 'Step 3/5',
+  }
+);
+
+const SETUP_PROFILE_CREATION_OPTIONS: CreateProfileFlowOptions = {
+  name: {
+    title: SETUP_PROFILE_CREATION_TITLES.name,
+    prompt: 'Enter profile name',
+    placeHolder: 'e.g., Production, Development',
+    ignoreFocusOut: true,
+  },
+  profileType: {
+    title: SETUP_PROFILE_CREATION_TITLES.profileType,
+    placeHolder: 'Select profile type',
+    options: DEFAULT_PROFILE_TYPE_OPTIONS,
+    ignoreFocusOut: true,
+  },
+  baseUrl: {
+    title: SETUP_PROFILE_CREATION_TITLES.baseUrl,
+    prompt: 'Enter base URL',
+    placeHolders: {
+      aidome: 'https://api.aidome.ai',
+      custom: 'https://your-endpoint.com',
+    },
+    defaultValues: {
+      aidome: 'https://api.aidome.ai',
+      custom: '',
+    },
+    ignoreFocusOut: true,
+  },
+  dialect: {
+    title: SETUP_PROFILE_CREATION_TITLES.dialect,
+    placeHolder: 'Select API dialect',
+    options: SETUP_DIALECT_OPTIONS,
+    autoDetectInfoMessage: AUTO_DETECT_DIALECT_INFO_MESSAGE,
+    ignoreFocusOut: true,
+  },
+  tenant: {
+    title: SETUP_PROFILE_CREATION_TITLES.tenant,
+    prompt: 'Enter tenant identifier (optional)',
+    placeHolders: {
+      aidome: 'e.g., my-org, team-name',
+      custom: 'Optional tenant identifier',
+    },
+    ignoreFocusOut: true,
+  },
+  authentication: {
+    title: SETUP_PROFILE_CREATION_TITLES.authentication,
+    placeHolder: 'Does this endpoint require authentication?',
+    options: DEFAULT_AUTH_OPTIONS,
+    ignoreFocusOut: true,
+  },
+  authToken: {
+    title: SETUP_PROFILE_CREATION_TITLES.authToken,
+    prompt: 'Enter authentication token/API key',
+    placeHolder: 'sk-...',
+    ignoreFocusOut: true,
+  },
+};
 
 /**
  * Handles the setupSwitchboard command.
@@ -142,7 +224,9 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         'Verify'
       );
       if (action === 'Verify') {
-        await vscode.commands.executeCommand('aidome-switchboard.verifyRouting');
+        await verifyProfileConnection(context, profile, {
+          progressTitle: `Verifying connection to ${profile.name}...`
+        });
       }
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
@@ -294,161 +378,15 @@ async function getOrCreateProfile(
   }
   
   if (choice.value === 'create') {
-    return await createNewProfile(context, profileStore, profileSecrets);
+    return await createNewProfile(profileStore, profileSecrets);
   }
   
   return (choice as any).profile;
 }
 
 async function createNewProfile(
-  context: vscode.ExtensionContext,
   profileStore: ProfileStore,
   profileSecrets: ProfileSecrets
 ): Promise<EndpointProfile | undefined> {
-  const name = await vscode.window.showInputBox({
-    prompt: 'Enter profile name',
-    placeHolder: 'e.g., Production, Development',
-    title: 'AIdome Setup (Step 3/5): Create Profile',
-    ignoreFocusOut: true,
-    validateInput: (value) => {
-      if (!value.trim()) {
-        return 'Profile name cannot be empty';
-      }
-      return undefined;
-    }
-  });
-  
-  if (!name) {
-    return undefined;
-  }
-  
-  const typeChoice = await vscode.window.showQuickPick(
-    [
-      { label: 'AIdome Gateway', description: 'Managed LLM gateway with multi-provider support', value: 'aidome' },
-      { label: 'Custom Endpoint', description: 'Your own OpenAI-compatible endpoint', value: 'custom' }
-    ],
-    {
-      placeHolder: 'Select profile type',
-      title: 'AIdome Setup (Step 3/5): Profile Type',
-      ignoreFocusOut: true
-    }
-  );
-  
-  if (!typeChoice) {
-    return undefined;
-  }
-  
-  const baseUrl = await vscode.window.showInputBox({
-    prompt: 'Enter base URL',
-    placeHolder: typeChoice.value === 'aidome' ? 'https://api.aidome.ai' : 'https://your-endpoint.com',
-    value: typeChoice.value === 'aidome' ? 'https://api.aidome.ai' : '',
-    title: 'AIdome Setup (Step 3/5): Base URL',
-    ignoreFocusOut: true,
-    validateInput: (value) => {
-      if (!value.trim()) {
-        return 'Base URL cannot be empty';
-      }
-      try {
-        new URL(value);
-        return undefined;
-      } catch {
-        return 'Invalid URL format';
-      }
-    }
-  });
-  
-  if (!baseUrl) {
-    return undefined;
-  }
-
-  const dialectOptions = [
-    {
-      label: '$(search) Auto-detect',
-      description: 'Defaults to openai.chat_completions',
-      detail: 'Does not probe the endpoint; recommended for AIdome gateways',
-      value: undefined,
-    },
-    {
-      label: 'OpenAI Chat Completions',
-      description: 'Standard OpenAI /v1/chat/completions format',
-      value: 'openai.chat_completions'
-    },
-    {
-      label: 'Anthropic Messages',
-      description: 'Anthropic /v1/messages format',
-      value: 'anthropic.messages'
-    },
-    {
-      label: 'OpenAI Responses',
-      description: 'Newer /v1/responses format',
-      value: 'openai.responses'
-    }
-  ] satisfies Array<vscode.QuickPickItem & { value?: EndpointProfile['dialect'] }>;
-  
-  const dialectChoice = await vscode.window.showQuickPick(
-    dialectOptions,
-    {
-      placeHolder: 'Select API dialect',
-      title: 'AIdome Setup (Step 3/5): API Dialect',
-      ignoreFocusOut: true
-    }
-  );
-  
-  if (!dialectChoice) {
-    return undefined;
-  }
-
-  const dialect = dialectChoice.value || 'openai.chat_completions';
-
-  if (!dialectChoice.value) {
-    await vscode.window.showInformationMessage(
-      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
-    );
-  }
-  
-  let authToken: string | undefined;
-  const needsAuth = await vscode.window.showQuickPick(
-    [
-      { label: 'Yes', description: 'Endpoint requires authentication', value: true },
-      { label: 'No', description: 'No authentication required', value: false }
-    ],
-    {
-      placeHolder: 'Does this endpoint require authentication?',
-      title: 'AIdome Setup (Step 3/5): Authentication',
-      ignoreFocusOut: true
-    }
-  );
-  
-  if (needsAuth?.value) {
-    authToken = await vscode.window.showInputBox({
-      prompt: 'Enter authentication token/API key',
-      password: true,
-      placeHolder: 'sk-...',
-      title: 'AIdome Setup (Step 3/5): API Key',
-      ignoreFocusOut: true
-    });
-    
-    if (!authToken) {
-      return undefined;
-    }
-  }
-  
-  const profile: EndpointProfile = {
-    id: `profile-${Date.now()}`,
-    name: name.trim(),
-    profileType: typeChoice.value as 'aidome' | 'custom',
-    baseUrl: baseUrl.trim(),
-    dialect,
-    authRef: authToken ? name.trim() : undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  
-  await profileStore.saveProfile(profile);
-  
-  if (authToken) {
-    await profileSecrets.storeSecret(profile.name, authToken);
-  }
-  
-  return profile;
+  return await createProfileFromPrompts(profileStore, profileSecrets, SETUP_PROFILE_CREATION_OPTIONS);
 }

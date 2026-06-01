@@ -32,6 +32,10 @@ vi.mock('vscode', () => ({
 }));
 
 import {
+  showError,
+  showInfo,
+  showSuccess,
+  showWarning,
   handleBoundaryOutcome,
 } from '../../src/ui/notifications';
 import {
@@ -56,6 +60,43 @@ function makeLogger() {
     setLogLevel: vi.fn(),
   } as any;
 }
+
+describe('notification helpers', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('does not wait for passive success notifications', async () => {
+    let resolveMessage: (() => void) | undefined;
+    const pendingMessage = new Promise<string | undefined>((resolve) => {
+      resolveMessage = () => resolve(undefined);
+    });
+    mockShowInfoMessage.mockReturnValueOnce(pendingMessage);
+
+    const result = await showSuccess('Saved successfully');
+
+    expect(result).toBeUndefined();
+    expect(mockShowInfoMessage).toHaveBeenCalledWith('Saved successfully');
+    resolveMessage?.();
+  });
+
+  it('waits for success notification actions', async () => {
+    mockShowInfoMessage.mockResolvedValueOnce('Verify');
+
+    const result = await showSuccess('Saved successfully', 'Verify');
+
+    expect(result).toBe('Verify');
+    expect(mockShowInfoMessage).toHaveBeenCalledWith('Saved successfully', 'Verify');
+  });
+
+  it('does not wait for passive warnings, infos, or errors', async () => {
+    mockShowWarnMessage.mockReturnValueOnce(new Promise<string | undefined>(() => {}));
+    mockShowError.mockReturnValueOnce(new Promise<string | undefined>(() => {}));
+    mockShowInfoMessage.mockReturnValueOnce(new Promise<string | undefined>(() => {}));
+
+    await expect(showWarning('Heads up')).resolves.toBeUndefined();
+    await expect(showError('Something failed')).resolves.toBeUndefined();
+    await expect(showInfo('FYI')).resolves.toBeUndefined();
+  });
+});
 
 describe('handleBoundaryOutcome — success', () => {
   beforeEach(() => vi.clearAllMocks());

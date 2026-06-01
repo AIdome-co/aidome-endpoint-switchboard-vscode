@@ -101,6 +101,8 @@ vi.mock('../../src/ui/statusBar', () => ({
 }));
 
 vi.mock('../../src/ui/notifications', () => ({
+  showInfo: mockShowInformationMessage,
+  withProgress: mockWithProgress,
   showSuccess: mockShowSuccess,
   showWarning: mockShowWarning,
   showError: mockShowError,
@@ -165,13 +167,15 @@ describe('manageProfiles create profile verification outcomes', () => {
 
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(add) Create New Profile' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
       .mockResolvedValueOnce({ label: 'openai.chat_completions', dialect: 'openai.chat_completions' })
+      .mockResolvedValueOnce({ label: 'Yes', value: true })
       .mockResolvedValueOnce(undefined);
     mockShowInputBox
       .mockResolvedValueOnce('New Profile')
       .mockResolvedValueOnce('https://api.new.example.com/v1')
-      .mockResolvedValueOnce('secret-token')
-      .mockResolvedValueOnce('team-a');
+      .mockResolvedValueOnce('team-a')
+      .mockResolvedValueOnce('secret-token');
   });
 
   it('shows success after creating and verifying a profile', async () => {
@@ -181,10 +185,64 @@ describe('manageProfiles create profile verification outcomes', () => {
 
     expect(mockStoreSecret).toHaveBeenCalledWith('New Profile', 'secret-token');
     expect(mockShowSuccess).toHaveBeenCalledWith('Profile "New Profile" created and verified successfully!');
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'New Profile',
+      profileType: 'custom',
+      tenant: 'team-a',
+    }));
     expect(mockSaveProfile).toHaveBeenLastCalledWith(expect.objectContaining({
       name: 'New Profile',
       lastVerified: '2026-05-21T00:00:00.000Z',
     }));
+  });
+
+  it('uses sequential create-profile titles in manage profiles', async () => {
+    mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('passed'));
+
+    await manageProfiles({} as any);
+
+    expect(mockShowInputBox.mock.calls.map(([options]) => options.title)).toEqual([
+      'Create Profile (1/7): Profile Name',
+      'Create Profile (3/7): Base URL',
+      'Create Profile (5/7): Tenant',
+      'Create Profile (7/7): Authentication Token',
+    ]);
+    expect(
+      mockShowQuickPick.mock.calls
+        .map(([, options]) => options?.title)
+        .filter(Boolean)
+    ).toEqual(expect.arrayContaining([
+      'Create Profile (2/7): Profile Type',
+      'Create Profile (4/7): Dialect',
+      'Create Profile (6/7): Authentication',
+    ]));
+  });
+
+  it('creates an AIdome profile with an optional tenant before verification', async () => {
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile' })
+      .mockResolvedValueOnce({ label: 'AIdome Gateway', value: 'aidome' })
+      .mockResolvedValueOnce({ label: 'openai.chat_completions', dialect: 'openai.chat_completions' })
+      .mockResolvedValueOnce({ label: 'No', value: false })
+      .mockResolvedValueOnce(undefined);
+    mockShowInputBox
+      .mockResolvedValueOnce('AIdome Profile')
+      .mockResolvedValueOnce('https://api.aidome.ai')
+      .mockResolvedValueOnce('team-a');
+    mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('passed'));
+
+    await manageProfiles({} as any);
+
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'AIdome Profile',
+      profileType: 'aidome',
+      baseUrl: 'https://api.aidome.ai',
+      tenant: 'team-a',
+      authRef: undefined,
+    }));
+    expect(mockStoreSecret).not.toHaveBeenCalled();
   });
 
   it('uses openai.chat_completions as the auto-detect default without probing the endpoint', async () => {
@@ -192,12 +250,13 @@ describe('manageProfiles create profile verification outcomes', () => {
     mockShowInputBox.mockReset();
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(add) Create New Profile' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
       .mockResolvedValueOnce({ label: '$(search) Auto-detect', dialect: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false })
       .mockResolvedValueOnce(undefined);
     mockShowInputBox
       .mockResolvedValueOnce('Auto Profile')
       .mockResolvedValueOnce('https://api.auto.example.com/v1')
-      .mockResolvedValueOnce('')
       .mockResolvedValueOnce('');
     mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('passed'));
 
@@ -208,9 +267,45 @@ describe('manageProfiles create profile verification outcomes', () => {
     );
     expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Auto Profile',
+      profileType: 'custom',
       baseUrl: 'https://api.auto.example.com/v1',
       dialect: 'openai.chat_completions',
     }));
+  });
+
+  it('does not block profile creation on the auto-detect notification', async () => {
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowInformationMessage.mockReset();
+
+    let resolveNotification: (() => void) | undefined;
+    const pendingNotification = new Promise<void>((resolve) => {
+      resolveNotification = resolve;
+    });
+
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', dialect: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false })
+      .mockResolvedValueOnce(undefined);
+    mockShowInputBox
+      .mockResolvedValueOnce('Auto Profile')
+      .mockResolvedValueOnce('https://api.auto.example.com/v1')
+      .mockResolvedValueOnce('');
+    mockShowInformationMessage.mockReturnValueOnce(pendingNotification as any);
+    mockRunVerificationPipeline.mockResolvedValue(buildVerificationReport('passed'));
+
+    const managePromise = manageProfiles({} as any);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Auto Profile',
+      dialect: 'openai.chat_completions',
+    }));
+
+    resolveNotification?.();
+    await managePromise;
   });
 
   it('shows a warning when verification completes with warnings', async () => {

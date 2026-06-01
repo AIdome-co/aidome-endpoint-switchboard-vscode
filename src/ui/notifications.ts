@@ -6,44 +6,61 @@ import * as vscode from 'vscode';
 import type { Logger } from '../util/log';
 import type { BoundaryOutcome } from '../util/errors';
 
+async function showMessage(
+  showFn: (message: string, ...actions: string[]) => Thenable<string | undefined>,
+  message: string,
+  actions: string[]
+): Promise<string | undefined> {
+  if (actions.length === 0) {
+    void showFn(message);
+    return undefined;
+  }
+
+  return await showFn(message, ...actions);
+}
+
 /**
  * Shows a success notification (information).
+ * Passive notifications with no actions are fire-and-forget.
  * @param message The message to display
  * @param actions Optional action items
  * @returns Promise resolving to selected action
  */
 export async function showSuccess(message: string, ...actions: string[]): Promise<string | undefined> {
-  return await vscode.window.showInformationMessage(message, ...actions);
+  return await showMessage(vscode.window.showInformationMessage, message, actions);
 }
 
 /**
  * Shows an information notification.
+ * Passive notifications with no actions are fire-and-forget.
  * @param message The message to display
  * @param items Optional action items
  * @returns Promise resolving to selected item
  */
 export async function showInfo(message: string, ...items: string[]): Promise<string | undefined> {
-  return await vscode.window.showInformationMessage(message, ...items);
+  return await showMessage(vscode.window.showInformationMessage, message, items);
 }
 
 /**
  * Shows a warning notification.
+ * Passive notifications with no actions are fire-and-forget.
  * @param message The message to display
  * @param actions Optional action items
  * @returns Promise resolving to selected action
  */
 export async function showWarning(message: string, ...actions: string[]): Promise<string | undefined> {
-  return await vscode.window.showWarningMessage(message, ...actions);
+  return await showMessage(vscode.window.showWarningMessage, message, actions);
 }
 
 /**
  * Shows an error notification.
+ * Passive notifications with no actions are fire-and-forget.
  * @param message The message to display
  * @param actions Optional action items
  * @returns Promise resolving to selected action
  */
 export async function showError(message: string, ...actions: string[]): Promise<string | undefined> {
-  return await vscode.window.showErrorMessage(message, ...actions);
+  return await showMessage(vscode.window.showErrorMessage, message, actions);
 }
 
 /**
