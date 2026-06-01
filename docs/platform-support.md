@@ -198,6 +198,41 @@ This matrix shows each assistant's native platform availability — independent 
  ᵈ Gemini = "Gemini Code Assist" VS Code / JetBrains plugin (Google Cloud product)
 ```
 
+### Reach vs Effort Overview
+
+How platform reach scales with engineering investment:
+
+```
+                         REACH vs EFFORT HEATMAP
+                 ┌───────────────────────────────────────┐
+                 │  🟩 = High ROI   🟨 = Medium   🟥 = Low │
+     HIGH REACH  ├───────────────────────────────────────┤
+                 │                                       │
+          14 IDEs│ 🟩🟩🟩 Open VSX publish              │ ← Biggest bang
+                 │ 🟩🟩🟩 (one `ovsx publish` command)  │    for zero code
+                 │                                       │
+           7 IDEs│ 🟨🟨🟨 JetBrains plugin              │ ← Kotlin rewrite
+                 │ 🟨🟨🟨 (Kotlin/Gradle, ~4-6 weeks)   │    but 7 assistants
+                 │                                       │
+           1 IDE │ 🟨🟨 VS Code Web (esbuild)           │ ← 1 hour migration
+                 │                                       │
+     LOW REACH   │                                       │
+                 │ 🟥 Visual Studio (C#, 1 assistant)    │
+           1 IDE │ 🟥 Neovim (Lua, 2 assistants)         │
+                 │ 🟥 Xcode (Swift, 1 assistant)          │
+                 └───────────────────────────────────────┘
+                  LOW EFFORT ──────────────────▶ HIGH EFFORT
+```
+
+### Platform Expansion Roadmap
+
+| Priority | Action | Effort | Platforms Unlocked | Status |
+|---|---|---|---|---|
+| **P0** | Publish to Open VSX | 1 hour | +7 (VSCodium, Theia, Gitpod, Coder, Che, Antigravity, TRAE) | 🟡 Ready |
+| **P1** | esbuild migration | 1 hour | +1 (VS Code Web / github.dev / vscode.dev) | ⬚ Planned |
+| **P2** | Document sideload for forks | 2 hours | +4 (Cursor, Windsurf, Positron, Kiro) | ⬚ Planned |
+| **P3** | JetBrains plugin (Kotlin) | 4–6 weeks | +7 JetBrains IDEs × 7 assistants | ⬚ Planned |
+
 ### Future Adapter Candidates
 
 Assistants we can add adapters for on customer request, sorted by priority:
