@@ -33,8 +33,8 @@ vi.mock('vscode', () => ({
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
     showInformationMessage: mockShowInformationMessage,
-    showWarningMessage: vi.fn(),
-    showErrorMessage: vi.fn(),
+    showWarningMessage: mockShowWarning,
+    showErrorMessage: mockShowError,
     withProgress: mockWithProgress,
   },
   ProgressLocation: { Notification: 15 },
@@ -102,6 +102,9 @@ vi.mock('../../src/ui/statusBar', () => ({
 
 vi.mock('../../src/ui/notifications', () => ({
   showInfo: mockShowInformationMessage,
+  showBlockingSuccess: mockShowSuccess,
+  showBlockingWarning: mockShowWarning,
+  showBlockingError: mockShowError,
   withProgress: mockWithProgress,
   showSuccess: mockShowSuccess,
   showWarning: mockShowWarning,

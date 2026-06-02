@@ -33,9 +33,9 @@ vi.mock('vscode', () => ({
   window: {
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
-    showInformationMessage: vi.fn(),
-    showWarningMessage: vi.fn(),
-    showErrorMessage: vi.fn(),
+    showInformationMessage: mockShowSuccess,
+    showWarningMessage: mockShowWarning,
+    showErrorMessage: mockShowError,
     withProgress: mockWithProgress,
   },
   ProgressLocation: { Notification: 15 },

@@ -10,7 +10,12 @@ import { EndpointProfile, AssistantMapping } from '../core/profiles/profileTypes
 import { Switchboard } from '../core/orchestration/switchboard';
 import { loadRegistry } from '../core/registry/registryLoader';
 import { updateStatusBar } from '../ui/statusBar';
-import { showError, showInfo, showSuccess, showWarning } from '../ui/notifications';
+import {
+  showError,
+  showInfo,
+  showSuccess,
+  showWarning
+} from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
 import {
@@ -984,6 +989,8 @@ async function setDefaultProfile(
   }
 
   logger.info(`Profile activation requested from Manage Profiles: ${selected.profile.name}`);
+
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
   
   await showMainMenu(context);
 }
