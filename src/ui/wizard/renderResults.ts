@@ -20,7 +20,7 @@ export function renderVerificationResults(results: VerificationResult): string {
   lines.push('Checks:');
   
   for (const check of results.checks) {
-    const icon = check.status === 'pass' ? '✅' : check.status === 'fail' ? '❌' : '⚠️';
+    const icon = check.status === 'pass' ? '✅' : check.status === 'fail' ? '❌' : check.status === 'warn' ? '⚠️' : '⏭️';
     lines.push(`${icon} ${check.name}: ${check.message}`);
   }
   

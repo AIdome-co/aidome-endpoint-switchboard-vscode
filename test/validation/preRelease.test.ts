@@ -256,7 +256,8 @@ describe('Pre-Release Validation', () => {
 
       expect(verifierContent).toContain('tlsVerify');
       expect(verifierContent).toContain('rejectUnauthorized');
-      expect(verifierContent).toContain('verification disabled via settings');
+      expect(verifierContent).toContain("socket.authorized || !tlsVerify");
+      expect(verifierContent).toContain("status: tlsVerify ? 'passed' : 'warning'");
     });
 
     it('every registry assistant should have tlsVerification field', () => {

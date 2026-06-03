@@ -31,8 +31,11 @@ const {
   mockDetectAll,
   mockBuildPlan,
   mockApplyPlan,
+  mockVerifyProfileConnection,
   mockGetProfiles,
   mockSetActiveProfile,
+  mockSaveProfile,
+  mockStoreSecret,
 } = vi.hoisted(() => ({
   mockShowQuickPick: vi.fn(),
   mockShowInputBox: vi.fn(),
@@ -48,8 +51,11 @@ const {
   mockDetectAll: vi.fn(),
   mockBuildPlan: vi.fn(),
   mockApplyPlan: vi.fn(),
+  mockVerifyProfileConnection: vi.fn(),
   mockGetProfiles: vi.fn(async (): Promise<EndpointProfile[]> => []),
   mockSetActiveProfile: vi.fn(),
+  mockSaveProfile: vi.fn(),
+  mockStoreSecret: vi.fn(),
 }));
 
 // ---------- vscode mock ----------
@@ -68,6 +74,7 @@ vi.mock('vscode', () => ({
     withProgress: vi.fn(),
   },
   ProgressLocation: { Notification: 15 },
+  QuickPickItemKind: { Default: 0, Separator: -1 },
   extensions: {
     all: [],
     onDidChange: vi.fn(() => ({ dispose: vi.fn() })),
@@ -90,6 +97,7 @@ vi.mock('../../src/util/log', () => ({
 }));
 
 vi.mock('../../src/ui/notifications', () => ({
+  showInfo: mockShowInformationMessage,
   showWarning: mockShowWarning,
   showError: mockShowError,
   showSuccess: mockShowSuccess,
@@ -111,6 +119,10 @@ vi.mock('../../src/core/orchestration/switchboard', () => ({
   }),
 }));
 
+vi.mock('../../src/commands/profileVerification', () => ({
+  verifyProfileConnection: mockVerifyProfileConnection,
+}));
+
 vi.mock('../../src/core/registry/registryLoader', () => ({
   loadRegistry: vi.fn(async () => ({
     assistants: [
@@ -127,7 +139,7 @@ vi.mock('../../src/core/registry/registryLoader', () => ({
 vi.mock('../../src/core/profiles/profileStore', () => ({
   ProfileStore: vi.fn(function (this: Record<string, unknown>) {
     this.getProfiles = mockGetProfiles;
-    this.saveProfile = vi.fn();
+    this.saveProfile = mockSaveProfile;
     this.getAssistantMappings = vi.fn(async () => []);
     this.setActiveProfile = mockSetActiveProfile;
     this.saveAssistantMapping = vi.fn();
@@ -136,7 +148,7 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
   ProfileSecrets: vi.fn(function (this: Record<string, unknown>) {
-    this.storeSecret = vi.fn();
+    this.storeSecret = mockStoreSecret;
     this.getSecret = vi.fn();
   }),
 }));
@@ -172,6 +184,8 @@ describe('setupSwitchboard', () => {
     mockWithProgress.mockImplementation(progressCallback);
     mockGetProfiles.mockResolvedValue([]);
     mockSetActiveProfile.mockResolvedValue(undefined);
+    mockSaveProfile.mockResolvedValue(undefined);
+    mockStoreSecret.mockResolvedValue(undefined);
     mockShowInformationMessage.mockResolvedValue(undefined);
     mockShowSuccess.mockResolvedValue(undefined);
   });
@@ -422,6 +436,173 @@ describe('setupSwitchboard', () => {
     );
   });
 
+  it('offers auto-detect in setup-wizard profile creation as a default to openai.chat_completions', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowInformationMessage.mockReset();
+
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', value: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard Auto Profile')
+      .mockResolvedValueOnce('https://wizard.example.com')
+      .mockResolvedValueOnce('');
+    mockShowInformationMessage
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+    mockBuildPlan.mockResolvedValue({
+      profileId: 'profile-auto',
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockShowInformationMessage).toHaveBeenCalledWith(
+      'Auto-detect currently defaults to openai.chat_completions. It does not probe the endpoint.'
+    );
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Wizard Auto Profile',
+      baseUrl: 'https://wizard.example.com',
+      dialect: 'openai.chat_completions',
+    }));
+    expect(mockStoreSecret).not.toHaveBeenCalled();
+    expect(mockBuildPlan).toHaveBeenCalled();
+  });
+
+  it('shows nested profile progress while creating a profile in setup wizard', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: 'OpenAI Chat Completions', value: 'openai.chat_completions' })
+      .mockResolvedValueOnce({ label: 'No', value: false });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard Profile')
+      .mockResolvedValueOnce('https://wizard.example.com')
+      .mockResolvedValueOnce('');
+    mockBuildPlan.mockResolvedValue({
+      profileId: 'profile-1',
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockShowInputBox.mock.calls.map(([options]) => options.title)).toEqual([
+      'AIdome Setup (Step 3/5, Profile 1/7): Profile Name',
+      'AIdome Setup (Step 3/5, Profile 3/7): Base URL',
+      'AIdome Setup (Step 3/5, Profile 5/7): Tenant',
+    ]);
+    expect(
+      mockShowQuickPick.mock.calls
+        .map(([, options]) => options?.title)
+        .filter(Boolean)
+    ).toEqual(expect.arrayContaining([
+      'AIdome Setup (Step 2/5): Select Assistants',
+      'AIdome Setup (Step 3/5): Select Profile',
+      'AIdome Setup (Step 3/5, Profile 2/7): Profile Type',
+      'AIdome Setup (Step 3/5, Profile 4/7): API Dialect',
+      'AIdome Setup (Step 3/5, Profile 6/7): Authentication',
+    ]));
+  });
+
+  it('does not block the setup wizard on the auto-detect notification', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+    mockShowInformationMessage.mockReset();
+
+    let resolveNotification: (() => void) | undefined;
+    const pendingNotification = new Promise<void>((resolve) => {
+      resolveNotification = resolve;
+    });
+
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', value: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard Auto Profile')
+      .mockResolvedValueOnce('https://wizard.example.com')
+      .mockResolvedValueOnce('');
+    mockShowInformationMessage.mockReturnValueOnce(pendingNotification as any);
+    mockBuildPlan.mockResolvedValue({
+      profileId: 'profile-auto',
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+
+    const setupPromise = setupSwitchboard(makeContext());
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Wizard Auto Profile',
+      dialect: 'openai.chat_completions',
+    }));
+
+    resolveNotification?.();
+    await setupPromise;
+  });
+
+  it('captures tenant before authentication for AIdome profiles in the setup wizard', async () => {
+    mockDetectAll.mockResolvedValue({
+      assistants: [makeAssistant('kilocode', 'A', 'Kilo Code')],
+      clis: [],
+    });
+    mockShowQuickPick.mockReset();
+    mockShowInputBox.mockReset();
+
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Kilo Code', assistantKey: 'kilocode', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'AIdome Gateway', value: 'aidome' })
+      .mockResolvedValueOnce({ label: 'OpenAI Chat Completions', value: 'openai.chat_completions' })
+      .mockResolvedValueOnce({ label: 'Yes', value: true });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard AIdome Profile')
+      .mockResolvedValueOnce('https://api.aidome.ai')
+      .mockResolvedValueOnce('team-a')
+      .mockResolvedValueOnce('secret-token');
+    mockBuildPlan.mockResolvedValue({
+      profileId: 'profile-aidome',
+      assistantKeys: ['kilocode'],
+      steps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }]
+    });
+
+    await setupSwitchboard(makeContext());
+
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Wizard AIdome Profile',
+      profileType: 'aidome',
+      baseUrl: 'https://api.aidome.ai',
+      dialect: 'openai.chat_completions',
+      tenant: 'team-a',
+      authRef: 'Wizard AIdome Profile',
+    }));
+    expect(mockStoreSecret).toHaveBeenCalledWith('Wizard AIdome Profile', 'secret-token');
+  });
+
   it('uses singular grammar when only one Tier C assistant detected', async () => {
     mockDetectAll.mockResolvedValue({
       assistants: [makeAssistant('github.copilot', 'C', 'GitHub Copilot')],
@@ -516,10 +697,18 @@ describe('setupSwitchboard', () => {
       assistantResults: new Map([['kilocode', { success: true }]])
     });
     mockShowSuccess.mockResolvedValue('Verify');
+    const context = makeContext();
 
-    await setupSwitchboard(makeContext());
+    await setupSwitchboard(context);
 
-    expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.verifyRouting');
+    expect(mockVerifyProfileConnection).toHaveBeenCalledWith(
+      context,
+      profile,
+      expect.objectContaining({
+        progressTitle: `Verifying connection to ${profile.name}...`
+      })
+    );
+    expect(mockExecuteCommand).not.toHaveBeenCalledWith('aidome-switchboard.verifyRouting');
   });
 
   it('refreshes the assistants view when setup succeeds', async () => {

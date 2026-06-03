@@ -16,7 +16,7 @@ import { ProfileStore } from './core/profiles/profileStore';
 import { Logger } from './util/log';
 import { initializeExtensionCaching } from './core/detection/detectExtensions';
 import { withErrorBoundary } from './util/errors';
-import { handleBoundaryOutcome } from './ui/notifications';
+import { handleBoundaryOutcome, showError, showInfo } from './ui/notifications';
 import {
   activateProfileAndReapplyMappings,
   getProfileActivationNotice
@@ -98,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const hasShown = context.globalState.get<boolean>('aidome.switchboard.firstRunNotificationShown');
           if (!hasShown) {
             void context.globalState.update('aidome.switchboard.firstRunNotificationShown', true);
-            void vscode.window.showInformationMessage(
+            void showInfo(
               'AIdome endpoint not configured. Configure your AI assistants to route through your enterprise endpoint.',
               'Configure Now',
               'Later'
@@ -129,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const reportStatusBarActionError = (error: unknown): void => {
         const commandError = error instanceof Error ? error : new Error(String(error));
         logger.error('Error in statusBarAction command', commandError);
-        void vscode.window.showErrorMessage('Failed to execute action: ' + commandError.message);
+        void showError('Failed to execute action: ' + commandError.message);
       };
 
       try {

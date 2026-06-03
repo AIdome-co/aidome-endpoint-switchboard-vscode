@@ -9,6 +9,7 @@ const {
   mockShowSuccess,
   mockShowWarning,
   mockShowError,
+  mockShowInfo,
   mockGetProfiles,
   mockGetAssistantMappings,
   mockSaveProfile,
@@ -34,6 +35,7 @@ const {
   mockShowSuccess: vi.fn(),
   mockShowWarning: vi.fn(),
   mockShowError: vi.fn(),
+  mockShowInfo: vi.fn(),
   mockGetProfiles: vi.fn(),
   mockGetAssistantMappings: vi.fn(),
   mockSaveProfile: vi.fn(),
@@ -58,8 +60,8 @@ vi.mock('vscode', () => ({
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
     showInformationMessage: mockShowInformationMessage,
-    showWarningMessage: vi.fn(),
-    showErrorMessage: vi.fn(),
+    showWarningMessage: mockShowWarning,
+    showErrorMessage: mockShowError,
     withProgress: mockWithProgress,
   },
   ProgressLocation: { Notification: 15 },
@@ -123,6 +125,10 @@ vi.mock('../../src/ui/statusBar', () => ({
 }));
 
 vi.mock('../../src/ui/notifications', () => ({
+  showInfo: mockShowInfo,
+  showBlockingSuccess: mockShowSuccess,
+  showBlockingWarning: mockShowWarning,
+  showBlockingError: mockShowError,
   showSuccess: mockShowSuccess,
   showWarning: mockShowWarning,
   showError: mockShowError,
@@ -240,6 +246,7 @@ describe('manageProfiles additional flows', () => {
     mockShowSuccess.mockReset();
     mockShowWarning.mockReset();
     mockShowError.mockReset();
+    mockShowInfo.mockReset();
     mockGetProfiles.mockReset();
     mockGetAssistantMappings.mockReset();
     mockSaveProfile.mockReset();
@@ -561,7 +568,7 @@ describe('manageProfiles additional flows', () => {
 
     await manageProfiles({} as any);
 
-    expect(mockShowInformationMessage).toHaveBeenCalledWith('No assistants are currently mapped to "OpenAI Prod"');
+    expect(mockShowInfo).toHaveBeenCalledWith('No assistants are currently mapped to "OpenAI Prod"');
   });
 
   it('renders mapped assistants with unknown defaults and singular placeholder text', async () => {

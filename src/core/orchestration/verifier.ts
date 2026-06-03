@@ -49,7 +49,7 @@ export interface VerificationReport {
 // Legacy interface for backward compatibility
 export interface VerificationCheck {
   name: string;
-  status: 'pass' | 'fail' | 'skip';
+  status: 'pass' | 'fail' | 'warn' | 'skip';
   message: string;
   details?: Record<string, unknown>;
 }
@@ -269,7 +269,7 @@ export class Verifier {
     }
     
     try {
-      await dns.resolve(hostname);
+      await dns.lookup(hostname);
       return {
         name: 'dns-resolution',
         status: 'passed',
@@ -333,7 +333,7 @@ export class Verifier {
         if (socket.authorized || !tlsVerify) {
           const message = tlsVerify
             ? 'TLS certificate is valid'
-            : 'TLS certificate accepted (verification disabled via settings)';
+            : 'TLS certificate accepted (verification disabled by the effective extension configuration)';
           resolve({
             name: 'tls-verification',
             status: tlsVerify ? 'passed' : 'warning',
@@ -936,20 +936,27 @@ export class Verifier {
   /**
    * Generates an actionable message based on verification results.
    */
-  private generateActionableMessage(checks: VerificationCheck[], baseUrl: string): string {
-    const failedCheck = checks.find(c => c.status === 'fail');
-    
-    if (!failedCheck) {
+  private generateActionableMessage(
+    checks: VerificationCheck[],
+    baseUrl: string,
+    status: VerificationResult['status']
+  ): string {
+    const failedChecks = checks.filter((check) => check.status === 'fail');
+    const warningChecks = checks.filter((check) => check.status === 'warn');
+
+    if (status === 'success') {
       return `✓ Endpoint ${baseUrl} verified successfully`;
     }
 
     const messages: string[] = [];
-    messages.push(`✗ Verification failed for ${baseUrl}`);
-    
-    for (const check of checks) {
-      if (check.status === 'fail') {
-        messages.push(`  - ${check.name}: ${check.message}`);
-      }
+    messages.push(
+      status === 'partial'
+        ? `⚠ Verification completed with warnings for ${baseUrl}`
+        : `✗ Verification failed for ${baseUrl}`
+    );
+
+    for (const check of [...failedChecks, ...warningChecks]) {
+      messages.push(`  - ${check.name}: ${check.message}`);
     }
 
     return messages.join('\n');
@@ -971,7 +978,13 @@ export class Verifier {
     // Convert steps to checks
     const checks: VerificationCheck[] = report.steps.map(step => ({
       name: step.name,
-      status: step.status === 'passed' ? 'pass' : step.status === 'failed' ? 'fail' : 'skip',
+      status: step.status === 'passed'
+        ? 'pass'
+        : step.status === 'failed'
+          ? 'fail'
+          : step.status === 'warning'
+            ? 'warn'
+            : 'skip',
       message: step.message,
       details: step.details
     }));
@@ -987,7 +1000,7 @@ export class Verifier {
     }
     
     // Generate actionable message
-    const actionableMessage = this.generateActionableMessage(checks, profile.baseUrl);
+    const actionableMessage = this.generateActionableMessage(checks, profile.baseUrl, status);
     
     return {
       status,

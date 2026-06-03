@@ -11,6 +11,7 @@ import { generateDiagnostics, formatAsJson, formatAsMarkdown } from '../core/orc
 import { ChangeLog } from '../core/orchestration/changeLog';
 import { detectRemote } from '../core/detection/detectRemote';
 import { Verifier } from '../core/orchestration/verifier';
+import { showError, showInfo } from '../ui/notifications';
 import { Logger } from '../util/log';
 
 /**
@@ -97,7 +98,7 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
       
       if (uri) {
         await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-        await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+        await showInfo('Diagnostics report exported. This report is safe to share with support.');
         logger.info(`Diagnostics exported to ${uri.fsPath}`);
       }
     } else if (choice.value === 'save-markdown') {
@@ -111,22 +112,22 @@ export async function exportDiagnostics(context: vscode.ExtensionContext): Promi
       
       if (uri) {
         await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-        await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+        await showInfo('Diagnostics report exported. This report is safe to share with support.');
         logger.info(`Diagnostics exported to ${uri.fsPath}`);
       }
     } else if (choice.value === 'copy-json') {
       const content = formatAsJson(report);
       await vscode.env.clipboard.writeText(content);
-      await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+      await showInfo('Diagnostics report exported. This report is safe to share with support.');
       logger.info('Diagnostics copied to clipboard as JSON');
     } else if (choice.value === 'copy-markdown') {
       const content = formatAsMarkdown(report);
       await vscode.env.clipboard.writeText(content);
-      await vscode.window.showInformationMessage('Diagnostics report exported. This report is safe to share with support.');
+      await showInfo('Diagnostics report exported. This report is safe to share with support.');
       logger.info('Diagnostics copied to clipboard as Markdown');
     }
   } catch (error) {
     logger.error('Failed to export diagnostics', error instanceof Error ? error : undefined);
-    await vscode.window.showErrorMessage(`Failed to export diagnostics: ${error instanceof Error ? error.message : String(error)}`);
+    await showError(`Failed to export diagnostics: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -5,15 +5,17 @@
 import * as vscode from 'vscode';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
-import { validateUrl } from '../core/profiles/profileValidator';
+import { validateInputUrl } from '../core/profiles/profileValidator';
 import { EndpointProfile, AssistantMapping } from '../core/profiles/profileTypes';
-import { Verifier, VerificationReport } from '../core/orchestration/verifier';
 import { Switchboard } from '../core/orchestration/switchboard';
-import { detectRemote } from '../core/detection/detectRemote';
 import { loadRegistry } from '../core/registry/registryLoader';
-import { getOutputChannel } from '../ui/output';
 import { updateStatusBar } from '../ui/statusBar';
-import { showError, showSuccess, showWarning } from '../ui/notifications';
+import {
+  showError,
+  showInfo,
+  showSuccess,
+  showWarning
+} from '../ui/notifications';
 import { Logger } from '../util/log';
 import { Dialect } from '../core/dialects/dialectTypes';
 import {
@@ -22,13 +24,20 @@ import {
   getProfileActivationNotice
 } from './activateProfile';
 import { assignProfileAssistants } from './assignProfileAssistants';
+import {
+  AUTO_DETECT_DIALECT_INFO_MESSAGE,
+  DEFAULT_AUTH_OPTIONS,
+  DEFAULT_PROFILE_TYPE_OPTIONS,
+  FULL_DIALECT_OPTIONS,
+  type CreateProfileFlowOptions,
+  buildCreateProfileStepTitles,
+  createProfileFromPrompts,
+} from './profileCreation';
+import { runProfileVerification, verifyProfileConnection } from './profileVerification';
+import { showModelsProviders } from './showModelsProviders';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
-}
-
-interface DialectQuickPickItem extends vscode.QuickPickItem {
-  dialect?: Dialect;
 }
 
 interface ReapplyNotice {
@@ -41,6 +50,71 @@ interface AutomaticProfileApplyResult {
   skippedAssistantKeys: string[];
   failedAssistantKeys: string[];
 }
+
+const MANAGE_PROFILE_CREATION_TITLES = buildCreateProfileStepTitles(
+  {
+    name: 'Profile Name',
+    profileType: 'Profile Type',
+    baseUrl: 'Base URL',
+    dialect: 'Dialect',
+    tenant: 'Tenant',
+    authentication: 'Authentication',
+    authToken: 'Authentication Token',
+  },
+  {
+    flowTitle: 'Create Profile',
+  }
+);
+
+const MANAGE_PROFILE_CREATION_OPTIONS: CreateProfileFlowOptions = {
+  name: {
+    title: MANAGE_PROFILE_CREATION_TITLES.name,
+    prompt: 'Enter a unique profile name',
+    placeHolder: 'e.g., Production API, Dev Server',
+    maxLength: 100,
+    requireUniqueName: true,
+  },
+  profileType: {
+    title: MANAGE_PROFILE_CREATION_TITLES.profileType,
+    placeHolder: 'Select profile type',
+    options: DEFAULT_PROFILE_TYPE_OPTIONS,
+  },
+  baseUrl: {
+    title: MANAGE_PROFILE_CREATION_TITLES.baseUrl,
+    prompt: 'Enter the endpoint base URL',
+    placeHolders: {
+      aidome: 'https://api.aidome.ai',
+      custom: 'https://api.example.com or http://localhost:8080',
+    },
+    defaultValues: {
+      aidome: 'https://api.aidome.ai',
+    },
+  },
+  dialect: {
+    title: MANAGE_PROFILE_CREATION_TITLES.dialect,
+    placeHolder: 'Select API dialect',
+    options: FULL_DIALECT_OPTIONS,
+    autoDetectInfoMessage: AUTO_DETECT_DIALECT_INFO_MESSAGE,
+  },
+  tenant: {
+    title: MANAGE_PROFILE_CREATION_TITLES.tenant,
+    prompt: 'Enter tenant identifier (optional)',
+    placeHolders: {
+      aidome: 'e.g., my-org, team-name',
+      custom: 'Optional tenant identifier',
+    },
+  },
+  authentication: {
+    title: MANAGE_PROFILE_CREATION_TITLES.authentication,
+    placeHolder: 'Does this endpoint require authentication?',
+    options: DEFAULT_AUTH_OPTIONS,
+  },
+  authToken: {
+    title: MANAGE_PROFILE_CREATION_TITLES.authToken,
+    prompt: 'Enter authentication token/API key',
+    placeHolder: 'sk-...',
+  },
+};
 
 /**
  * Handles the manageProfiles command.
@@ -123,203 +197,33 @@ async function showMainMenu(context: vscode.ExtensionContext): Promise<void> {
 async function createProfileFlow(context: vscode.ExtensionContext): Promise<void> {
   const logger = Logger.getInstance();
   const profileStore = new ProfileStore(context);
+  const profileSecrets = new ProfileSecrets(context);
   const existingProfiles = await profileStore.getProfiles();
-  let completionNotification:
-    | { kind: 'success' | 'warning' | 'error'; message: string }
-    | undefined;
-  
-  // Step 1: Profile name
-  const name = await vscode.window.showInputBox({
-    title: 'Create Profile (1/6): Profile Name',
-    prompt: 'Enter a unique profile name',
-    placeHolder: 'e.g., Production API, Dev Server',
-    validateInput: (value) => {
-      if (!value.trim()) {
-        return 'Profile name cannot be empty';
-      }
-      if (value.length > 100) {
-        return 'Profile name must be 100 characters or less';
-      }
-      if (existingProfiles.some(p => p.name === value.trim())) {
-        return 'A profile with this name already exists';
-      }
-      return undefined;
-    }
-  });
-  
-  if (!name) {
+  const profile = await createProfileFromPrompts(
+    profileStore,
+    profileSecrets,
+    MANAGE_PROFILE_CREATION_OPTIONS,
+    existingProfiles
+  );
+
+  if (!profile) {
     return;
-  }
-  
-  // Step 2: Base URL
-  const baseUrl = await vscode.window.showInputBox({
-    title: 'Create Profile (2/6): Base URL',
-    prompt: 'Enter the endpoint base URL',
-    placeHolder: 'https://api.example.com or http://localhost:8080',
-    validateInput: (value) => {
-      if (!value.trim()) {
-        return 'Base URL cannot be empty';
-      }
-      if (!validateUrl(value.trim())) {
-        return 'URL must be https:// or http://localhost for development';
-      }
-      return undefined;
-    }
-  });
-  
-  if (!baseUrl) {
-    return;
-  }
-  
-  // Step 3: Dialect selection
-  const dialectOptions: DialectQuickPickItem[] = [
-    {
-      label: '$(search) Auto-detect',
-      description: 'Attempt to detect dialect from endpoint',
-      detail: 'Recommended for AIdome gateways',
-      dialect: undefined
-    },
-    { label: '', kind: vscode.QuickPickItemKind.Separator },
-    {
-      label: 'openai.chat_completions',
-      description: 'OpenAI Chat Completions API',
-      dialect: 'openai.chat_completions'
-    },
-    {
-      label: 'openai.responses',
-      description: 'OpenAI Responses API',
-      dialect: 'openai.responses'
-    },
-    {
-      label: 'anthropic.messages',
-      description: 'Anthropic Messages API',
-      dialect: 'anthropic.messages'
-    },
-    {
-      label: 'google.gemini.generate_content',
-      description: 'Google Gemini API',
-      dialect: 'google.gemini.generate_content'
-    },
-    {
-      label: 'github.copilot',
-      description: 'GitHub Copilot API',
-      dialect: 'github.copilot'
-    },
-    {
-      label: 'tabnine.proprietary',
-      description: 'TabNine Proprietary API',
-      dialect: 'tabnine.proprietary'
-    }
-  ];
-  
-  const dialectChoice = await vscode.window.showQuickPick(dialectOptions, {
-    title: 'Create Profile (3/6): Dialect',
-    placeHolder: 'Select API dialect'
-  });
-  
-  if (!dialectChoice) {
-    return;
-  }
-  
-  // Step 4: If auto-detect, use default for now (can be enhanced later)
-  // openai.chat_completions is the most widely supported dialect across LLM providers
-  let dialect: Dialect = dialectChoice.dialect || 'openai.chat_completions';
-  
-  if (!dialectChoice.dialect) {
-    await vscode.window.showInformationMessage('Auto-detect selected. Using openai.chat_completions as default.');
-  }
-  
-  // Step 5: Auth token (optional)
-  const authToken = await vscode.window.showInputBox({
-    title: 'Create Profile (4/6): Authentication Token',
-    prompt: 'Enter authentication token (optional)',
-    password: true,
-    placeHolder: 'Leave empty for no authentication'
-  });
-  
-  // Step 6: Tenant (optional)
-  const tenant = await vscode.window.showInputBox({
-    title: 'Create Profile (5/6): Tenant',
-    prompt: 'Enter tenant identifier (optional)',
-    placeHolder: 'e.g., my-org, team-name'
-  });
-  
-  // Create the profile
-  const profile: EndpointProfile = {
-    id: `profile-${Date.now()}`,
-    name: name.trim(),
-    profileType: 'custom',
-    baseUrl: baseUrl.trim(),
-    dialect,
-    authRef: authToken ? name.trim() : undefined,
-    tenant: tenant?.trim() || undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  
-  await profileStore.saveProfile(profile);
-  
-  if (authToken) {
-    const profileSecrets = new ProfileSecrets(context);
-    await profileSecrets.storeSecret(profile.name, authToken);
   }
   
   logger.info(`Profile created: ${profile.name}`);
-  
-  // Step 7: Verify connection immediately
-  await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification,
-    title: `Verifying connection to ${profile.name}...`,
-    cancellable: false
-  }, async () => {
-    const verifier = new Verifier();
-    const remoteContext = detectRemote(profile.baseUrl);
-    
-    try {
-      const report = await verifier.runVerificationPipeline(profile, {
-        includeTestPrompt: false,
-        remoteContext,
-        authToken: authToken?.trim() || undefined
-      });
-      
-      // Update profile with verification timestamp
-      profile.lastVerified = report.timestamp;
-      await profileStore.saveProfile(profile);
-      
-      // Show results
-      displayVerificationResults(report);
-      
-      if (report.overallStatus === 'passed') {
-        completionNotification = {
-          kind: 'success',
-          message: `Profile "${profile.name}" created and verified successfully!`
-        };
-      } else if (report.overallStatus === 'partial') {
-        completionNotification = {
-          kind: 'warning',
-          message: `Profile "${profile.name}" created with warnings. Check output for details.`
-        };
-      } else {
-        completionNotification = {
-          kind: 'error',
-          message: `Profile "${profile.name}" created but verification failed. Check output for details.`
-        };
-      }
-    } catch (error) {
-      logger.error('Verification failed', error instanceof Error ? error : undefined);
-      completionNotification = {
-        kind: 'warning',
-        message: `Profile created but verification encountered an error: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+
+  const verificationResult = await runProfileVerification(context, profile, {
+    progressTitle: `Verifying connection to ${profile.name}...`
   });
 
-  if (completionNotification?.kind === 'success') {
-    await showSuccess(completionNotification.message);
-  } else if (completionNotification?.kind === 'warning') {
-    await showWarning(completionNotification.message);
-  } else if (completionNotification?.kind === 'error') {
-    await showError(completionNotification.message);
+  if (verificationResult.kind === 'passed') {
+    await showSuccess(`Profile "${profile.name}" created and verified successfully!`);
+  } else if (verificationResult.kind === 'partial') {
+    await showWarning(`Profile "${profile.name}" created with warnings. Check output for details.`);
+  } else if (verificationResult.kind === 'failed') {
+    await showError(`Profile "${profile.name}" created but verification failed. Check output for details.`);
+  } else {
+    await showWarning(`Profile created but verification encountered an error: ${verificationResult.message}`);
   }
   
   // Return to main menu
@@ -367,19 +271,24 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
       detail: 'Run verification pipeline'
     },
     {
+      label: '$(gear) Show Models & Providers',
+      description: '',
+      detail: 'Fetch inventory for this profile'
+    },
+    {
       label: `$(plug) Assign Assistants (${assistantCount})`,
       description: '',
       detail: 'Attach or detach assistants for this profile'
     },
     {
-      label: '$(trash) Delete Profile',
-      description: '',
-      detail: 'Remove this profile'
-    },
-    {
       label: `$(link) View Mapped Assistants (${assistantCount})`,
       description: '',
       detail: 'See which assistants use this profile'
+    },
+    {
+      label: '$(trash) Delete Profile',
+      description: '',
+      detail: 'Remove this profile'
     }
   ];
   
@@ -396,7 +305,10 @@ async function showProfileDetails(context: vscode.ExtensionContext, profile: End
   if (selected.label.includes('Edit Profile')) {
     await editProfileFlow(context, profile);
   } else if (selected.label.includes('Test Connection')) {
-    await testConnection(context, profile);
+    await verifyProfileConnection(context, profile);
+    await showProfileDetails(context, profile);
+  } else if (selected.label.includes('Show Models & Providers')) {
+    await showModelsProviders(context, profile.id);
     await showProfileDetails(context, profile);
   } else if (selected.label.includes('Assign Assistants')) {
     await assignProfileAssistants(context, profile.id);
@@ -509,8 +421,8 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
         if (!value.trim()) {
           return 'Base URL cannot be empty';
         }
-        if (!validateUrl(value.trim())) {
-          return 'URL must be https:// or http://localhost for development';
+        if (!validateInputUrl(value.trim())) {
+          return 'Enter a valid http:// or https:// URL';
         }
         return undefined;
       }
@@ -599,7 +511,7 @@ async function editProfileFlow(context: vscode.ExtensionContext, profile: Endpoi
     );
     
     if (shouldVerify?.value) {
-      await testConnection(context, profile);
+      await verifyProfileConnection(context, profile);
     }
     
     // If assistants are mapped, ask about re-applying configuration
@@ -1038,78 +950,6 @@ async function reassignMappedAssistantsToProfile(
 }
 
 /**
- * Tests connection to a profile's endpoint.
- */
-async function testConnection(context: vscode.ExtensionContext, profile: EndpointProfile): Promise<void> {
-  const logger = Logger.getInstance();
-  const profileStore = new ProfileStore(context);
-  const profileSecrets = new ProfileSecrets(context);
-  let completionNotification:
-    | { kind: 'success' | 'warning' | 'error'; message: string }
-    | undefined;
-  
-  await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification,
-    title: `Testing connection to ${profile.name}...`,
-    cancellable: false
-  }, async () => {
-    const verifier = new Verifier();
-    const remoteContext = detectRemote(profile.baseUrl);
-    const authToken = profile.authRef ? await profileSecrets.getSecret(profile.authRef) : undefined;
-    
-    try {
-      const report = await verifier.runVerificationPipeline(profile, {
-        includeTestPrompt: false,
-        remoteContext,
-        authToken
-      });
-      
-      // Update profile with verification timestamp
-      profile.lastVerified = report.timestamp;
-      await profileStore.saveProfile(profile);
-      
-      // Show results
-      displayVerificationResults(report);
-      
-      if (report.overallStatus === 'passed') {
-        completionNotification = {
-          kind: 'success',
-          message: `Connection to "${profile.name}" verified successfully!`
-        };
-      } else if (report.overallStatus === 'partial') {
-        completionNotification = {
-          kind: 'warning',
-          message: `Connection to "${profile.name}" has warnings. Check output for details.`
-        };
-      } else {
-        completionNotification = {
-          kind: 'error',
-          message: `Connection to "${profile.name}" failed. Check output for details.`
-        };
-      }
-    } catch (error) {
-      logger.error('Verification failed', error instanceof Error ? error : undefined);
-      completionNotification = {
-        kind: 'error',
-        message: `Verification error: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
-  });
-
-  if (!completionNotification) {
-    return;
-  }
-
-  if (completionNotification.kind === 'success') {
-    await showSuccess(completionNotification.message);
-  } else if (completionNotification.kind === 'warning') {
-    await showWarning(completionNotification.message);
-  } else {
-    await showError(completionNotification.message);
-  }
-}
-
-/**
  * Sets the default active profile.
  */
 async function setDefaultProfile(
@@ -1149,6 +989,8 @@ async function setDefaultProfile(
   }
 
   logger.info(`Profile activation requested from Manage Profiles: ${selected.profile.name}`);
+
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
   
   await showMainMenu(context);
 }
@@ -1164,7 +1006,7 @@ async function viewMappedAssistants(
   const profileMappings = allMappings.filter(m => m.profileId === profile.id);
   
   if (profileMappings.length === 0) {
-    await vscode.window.showInformationMessage(`No assistants are currently mapped to "${profile.name}"`);
+    await showInfo(`No assistants are currently mapped to "${profile.name}"`);
     return;
   }
   
@@ -1178,47 +1020,6 @@ async function viewMappedAssistants(
     title: `Assistants Using: ${profile.name}`,
     placeHolder: `${profileMappings.length} assistant${profileMappings.length !== 1 ? 's' : ''} mapped to this profile`
   });
-}
-
-/**
- * Displays verification results in the output channel.
- */
-function displayVerificationResults(report: VerificationReport): void {
-  const output = getOutputChannel();
-  
-  output.appendLine('');
-  output.appendLine('='.repeat(60));
-  output.appendLine(`Verification Report: ${report.profileName}`);
-  output.appendLine(`Base URL: ${report.baseUrl}`);
-  output.appendLine(`Dialect: ${report.dialect}`);
-  output.appendLine(`Timestamp: ${report.timestamp}`);
-  output.appendLine(`Overall Status: ${report.overallStatus.toUpperCase()}`);
-  output.appendLine('='.repeat(60));
-  
-  for (const step of report.steps) {
-    const icon = step.status === 'passed' ? '✓' : 
-                 step.status === 'failed' ? '✗' : 
-                 step.status === 'warning' ? '⚠' : '○';
-    output.appendLine(`${icon} ${step.name}: ${step.message}`);
-    if (step.duration) {
-      output.appendLine(`  Duration: ${step.duration}ms`);
-    }
-  }
-  
-  if (report.actionableErrors.length > 0) {
-    output.appendLine('');
-    output.appendLine('Errors:');
-    report.actionableErrors.forEach((err: string) => output.appendLine(`  - ${err}`));
-  }
-  
-  if (report.suggestions.length > 0) {
-    output.appendLine('');
-    output.appendLine('Suggestions:');
-    report.suggestions.forEach((sug: string) => output.appendLine(`  - ${sug}`));
-  }
-  
-  output.appendLine('='.repeat(60));
-  output.show();
 }
 
 /**
