@@ -4,7 +4,7 @@
   "description": "Configure AI coding assistants to route through enterprise-approved LLM endpoints. Supports Continue, Cline, Roo Code, Kilo Code, Codex CLI, and more.",
   "version": "1.4.2",
   "publisher": "aidome",
-  "icon": "resources/icon.png",
+  "icon": "resources/aidome-marketplace-icon.png",
   "galleryBanner": {
     "color": "#1e1e2e",
     "theme": "dark"
@@ -101,6 +101,10 @@
       {
         "command": "aidome-switchboard.setupSwitchboard",
         "title": "Setup Endpoint Switchboard",
+        "icon": {
+          "dark": "resources/aidome-marketplace-icon.png",
+          "light": "resources/aidome-marketplace-icon.png"
+        },
         "category": "AIdome"
       },
       {
@@ -145,12 +149,22 @@
         "category": "AIdome"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aidome-switchboard",
+          "title": "AIdome",
+          "icon": "resources/aidome-activitybar-icon.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "aidome-switchboard": [
         {
           "id": "aidome-switchboard.assistantsView",
-          "name": "AIdome Assistants",
-          "contextualTitle": "AIdome Endpoint Switchboard"
+          "name": "Assistants",
+          "contextualTitle": "AIdome Endpoint Switchboard",
+          "icon": "resources/aidome-marketplace-icon.png"
         }
       ]
     },
@@ -163,9 +177,14 @@
     "menus": {
       "view/title": [
         {
+          "command": "aidome-switchboard.setupSwitchboard",
+          "when": "view == aidome-switchboard.assistantsView",
+          "group": "navigation@1"
+        },
+        {
           "command": "aidome-switchboard.refreshAssistantsView",
           "when": "view == aidome-switchboard.assistantsView",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },

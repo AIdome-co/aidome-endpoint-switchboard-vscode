@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added the AIdome logo as the extension's root marketplace icon and the activity-bar/view icon, and renamed the custom view to `Assistants`.
+
 ## [1.4.2] - 2026-05-25
 
 - Promoted Claude Code to Tier A because profile activation now rewrites its shared gateway settings and Anthropic auth token automatically; the remaining restart guidance is advisory only.
