@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added the AIdome logo as the extension's root marketplace icon and the activity-bar/view icon, and renamed the custom view to `Assistants`.
 - Added the same profile-creation `Auto-detect` dialect option to the Setup Wizard, clarifying that it defaults to `openai.chat_completions` and does not probe the endpoint.
 - Unified the Setup Wizard and Manage Profiles create-profile flows so both collect profile type, optional tenant, and conditional authentication in the same order.
 - Fixed Setup Wizard profile verification to test only the selected profile, and clarified nested profile-creation progress titles inside the wizard.
