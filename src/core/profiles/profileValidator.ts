@@ -14,6 +14,23 @@ export interface ValidationResult {
 }
 
 /**
+ * Validates a user-entered endpoint URL for create/edit prompts.
+ * Allows any parseable http/https URL while rejecting unsafe or irrelevant schemes.
+ * @param url The URL to validate
+ * @returns True if valid for user input, false otherwise
+ */
+export function validateInputUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const protocol = parsed.protocol.toLowerCase();
+
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Validates an endpoint URL.
  * Rejects dangerous schemes like javascript:, data:, file:.
  * @param url The URL to validate

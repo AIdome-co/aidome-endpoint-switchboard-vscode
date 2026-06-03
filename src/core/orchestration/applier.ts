@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
 import { createBackup, safeWriteFile } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
+import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
@@ -310,7 +311,7 @@ export class PlanApplier {
       : undefined;
 
     if (!anthropicAuthToken && data.clearAuthWhenMissing === true) {
-      void vscode.window.showWarningMessage(
+      void showWarning(
         `Claude Code auth token was cleared for "${profileName}" because no saved profile secret was found.`
       );
     }

@@ -547,7 +547,7 @@ function formatLegacyMarkdown(report: DiagnosticReport): string {
       lines.push('Checks:');
       if (Array.isArray(verResult.checks)) {
         for (const check of verResult.checks) {
-          const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '○';
+          const icon = check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : check.status === 'warn' ? '⚠' : '○';
           lines.push(`- ${icon} ${check.name}: ${check.message}`);
         }
       }

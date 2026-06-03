@@ -168,6 +168,8 @@ vi.mock('../../src/util/errors', () => ({
 }));
 
 vi.mock('../../src/ui/notifications', () => ({
+  showInfo: mockShowInformationMessage,
+  showError: mockShowErrorMessage,
   handleBoundaryOutcome: mockHandleBoundaryOutcome,
 }));
 

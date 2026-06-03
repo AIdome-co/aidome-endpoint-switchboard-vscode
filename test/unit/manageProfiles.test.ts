@@ -23,6 +23,7 @@ const {
   mockActivateProfileAndReapplyMappings,
   mockGetProfileActivationNotice,
   mockAssignProfileAssistants,
+  mockShowModelsProviders,
   mockGetSecret,
   mockDeleteSecret,
   mockStoreSecret,
@@ -51,6 +52,7 @@ const {
   mockActivateProfileAndReapplyMappings: vi.fn(),
   mockGetProfileActivationNotice: vi.fn(),
   mockAssignProfileAssistants: vi.fn(),
+  mockShowModelsProviders: vi.fn(),
   mockGetSecret: vi.fn(),
   mockDeleteSecret: vi.fn(),
   mockStoreSecret: vi.fn(),
@@ -63,9 +65,9 @@ vi.mock('vscode', () => ({
   window: {
     showQuickPick: mockShowQuickPick,
     showInputBox: mockShowInputBox,
-    showInformationMessage: vi.fn(),
-    showWarningMessage: vi.fn(),
-    showErrorMessage: vi.fn(),
+    showInformationMessage: mockShowSuccess,
+    showWarningMessage: mockShowWarning,
+    showErrorMessage: mockShowError,
     withProgress: mockWithProgress
   },
   ProgressLocation: { Notification: 15 },
@@ -132,6 +134,9 @@ vi.mock('../../src/ui/statusBar', () => ({
 }));
 
 vi.mock('../../src/ui/notifications', () => ({
+  showBlockingSuccess: mockShowSuccess,
+  showBlockingWarning: mockShowWarning,
+  showBlockingError: mockShowError,
   showSuccess: mockShowSuccess,
   showWarning: mockShowWarning,
   showError: mockShowError
@@ -139,6 +144,10 @@ vi.mock('../../src/ui/notifications', () => ({
 
 vi.mock('../../src/commands/assignProfileAssistants', () => ({
   assignProfileAssistants: mockAssignProfileAssistants
+}));
+
+vi.mock('../../src/commands/showModelsProviders', () => ({
+  showModelsProviders: mockShowModelsProviders
 }));
 
 vi.mock('../../src/commands/activateProfile', () => ({
@@ -194,6 +203,7 @@ describe('manageProfiles edit reapply flow', () => {
     mockActivateProfileAndReapplyMappings.mockReset();
     mockGetProfileActivationNotice.mockReset();
     mockAssignProfileAssistants.mockReset();
+    mockShowModelsProviders.mockReset();
     mockWithProgress.mockImplementation(async (_options, task) => task({ report: vi.fn() }));
     mockGetProfiles.mockResolvedValue([profile]);
     mockGetAssistantMappings.mockResolvedValue([
@@ -333,6 +343,36 @@ describe('manageProfiles edit reapply flow', () => {
     await manageProfiles(context);
 
     expect(mockAssignProfileAssistants).toHaveBeenCalledWith(context, profile.id);
+  });
+
+  it('routes Show Models & Providers through the profile-scoped command', async () => {
+    mockShowQuickPick.mockReset();
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
+      .mockResolvedValueOnce({ label: '$(gear) Show Models & Providers' })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const context = {} as any;
+    await manageProfiles(context);
+
+    expect(mockShowModelsProviders).toHaveBeenCalledWith(context, profile.id);
+  });
+
+  it('shows Delete Profile as the last profile action', async () => {
+    mockShowQuickPick.mockReset();
+    mockGetAssistantMappings.mockResolvedValue([]);
+    mockShowQuickPick
+      .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    await manageProfiles({} as any);
+
+    const profileActionItems = mockShowQuickPick.mock.calls[1]?.[0] as Array<{ label: string }>;
+    expect(profileActionItems.at(-1)?.label).toBe('$(trash) Delete Profile');
+    expect(profileActionItems.at(-2)?.label).toBe('$(link) View Mapped Assistants (0)');
   });
 
   it('activates the selected profile from the Set Active Profile flow and shows the activation notice', async () => {
