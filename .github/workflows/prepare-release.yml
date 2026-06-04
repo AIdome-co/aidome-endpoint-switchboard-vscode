@@ -149,4 +149,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           TARGET_TAG: ${{ steps.version.outputs.target_tag }}
-        run: gh workflow run release.yml --repo "$REPO" --ref main -f tag="$TARGET_TAG"
+        run: gh workflow run release.yml --repo "$REPO" --ref main -f tag="$TARGET_TAG" -f publish_registries=true
