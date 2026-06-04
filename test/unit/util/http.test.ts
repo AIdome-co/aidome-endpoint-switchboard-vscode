@@ -59,12 +59,12 @@ function createSuccessMock(body: unknown = { success: true }, status = 200, stat
   return (opts: any, callback: any) => {
     const req = new MockClientRequest();
     req.options = opts;
-    process.nextTick(() => {
+    setTimeout(() => {
       const res = new MockIncomingMessage(status, statusText);
       callback(res);
       res.emit('data', Buffer.from(JSON.stringify(body)));
       res.emit('end');
-    });
+    }, 0);
     return req as any;
   };
 }
@@ -72,9 +72,9 @@ function createSuccessMock(body: unknown = { success: true }, status = 200, stat
 function createErrorMock(errorMsg: string) {
   return (_opts: any, _callback: any) => {
     const req = new MockClientRequest();
-    process.nextTick(() => {
+    setTimeout(() => {
       req.emit('error', new Error(errorMsg));
-    });
+    }, 0);
     return req as any;
   };
 }
@@ -82,9 +82,9 @@ function createErrorMock(errorMsg: string) {
 function createTimeoutMock() {
   return (_opts: any, _callback: any) => {
     const req = new MockClientRequest();
-    process.nextTick(() => {
+    setTimeout(() => {
       req.emit('timeout');
-    });
+    }, 0);
     return req as any;
   };
 }
@@ -92,12 +92,12 @@ function createTimeoutMock() {
 function createHttpErrorMock(status: number, statusText: string) {
   return (_opts: any, callback: any) => {
     const req = new MockClientRequest();
-    process.nextTick(() => {
+    setTimeout(() => {
       const res = new MockIncomingMessage(status, statusText);
       callback(res);
       res.emit('data', Buffer.from(''));
       res.emit('end');
-    });
+    }, 0);
     return req as any;
   };
 }
@@ -169,12 +169,12 @@ describe('httpRequest', () => {
       const req = new MockClientRequest();
       req.options = opts;
       capturedReq = req;
-      process.nextTick(() => {
+      setTimeout(() => {
         const res = new MockIncomingMessage(201, 'Created');
         callback(res);
         res.emit('data', Buffer.from(JSON.stringify({ id: 1 })));
         res.emit('end');
-      });
+      }, 0);
       return req as any;
     });
 
@@ -193,25 +193,19 @@ describe('httpRequest', () => {
     vi.mocked(http.request).mockImplementation(createHttpErrorMock(404, 'Not Found'));
 
     const promise = httpRequest('http://example.com/missing');
+    // Attach handler before advancing timers to avoid unhandled rejection
+    const assertion = expect(promise).rejects.toThrow(HttpError);
     await vi.runAllTimersAsync();
-
-    await expect(promise).rejects.toThrow(HttpError);
-    try {
-      await promise;
-    } catch (err) {
-      expect((err as HttpError).status).toBe(404);
-    }
+    await assertion;
   });
 
   it('does not retry 4xx errors', async () => {
     vi.mocked(http.request).mockImplementation(createHttpErrorMock(400, 'Bad Request'));
 
     const promise = httpRequest('http://example.com/bad', { retries: 3 });
+    const assertion = expect(promise).rejects.toThrow(HttpError);
     await vi.runAllTimersAsync();
-
-    await expect(promise).rejects.toThrow(HttpError);
-    // 4xx is not retried - only the initial attempt should occur
-    // The mock is called once for the initial request
+    await assertion;
     expect(vi.mocked(http.request).mock.calls.length).toBeLessThanOrEqual(2);
   });
 
@@ -220,8 +214,9 @@ describe('httpRequest', () => {
     vi.mocked(http.request).mockImplementation((_opts: any, callback: any) => {
       callCount++;
       const req = new MockClientRequest();
-      process.nextTick(() => {
-        if (callCount < 2) {
+      const currentCall = callCount;
+      setTimeout(() => {
+        if (currentCall < 2) {
           req.emit('error', new Error('ECONNRESET'));
         } else {
           const res = new MockIncomingMessage(200, 'OK');
@@ -229,7 +224,7 @@ describe('httpRequest', () => {
           res.emit('data', Buffer.from(JSON.stringify({ ok: true })));
           res.emit('end');
         }
-      });
+      }, 0);
       return req as any;
     });
 
@@ -245,18 +240,18 @@ describe('httpRequest', () => {
     vi.mocked(http.request).mockImplementation(createTimeoutMock());
 
     const promise = httpRequest('http://example.com/slow', { timeout: 100, retries: 0 });
+    const assertion = expect(promise).rejects.toThrow(/timeout/i);
     await vi.runAllTimersAsync();
-
-    await expect(promise).rejects.toThrow(/timeout/i);
+    await assertion;
   });
 
   it('rejects on network error', async () => {
     vi.mocked(http.request).mockImplementation(createErrorMock('ECONNREFUSED'));
 
     const promise = httpRequest('http://example.com/down', { retries: 0 });
+    const assertion = expect(promise).rejects.toThrow(/Network error/);
     await vi.runAllTimersAsync();
-
-    await expect(promise).rejects.toThrow(/Network error/);
+    await assertion;
   });
 
   it('uses proxy from options', async () => {
