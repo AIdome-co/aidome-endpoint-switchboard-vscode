@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added unit tests for 9 previously untested or under-tested modules (http, statusBar, settingsScanner, continue/paths, detectCLIs, detectExtensions, authSchemes, dialectRules, profileSecrets) — 111 new tests.
+
 ## [1.4.5] - 2026-06-04
 
 ## [1.4.4] - 2026-06-04
