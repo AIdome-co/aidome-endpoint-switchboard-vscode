@@ -17,6 +17,16 @@ vi.mock('../../src/util/paths', () => ({
   expandTilde: (path: string) => path.replace('~', '/home/user'),
   getConfigDir: (appName: string) => `/home/user/.${appName.toLowerCase()}`
 }));
+vi.mock('../../src/util/log', () => ({
+  Logger: {
+    getInstance: vi.fn(() => ({
+      info: vi.fn(),
+      debug: vi.fn(),
+      warning: vi.fn(),
+      error: vi.fn(),
+    })),
+  },
+}));
 
 describe('Claude Code Config Patcher', () => {
   let mockProfile: EndpointProfile;

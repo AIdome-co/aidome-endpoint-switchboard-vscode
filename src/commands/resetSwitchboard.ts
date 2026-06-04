@@ -417,14 +417,17 @@ async function undoVSCodeSetting(settingKey: string, oldValue: unknown): Promise
  * Undoes a config file change.
  */
 async function undoConfigFile(filePath: string, oldValue: unknown, backupPath?: string): Promise<void> {
+  const logger = Logger.getInstance();
   if (backupPath) {
     try {
       // Try to restore from backup file
       const backupContent = await fs.promises.readFile(backupPath, 'utf-8');
       await safeWriteFile(filePath, backupContent);
       return;
-    } catch {
-      // Backup file doesn't exist or can't be read, fall through to oldValue
+    } catch (error) {
+      logger.warning(
+        `Could not restore from backup ${backupPath}, falling back to old value: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
   

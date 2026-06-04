@@ -501,8 +501,8 @@ export class Verifier {
             duration: Date.now() - startTime
           };
         }
-      } catch {
-        // Try next endpoint
+      } catch (error) {
+        this.logger.debug(`Health probe failed for ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     
@@ -689,11 +689,13 @@ export class Verifier {
         },
         duration: Date.now() - startTime
       };
-    } catch {
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.debug(`Dialect validation failed: ${errorMsg}`);
       return {
         name: 'dialect-validation',
         status: 'skipped',
-        message: 'Could not validate dialect (endpoint unreachable)',
+        message: `Could not validate dialect (endpoint unreachable): ${errorMsg}`,
         duration: Date.now() - startTime
       };
     }

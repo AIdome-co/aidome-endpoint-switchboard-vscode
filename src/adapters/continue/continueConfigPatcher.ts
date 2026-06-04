@@ -42,7 +42,11 @@ export async function patchContinueConfig(
   if (content) {
     try {
       config = JSON.parse(content);
-    } catch {
+    } catch (error) {
+      const { Logger } = await import('../../util/log');
+      Logger.getInstance().warning(
+        `Continue.dev config at ${configPath} is malformed JSON, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
+      );
       config = {};
     }
   } else {

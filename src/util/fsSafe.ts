@@ -6,6 +6,15 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 /**
+ * Lazily resolves the Logger to avoid a static dependency on `vscode`
+ * (which would break pure-Node unit tests).
+ */
+async function getLogger() {
+  const { Logger } = await import('./log');
+  return Logger.getInstance();
+}
+
+/**
  * Safely reads a file.
  * @param filePath The file path
  * @returns Promise resolving to file content or undefined
@@ -13,7 +22,11 @@ import * as path from 'path';
 export async function readFileSafe(filePath: string): Promise<string | undefined> {
   try {
     return await fs.readFile(filePath, 'utf-8');
-  } catch {
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      const logger = await getLogger();
+      logger.warning(`Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return undefined;
   }
 }
@@ -75,10 +88,11 @@ export async function writeFileAtomic(filePath: string, content: string, retries
         continue;
       }
       
-      // User-friendly error message for lock errors
+      const logger = await getLogger();
       if (isLockError) {
-        const logger = await import('./log').then(m => m.Logger.getInstance());
         logger.error(`File is locked and cannot be written: ${filePath}. Please close any applications using this file and try again.`);
+      } else {
+        logger.warning(`Failed to write file atomically ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
       
       return false;
@@ -121,10 +135,11 @@ export async function safeWriteFile(filePath: string, content: string, retries: 
         continue;
       }
       
-      // User-friendly error message for lock errors
+      const logger = await getLogger();
       if (isLockError) {
-        const logger = await import('./log').then(m => m.Logger.getInstance());
         logger.error(`File is locked and cannot be written: ${filePath}. Please close any applications using this file and try again.`);
+      } else {
+        logger.warning(`Failed to write file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
       
       return false;
@@ -155,7 +170,11 @@ export async function createBackup(filePath: string): Promise<string | undefined
     const backupPath = `${realPath}.backup.${timestamp}`;
     await fs.copyFile(realPath, backupPath);
     return backupPath;
-  } catch {
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      const logger = await getLogger();
+      logger.warning(`Failed to create backup of ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return undefined;
   }
 }
@@ -169,7 +188,9 @@ export async function ensureDir(dirPath: string): Promise<boolean> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
     return true;
-  } catch {
+  } catch (error) {
+    const logger = await getLogger();
+    logger.warning(`Failed to ensure directory ${dirPath}: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }
@@ -199,7 +220,11 @@ export async function safeCopyFile(source: string, destination: string): Promise
     await fs.mkdir(path.dirname(destination), { recursive: true });
     await fs.copyFile(source, destination);
     return true;
-  } catch {
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      const logger = await getLogger();
+      logger.warning(`Failed to copy ${source} to ${destination}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return false;
   }
 }
@@ -215,4 +240,14 @@ export async function backupFile(filePath: string): Promise<string | undefined> 
   
   const success = await safeCopyFile(filePath, backupPath);
   return success ? backupPath : undefined;
+}
+
+/**
+ * Checks whether a filesystem error means the target path does not exist.
+ */
+export function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'ENOENT';
 }

@@ -161,6 +161,7 @@ export class Switchboard {
       this.logger.info(`Applied ${result.appliedSteps.length} step(s) in ${timer.stop()}ms`);
       
       // Update mappings in profile store
+      const mappingFailures: string[] = [];
       for (const step of result.appliedSteps) {
         try {
           await this.profileStore.saveAssistantMapping({
@@ -171,7 +172,14 @@ export class Switchboard {
           });
         } catch (error) {
           this.logger.error(`Failed to save mapping for ${step.assistantKey}`, error instanceof Error ? error : undefined);
+          mappingFailures.push(step.assistantKey);
         }
+      }
+      if (mappingFailures.length > 0) {
+        this.logger.warning(
+          `Configuration was applied but ${mappingFailures.length} mapping(s) could not be persisted: ${mappingFailures.join(', ')}. ` +
+          'These assistants may not appear as mapped in the UI until the next successful apply.'
+        );
       }
     }
 

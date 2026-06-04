@@ -113,8 +113,13 @@ function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as ClaudeCodeSettings;
     }
-  } catch {
-    // If parse fails, start with empty settings.
+  } catch (error) {
+    // Fire-and-forget: log the parse failure without blocking the sync call path
+    void import('../../util/log').then(({ Logger }) =>
+      Logger.getInstance().warning(
+        `Claude Code settings file is malformed, starting with empty settings: ${error instanceof Error ? error.message : String(error)}`
+      )
+    );
   }
 
   return {};

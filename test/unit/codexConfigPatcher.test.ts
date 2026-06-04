@@ -11,6 +11,16 @@ vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
   expandTilde: (path: string) => path.replace('~', '/home/user')
 }));
+vi.mock('../../src/util/log', () => ({
+  Logger: {
+    getInstance: vi.fn(() => ({
+      info: vi.fn(),
+      debug: vi.fn(),
+      warning: vi.fn(),
+      error: vi.fn(),
+    })),
+  },
+}));
 
 describe('Codex Config Patcher', () => {
   let mockProfile: EndpointProfile;
