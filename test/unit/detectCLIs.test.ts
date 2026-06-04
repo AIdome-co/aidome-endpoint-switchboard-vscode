@@ -4,6 +4,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('vscode', () => ({
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn(),
+    })),
+  },
+}));
+
 vi.mock('child_process', () => ({
   execFile: vi.fn(),
 }));
@@ -19,6 +27,8 @@ import { detectCLIs, detectCli } from '../../src/core/detection/detectCLIs';
 import type { AssistantRegistry } from '../../src/core/registry/registryTypes';
 
 const execFileMock = vi.mocked(execFile);
+const isWindows = process.platform === 'win32';
+const whichCommand = isWindows ? 'where' : 'which';
 
 function mockExecFileSuccess(stdout: string) {
   return (_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
@@ -57,14 +67,13 @@ describe('detectCLIs', () => {
       ],
     };
 
-    // Mock `which codex` succeeds, `codex --version` succeeds
     execFileMock.mockImplementation(((
       cmd: string,
       args: string[],
       opts: unknown,
       cb?: Function
     ) => {
-      if (args[0] === 'codex' && cmd === 'which') {
+      if (cmd === whichCommand && args[0] === 'codex') {
         cb?.(null, { stdout: '/usr/local/bin/codex\n' });
       } else if (cmd === 'codex' && args[0] === '--version') {
         cb?.(null, { stdout: 'codex 1.2.3\n' });
@@ -120,7 +129,7 @@ describe('detectCLIs', () => {
     };
 
     execFileMock.mockImplementation(((cmd: string, args: string[], _opts: unknown, cb?: Function) => {
-      if (cmd === 'which' && args[0] === 'gemini') {
+      if (cmd === whichCommand && args[0] === 'gemini') {
         cb?.(null, { stdout: '/usr/bin/gemini\n' });
       } else {
         cb?.(new Error('no version'));
@@ -148,7 +157,7 @@ describe('detectCLIs', () => {
     };
 
     execFileMock.mockImplementation(((cmd: string, args: string[], _opts: unknown, cb?: Function) => {
-      if (cmd === 'which') {
+      if (cmd === whichCommand) {
         cb?.(null, { stdout: '/usr/bin/codex\n' });
       } else {
         cb?.(new Error('no version'));
