@@ -145,13 +145,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
     const config = vscode.workspace.getConfiguration();
-    let settingKeys: string[];
-
-    try {
-      settingKeys = this.discoverSettingKeys();
-    } catch {
-      settingKeys = [];
-    }
+    const settingKeys = this.discoverSettingKeys();
 
     if (settingKeys.length === 0) {
       return {
