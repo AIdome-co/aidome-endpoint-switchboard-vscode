@@ -10,19 +10,19 @@
  * Verified against: openai/codex v0.124.0 repository as of 2026-04-24.
  */
 
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath } from './codexConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
-import { Logger } from '../../util/log';
 
 /**
  * OpenAI Codex CLI adapter.
  */
-export class CodexAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class CodexAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = '';
 
   async detect(): Promise<boolean> {
     try {
@@ -37,7 +37,6 @@ export class CodexAdapter implements AssistantAdapter {
     const configPath = getCodexConfigPath();
     let plan = createPlan(profile.id, ['openai-codex']);
 
-    // Check if config file exists and back it up if it does
     const configExists = await fileExists(configPath);
     if (configExists) {
       plan = addStep(plan, {
@@ -50,9 +49,6 @@ export class CodexAdapter implements AssistantAdapter {
       });
     }
 
-    // Add step to edit config file
-    // Note: wireApi 'responses' refers to OpenAI's /v1/responses API (Codex's primary dialect)
-    // as opposed to 'chat' which would use /v1/chat/completions
     plan = addStep(plan, {
       action: 'edit-config-file',
       description: `Set Codex provider to ${profile.baseUrl}`,
@@ -65,12 +61,11 @@ export class CodexAdapter implements AssistantAdapter {
         baseUrl: profile.baseUrl,
         format: 'toml',
         providerName: 'aidome',
-        wireApi: 'responses' // OpenAI Responses API (Codex's preferred wire format)
+        wireApi: 'responses'
       },
       reversible: true
     });
 
-    // Add environment variable fallback
     plan = addStep(plan, {
       action: 'set-env-var',
       description: 'Set OPENAI_BASE_URL environment variable (fallback)',
@@ -84,7 +79,6 @@ export class CodexAdapter implements AssistantAdapter {
       reversible: true
     });
 
-    // Add verification step
     plan = addStep(plan, {
       action: 'verify-endpoint',
       description: 'Verify Codex configuration',
@@ -96,49 +90,34 @@ export class CodexAdapter implements AssistantAdapter {
     return plan;
   }
 
-  async apply(plan: Plan): Promise<void> {
-    // Actual application is handled by the PlanApplier
-    return Promise.resolve();
-  }
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const configPath = getCodexConfigPath();
+    const content = await readFileSafe(configPath);
 
-  async verify(): Promise<VerificationResult> {
-    try {
-      const configPath = getCodexConfigPath();
-      const content = await readFileSafe(configPath);
-
-      if (!content) {
-        return {
-          success: false,
-          message: 'Codex config file not found',
-          details: { configPath }
-        };
-      }
-
-      // Check if config contains provider configuration
-      // Looking for [providers.aidome] section or similar
-      const hasProviderConfig = content.includes('[providers.') && 
-                                (content.includes('base_url') || content.includes('base-url'));
-
-      if (!hasProviderConfig) {
-        return {
-          success: false,
-          message: 'Codex config does not have provider base_url configured',
-          details: { configPath }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Codex configuration verified',
-        details: { configPath }
-      };
-    } catch (error) {
+    if (!content) {
       return {
         success: false,
-        message: `Error verifying Codex config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: 'Codex config file not found',
+        details: { configPath }
       };
     }
+
+    const hasProviderConfig = content.includes('[providers.') && 
+                              (content.includes('base_url') || content.includes('base-url'));
+
+    if (!hasProviderConfig) {
+      return {
+        success: false,
+        message: 'Codex config does not have provider base_url configured',
+        details: { configPath }
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Codex configuration verified',
+      details: { configPath }
+    };
   }
 
   getDisplayName(): string {
