@@ -1,5 +1,14 @@
 # Enterprise Installation Guide
 
+## Recommended Enterprise Rollout
+
+1. **Pilot first** with a small group that represents your operating systems, remote-development modes, and target assistants.
+2. **Package or allowlist** the extension ID `aidome.aidome-endpoint-switchboard` through your standard VS Code extension-management policy.
+3. **Distribute profile values** out-of-band: gateway URL, dialect, tenant naming, and token-request process. Do not pre-place API tokens in files or settings.
+4. **Publish network prerequisites** for VPN, proxy, DNS, firewall, and internal CA trust before broad rollout.
+5. **Ask users to verify routes** after setup and after any gateway, certificate, or assistant extension upgrade.
+6. **Collect redacted diagnostics** only when troubleshooting; diagnostics are designed for support review but should still be handled as operational data.
+
 ## Installing from .vsix (Air-Gapped / Offline)
 
 For environments without internet access:
@@ -17,7 +26,7 @@ To allowlist this extension in your organization's VS Code policy:
 
 ### Settings Sync
 
-The extension stores profiles in VS Code's `globalState`, which is not synced via Settings Sync by default. This is by design — endpoint configurations should be environment-specific.
+The extension stores profiles in VS Code's `globalState`, which is not synced via Settings Sync by default. API tokens are stored separately in VS Code SecretStorage. This is by design: endpoint configurations and credentials should remain environment-specific, especially when users move between local and remote VS Code contexts.
 
 ### Proxy Configuration
 
@@ -82,9 +91,10 @@ For full details per assistant, see the `tlsVerification` field in `src/core/reg
 
 Currently, profiles are per-user (stored in globalState). For org-wide defaults:
 
-1. Distribute a profile configuration document to your team
-2. Each user creates the profile via the wizard
-3. Use "Export Diagnostics" to verify consistent configuration
+1. Distribute a profile configuration document to your team with the approved profile name, base URL, dialect, optional tenant, and supported assistant list.
+2. Each user creates the profile via the wizard and stores their own token in SecretStorage.
+3. Ask users to run "AIdome: Verify All Profile Routes" after setup.
+4. Use "Export Diagnostics" only for support cases where you need to verify consistent configuration.
 
 Future versions may support `.aidome-profile.json` workspace files for team-shared configurations.
 

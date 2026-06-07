@@ -1,5 +1,17 @@
 # Administrator Guide
 
+## Administrator Rollout Checklist
+
+Use this checklist before asking developers to run the Setup Wizard:
+
+1. **Publish the gateway base URL** developers should enter, including whether it already includes `/v1`.
+2. **Document the required dialect** for each gateway front door, especially if Claude Code needs an Anthropic Messages-compatible route.
+3. **Define token handling**: who issues user tokens, expected rotation cadence, and where users request replacements.
+4. **Validate network reachability** from common environments: local desktop, VPN, SSH remotes, Dev Containers, WSL, and Codespaces.
+5. **Decide TLS policy**: prefer trusted internal CAs; only allow `aidome-switchboard.advanced.tlsVerify: false` for explicitly approved internal endpoints.
+6. **Tell users which assistants to assign** to the production profile so unsupported or experimental tools remain guided or informational.
+7. **Ask users to export diagnostics** after first setup and verify the report is redacted before sharing it with support.
+
 ## Setting Up Profiles for Your Organization
 
 ### Recommended Profile Configuration
@@ -21,7 +33,7 @@
 | Roo Code | Tier A — auto-configure | Sets VS Code settings |
 | Kilo Code | Tier A — auto-configure | Sets VS Code settings |
 | Codex CLI | Tier A — auto-configure | Patches `~/.codex/config.toml` or env vars |
-| Claude Code | Tier B — config file + guided auth | Requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
+| Claude Code | Tier A — auto-configure | Rewrites Claude Code user settings and gateway bearer token; requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
 | CodeGPT | Tier B — verify after | May need manual model selection |
 | Others | Tier C — guided | Follow OutputChannel instructions |
 
@@ -141,10 +153,12 @@ Switch between them as needed.
 
 If users encounter issues:
 
-1. Run **"AIdome: Export Diagnostics"**
-2. Share the redacted JSON report with your support team
-3. Check gateway logs for connection attempts
-4. Verify network connectivity with `curl` or `wget`
+1. Run **"AIdome: Verify All Profile Routes"** and capture the failing step name.
+2. Run **"AIdome: Export Diagnostics"**.
+3. Review the exported JSON locally and confirm tokens, endpoint credentials, and user-specific paths are redacted before sharing.
+4. Share the redacted JSON report with your support team.
+5. Check gateway logs for connection attempts from the affected machine or remote host.
+6. Verify network connectivity with `curl` or `wget`.
 
 Example verification:
 ```bash

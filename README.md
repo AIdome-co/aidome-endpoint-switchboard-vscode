@@ -103,6 +103,19 @@ Different AI providers use different API protocols. The Switchboard understands 
 
 ## Quick Start
 
+### Before You Begin
+
+Have these values ready before running the wizard:
+
+| Value | Why it matters | Example |
+|-------|----------------|---------|
+| Gateway base URL | The endpoint each assistant should call after configuration | `https://llm-gateway.yourorg.com` |
+| Dialect | The API protocol exposed by that gateway front door | `openai.chat_completions` |
+| API token | Stored in VS Code SecretStorage and applied only where the assistant needs it | `aidome_...` |
+| Target assistants | Determines which adapters the wizard should apply and which ones need guided steps | Continue, Cline, Codex CLI |
+
+> Tip: for most OpenAI-compatible gateways, choose **Auto-detect** or `openai.chat_completions`. Auto-detect currently selects the default dialect for profile creation; it does not probe or mutate your gateway.
+
 ### 1. Install the Extension
 
 Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releases](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/releases).
@@ -121,6 +134,13 @@ Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releas
 
 Your AI assistants now route through your approved endpoint. No additional steps needed!
 
+### Day-to-Day Workflow
+
+- Use **AIdome: Activate Profile** when switching between development, staging, and production gateways. Activation reapplies automated assistant mappings for the selected profile.
+- Use **AIdome: Show Models & Providers** after a gateway change to confirm the model inventory visible to the active profile.
+- Use **AIdome: Verify All Profile Routes** before filing support tickets; it checks local profile data, DNS, TLS, reachability, optional health endpoints, model listing, and dialect compatibility.
+- Use **AIdome: Reset Switchboard** only when you intentionally want to remove Switchboard-managed changes and restore backups.
+
 ---
 
 ## Commands
@@ -132,7 +152,9 @@ All commands available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `AIdome: Setup Switchboard` | Launch the configuration wizard |
 | `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity (7-step pipeline) |
 | `AIdome: Show Models & Providers` | View available models from your gateway |
-| `AIdome: Manage Profiles` | Create, edit, delete endpoint profiles |
+| `AIdome: Manage Profiles` | Create, edit, delete, inspect, or run per-profile model discovery |
+| `AIdome: Activate Profile` | Switch the active profile and reapply automated assistant mappings |
+| `AIdome: Assign Assistants to Profile` | Choose which detected assistants should use a profile |
 | `AIdome: Reset Switchboard` | Undo changes, restore backups |
 | `AIdome: Export Diagnostics` | Generate a redacted diagnostic report |
 
@@ -164,7 +186,19 @@ Profiles store your endpoint configuration:
 - **Auth**: API key (stored in SecretStorage, never in plain text)
 - **Tenant** (optional): Organization or team identifier
 
-Profiles are stored in VS Code's `globalState` and persist across sessions.
+Profiles are stored in VS Code's `globalState` and persist across sessions. API tokens are stored separately in VS Code SecretStorage.
+
+### What the Switchboard Changes
+
+When you apply a profile, the extension only changes configuration surfaces for selected assistants:
+
+| Surface | Examples | Safety behavior |
+|---------|----------|-----------------|
+| VS Code settings | Cline, Roo Code, Kilo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
+| User config files | Continue `config.json`, Codex CLI `config.toml`, Claude Code `settings.json` | A timestamped backup is created before modification |
+| Environment hints | Assistant-specific TLS or gateway variables documented in guided output | Secrets are redacted in logs and diagnostics |
+
+The extension does **not** modify source code, workspace files, model prompts, or assistant conversation history.
 
 ### Managing Profiles
 
@@ -239,7 +273,7 @@ No. This extension is purely a configuration manager. It doesn't proxy, relay, o
 
 ### What if my gateway goes down?
 
-Your assistants will show connection errors. Use **`AIdome: Verify All Profile Routes`** to diagnose the issue.
+Your assistants will show connection errors. Use **`AIdome: Verify All Profile Routes`** to diagnose the issue. If you have a fallback gateway, create a second profile and use **`AIdome: Activate Profile`** to switch assistants to it.
 
 ### Can I use this without AIdome?
 
