@@ -107,19 +107,29 @@ Different AI providers use different API protocols. The Switchboard understands 
 
 Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releases](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/releases).
 
-### 2. Run the Setup Wizard
+### 2. Gather Your Gateway Details
 
-1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
-2. Run: **`AIdome: Setup Switchboard`**
+Before running the wizard, have the following information ready:
+
+- **Gateway base URL**: the root URL for your approved endpoint, for example `https://gateway.yourorg.com` (the extension appends dialect-specific paths such as `/v1/chat/completions` when needed).
+- **Dialect**: choose the protocol your gateway exposes. Use `openai.chat_completions` for most OpenAI-compatible gateways, `openai.responses` for Codex CLI-style routing, or `anthropic.messages` for Claude Code-compatible gateways.
+- **API key or bearer token**: optional for unauthenticated internal gateways; otherwise stored in VS Code SecretStorage.
+- **Assistant list**: decide which installed assistants should be assigned to the profile now and which should remain unchanged.
+
+### 3. Run the Setup Wizard
+
+1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
+2. Run: **`AIdome: Setup Switchboard`**.
 3. Follow the wizard:
-   - Detect installed assistants
-   - Create an endpoint profile
-   - Apply configuration
-   - Verify connectivity ✅
+   - Detect installed assistants.
+   - Create or select an endpoint profile.
+   - Choose the assistants to configure.
+   - Review the planned configuration changes.
+   - Apply configuration and verify connectivity ✅.
 
-### 3. Start Coding
+### 4. Start Coding
 
-Your AI assistants now route through your approved endpoint. No additional steps needed!
+Your AI assistants now route through your approved endpoint. If you add another assistant later, run **`AIdome: Assign Assistants to Profile`** or rerun the setup wizard.
 
 ---
 
@@ -129,12 +139,15 @@ All commands available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 | Command | Description |
 |---------|-------------|
-| `AIdome: Setup Switchboard` | Launch the configuration wizard |
-| `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity (7-step pipeline) |
+| `AIdome: Setup Switchboard` | Launch the guided setup flow for detection, profile selection, assignment, and configuration |
+| `AIdome: Verify All Profile Routes` | Verify assistant routing for the active profile |
 | `AIdome: Show Models & Providers` | View available models from your gateway |
-| `AIdome: Manage Profiles` | Create, edit, delete endpoint profiles |
-| `AIdome: Reset Switchboard` | Undo changes, restore backups |
+| `AIdome: Manage Profiles` | Create, edit, delete, inspect, and verify endpoint profiles |
+| `AIdome: Assign Assistants to Profile` | Add or remove assistant assignments for a selected profile without recreating the profile |
+| `AIdome: Activate Profile` | Switch the active profile and reapply automated adapter mappings for assigned assistants |
+| `AIdome: Reset Switchboard` | Undo changes, restore backups, or factory reset Switchboard state |
 | `AIdome: Export Diagnostics` | Generate a redacted diagnostic report |
+| `AIdome: Refresh` | Refresh the Assistants view in the AIdome activity bar container |
 
 ---
 
@@ -173,6 +186,33 @@ Use **`AIdome: Manage Profiles`** to:
 - Edit existing profiles
 - Delete profiles
 - Switch between profiles
+
+Use **`AIdome: Assign Assistants to Profile`** when a profile already exists and you only need to change which assistants it controls. Use **`AIdome: Activate Profile`** when you switch environments, such as moving from staging to production; automated adapters are reapplied for the newly active profile.
+
+### Verification Pipeline
+
+Use **`AIdome: Verify All Profile Routes`** after setup, after rotating a token, or whenever an assistant starts returning connectivity errors. The verifier runs these checks for the active profile:
+
+1. **DNS resolution** — confirms the gateway hostname can be resolved; skipped for `localhost`.
+2. **TLS verification** — validates HTTPS certificates, or warns when TLS verification is disabled.
+3. **Endpoint reachability** — sends an authenticated reachability probe to the profile base URL.
+4. **Health check** — looks for common optional health endpoints such as `/health`, `/v1/health`, and `/healthz`.
+5. **Model list** — checks `/v1/models` for dialects that normally expose model inventory.
+6. **Dialect validation** — probes the dialect-specific route and suggests an alternate OpenAI dialect when possible.
+7. **Test prompt** — reserved for explicit test-prompt flows; routine profile verification skips it to avoid generating completions unexpectedly.
+
+Results appear in the AIdome output channel with pass, warning, fail, or skipped status for each step plus actionable suggestions.
+
+### Troubleshooting Common Issues
+
+| Symptom | What to Check |
+|---|---|
+| `401 Unauthorized` or `403 Forbidden` | Update the profile token in **Manage Profiles** and confirm the token has access to the selected gateway or tenant. |
+| DNS or connection timeout | Confirm the gateway host is reachable from the same environment where VS Code is running, including SSH, Dev Containers, Codespaces, or WSL. |
+| TLS warning for an internal CA | Prefer installing the internal CA in the OS trust store. Disable `aidome-switchboard.advanced.tlsVerify` only for trusted internal endpoints. |
+| Empty model list | Confirm the gateway exposes `/v1/models`, the profile dialect is correct, and the token can list models. |
+| Claude Code shows no discovered gateway models | Confirm the gateway exposes Anthropic Messages semantics and that model IDs begin with `claude` or `anthropic` for Claude Code's gateway discovery path. |
+| Assistant still uses the old endpoint | Run **Activate Profile** for the intended profile, then restart the affected assistant if it caches configuration. |
 
 ### Advanced Runtime Settings
 
