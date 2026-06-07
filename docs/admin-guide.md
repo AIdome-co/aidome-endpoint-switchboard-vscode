@@ -1,5 +1,27 @@
 # Administrator Guide
 
+## Rollout Checklist
+
+Use this checklist before distributing the extension to a team:
+
+1. **Confirm gateway contracts** — document each gateway base URL, supported dialect, model aliases, and whether the endpoint exposes health or model-list routes.
+2. **Choose profile names** — use stable, human-readable names such as `production`, `staging`, or `team-a-prod` so support teams can compare diagnostics quickly.
+3. **Validate certificates** — prefer installing the internal root CA in the system trust store before considering TLS verification overrides.
+4. **Pilot Tier A assistants first** — test automated configuration with one or two users before adding guided or partial assistants.
+5. **Run verification** — require **AIdome: Verify All Profile Routes** after setup and after gateway, DNS, proxy, or certificate changes.
+6. **Capture diagnostics safely** — when escalation is needed, use **AIdome: Export Diagnostics** instead of asking users to paste raw assistant configuration files.
+
+## User Setup Runbook
+
+Share these steps with developers who already have an approved gateway credential:
+
+1. Open the Command Palette and run **AIdome: Setup Endpoint Switchboard**.
+2. Create a profile using the organization-provided name, base URL, dialect, optional tenant, and API key.
+3. Select the assistants that should use the profile. Tier A assistants are configured automatically; Tier B/C assistants may show follow-up instructions.
+4. Run **AIdome: Verify All Profile Routes** and resolve any DNS, TLS, reachability, model-list, or dialect warnings.
+5. Restart assistants that cache settings, especially CLI tools or VS Code extensions that were already running before setup.
+6. If verification still fails, run **AIdome: Export Diagnostics** and send the redacted report to the support team.
+
 ## Setting Up Profiles for Your Organization
 
 ### Recommended Profile Configuration

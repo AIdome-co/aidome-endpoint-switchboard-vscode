@@ -1,5 +1,16 @@
 # Enterprise Installation Guide
 
+## Pre-Installation Requirements
+
+Before installing the extension across an organization, prepare the following information for developers and helpdesk teams:
+
+- The approved gateway base URL for each environment, such as production or staging.
+- The required API dialect for each gateway (`openai.chat_completions`, `openai.responses`, or `anthropic.messages`).
+- Instructions for obtaining per-user credentials or short-lived tokens.
+- Proxy environment variables, if outbound HTTPS traffic must traverse a corporate proxy.
+- Certificate trust guidance for private CAs or TLS inspection.
+- The list of assistants your organization expects to configure automatically versus manually.
+
 ## Installing from .vsix (Air-Gapped / Offline)
 
 For environments without internet access:

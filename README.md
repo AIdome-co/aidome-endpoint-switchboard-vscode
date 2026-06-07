@@ -103,23 +103,25 @@ Different AI providers use different API protocols. The Switchboard understands 
 
 ## Quick Start
 
+Use this flow when you already have a gateway URL and credential from your organization.
+
 ### 1. Install the Extension
 
-Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releases](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/releases).
+Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releases](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/releases). Install at least one supported assistant, such as Continue.dev, Cline, Roo Code, Kilo Code, Claude Code, or Codex CLI.
 
 ### 2. Run the Setup Wizard
 
-1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
-2. Run: **`AIdome: Setup Switchboard`**
-3. Follow the wizard:
-   - Detect installed assistants
-   - Create an endpoint profile
-   - Apply configuration
-   - Verify connectivity ✅
+1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
+2. Run: **`AIdome: Setup Endpoint Switchboard`**.
+3. Create or select an endpoint profile with your gateway **Base URL**, **Dialect**, optional **Tenant**, and auth token.
+4. Select the assistants that should use that profile. Tier A assistants are updated automatically; guided assistants show manual steps.
+5. Run **`AIdome: Verify All Profile Routes`** to check DNS, TLS, endpoint reachability, model discovery, dialect compatibility, and optional prompt routing.
 
 ### 3. Start Coding
 
-Your AI assistants now route through your approved endpoint. No additional steps needed!
+Restart or reload any assistant that caches configuration before sending a real prompt. Your selected assistants should now route through the approved endpoint.
+
+> Tip: If you are using a local development gateway from SSH, WSL, Dev Containers, or Codespaces, avoid `localhost` unless the gateway is reachable from the remote host where the assistant runs.
 
 ---
 
@@ -129,10 +131,12 @@ All commands available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 | Command | Description |
 |---------|-------------|
-| `AIdome: Setup Switchboard` | Launch the configuration wizard |
+| `AIdome: Setup Endpoint Switchboard` | Launch the configuration wizard |
 | `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity (7-step pipeline) |
 | `AIdome: Show Models & Providers` | View available models from your gateway |
 | `AIdome: Manage Profiles` | Create, edit, delete endpoint profiles |
+| `AIdome: Assign Assistants to Profile` | Map assistants to a profile without switching context |
+| `AIdome: Activate Profile` | Switch active profile and reapply automated adapter mappings |
 | `AIdome: Reset Switchboard` | Undo changes, restore backups |
 | `AIdome: Export Diagnostics` | Generate a redacted diagnostic report |
 
@@ -169,10 +173,24 @@ Profiles are stored in VS Code's `globalState` and persist across sessions.
 ### Managing Profiles
 
 Use **`AIdome: Manage Profiles`** to:
-- Create new profiles
-- Edit existing profiles
-- Delete profiles
-- Switch between profiles
+
+- Create new profiles for new gateway endpoints or teams
+- Edit existing profile metadata and credentials
+- Delete profiles that are no longer approved
+- Assign assistants to a profile without making that profile active
+- Set the active profile and automatically reapply automated adapter mappings
+- Fetch **Models & Providers** for a selected profile before switching to it
+
+### Recommended Setup Workflow
+
+For the least disruptive rollout, configure one profile at a time:
+
+1. **Create the profile** with the exact base URL developers should use, such as `https://gateway.yourorg.com`.
+2. **Choose the dialect** that matches the gateway contract. Use `openai.chat_completions` for OpenAI-compatible chat gateways, `openai.responses` for Codex CLI Responses API routing, and `anthropic.messages` for Claude Code-compatible front doors.
+3. **Store credentials in SecretStorage** when prompted. Do not paste API keys into VS Code settings or assistant config files.
+4. **Assign assistants** to the profile. Use Tier A assistants first so you can validate automated changes before guided or partial setups.
+5. **Verify routes** and review warnings before asking developers to send production prompts.
+6. **Export diagnostics** if support needs to inspect the setup; diagnostics are redacted before export.
 
 ### Advanced Runtime Settings
 
@@ -223,7 +241,16 @@ The extension includes a **generic settings scanner** for discovering unknown or
 - Confidence scoring: **High** / **Medium** / **Low**
 - Blocklist filtering to avoid false positives
 
-Run **`AIdome: Setup Switchboard`** → Select "Scan for other AI extensions" to try it.
+Run **`AIdome: Setup Endpoint Switchboard`** → Select "Scan for other AI extensions" to try it.
+
+---
+
+## Documentation Map
+
+- [Administrator Guide](docs/admin-guide.md) — rollout planning, troubleshooting, common profile patterns, and support escalation.
+- [Enterprise Installation Guide](docs/enterprise-install.md) — VSIX installation, policy allowlisting, proxy setup, certificate handling, and firewall requirements.
+- [Platform Support](docs/platform-support.md) — platform-specific notes for Windows, macOS, Linux, and remote development environments.
+- [Architecture Reference](.github/references/architecture.md) — adapter boundaries, profile orchestration, verification flow, and design decisions for contributors.
 
 ---
 
