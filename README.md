@@ -103,23 +103,39 @@ Different AI providers use different API protocols. The Switchboard understands 
 
 ## Quick Start
 
+### Before you begin
+
+Have these values ready before running the wizard:
+
+- **Gateway base URL** — for example `https://gateway.yourorg.com`. Do not include a model-specific path unless your gateway requires one.
+- **API dialect** — choose `Auto-detect` if unsure; it starts with the broadly compatible `openai.chat_completions` dialect and does not probe the endpoint while creating the profile.
+- **Credential** — an API key or bearer token for the gateway. The extension stores it in VS Code SecretStorage, not in plain-text settings.
+- **Target assistants** — install the assistants you want the Switchboard to configure before running detection.
+
 ### 1. Install the Extension
 
 Install from the VS Code Marketplace or download the `.vsix` from [GitHub Releases](https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode/releases).
 
 ### 2. Run the Setup Wizard
 
-1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
-2. Run: **`AIdome: Setup Switchboard`**
+1. Open Command Palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
+2. Run: **`AIdome: Setup Switchboard`**.
 3. Follow the wizard:
-   - Detect installed assistants
-   - Create an endpoint profile
-   - Apply configuration
-   - Verify connectivity ✅
+   - Detect installed assistants.
+   - Create or select an endpoint profile.
+   - Assign assistants to the profile.
+   - Apply configuration; every assistant config file is backed up before it is modified.
+   - Verify connectivity with the selected profile.
 
 ### 3. Start Coding
 
-Your AI assistants now route through your approved endpoint. No additional steps needed!
+Your assigned AI assistants now route through your approved endpoint. If an assistant was already running, restart or reload it if its own documentation requires settings to be re-read.
+
+### Optional follow-up checks
+
+- Run **`AIdome: Verify All Profile Routes`** after gateway, DNS, proxy, or certificate changes.
+- Run **`AIdome: Show Models & Providers`** to confirm the active profile can retrieve model inventory.
+- Use **`AIdome: Export Diagnostics`** when sharing support information; exported diagnostics are redacted.
 
 ---
 
@@ -127,14 +143,16 @@ Your AI assistants now route through your approved endpoint. No additional steps
 
 All commands available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
-| Command | Description |
-|---------|-------------|
-| `AIdome: Setup Switchboard` | Launch the configuration wizard |
-| `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity (7-step pipeline) |
-| `AIdome: Show Models & Providers` | View available models from your gateway |
-| `AIdome: Manage Profiles` | Create, edit, delete endpoint profiles |
-| `AIdome: Reset Switchboard` | Undo changes, restore backups |
-| `AIdome: Export Diagnostics` | Generate a redacted diagnostic report |
+| Command | Description | When to use it |
+|---------|-------------|----------------|
+| `AIdome: Setup Switchboard` | Launch the guided configuration wizard | First-time setup or adding a newly installed assistant |
+| `AIdome: Activate Profile` | Switch the active endpoint profile and reapply automated mappings | Moving between production, staging, or team-specific gateways |
+| `AIdome: Manage Profiles` | Create, edit, delete, verify, and inspect endpoint profiles | Maintaining saved gateway definitions |
+| `AIdome: Assign Assistants to Profile` | Choose which assistants should use a profile | Routing different assistants through different approved endpoints |
+| `AIdome: Verify All Profile Routes` | Verify configured profile routes and endpoint connectivity with the 7-step pipeline | Troubleshooting gateway, DNS, proxy, TLS, auth, or model-list issues |
+| `AIdome: Show Models & Providers` | View available models from your gateway | Confirming model inventory for the active or selected profile |
+| `AIdome: Reset Switchboard` | Undo changes and restore backups | Rolling back assistant configuration changes |
+| `AIdome: Export Diagnostics` | Generate a redacted diagnostic report | Sharing support data without exposing secrets |
 
 ---
 
@@ -169,10 +187,29 @@ Profiles are stored in VS Code's `globalState` and persist across sessions.
 ### Managing Profiles
 
 Use **`AIdome: Manage Profiles`** to:
-- Create new profiles
-- Edit existing profiles
-- Delete profiles
-- Switch between profiles
+
+- Create new profiles.
+- Edit existing profiles.
+- Delete profiles.
+- Switch between profiles.
+- Verify one profile without switching the active profile.
+- Show models and providers for a selected profile.
+
+Use **`AIdome: Assign Assistants to Profile`** when different teams or assistants should route through different gateways. Activating a profile reapplies its automated assistant mappings, so the active profile and the assistant assignment list stay in sync.
+
+### Verification pipeline
+
+**`AIdome: Verify All Profile Routes`** runs a staged connectivity check for configured profiles so failures are easier to localize:
+
+1. Resolve the gateway host with the operating system resolver path.
+2. Validate the TLS handshake for HTTPS endpoints, unless strict TLS verification is intentionally disabled.
+3. Check endpoint reachability.
+4. Probe common health endpoints when available.
+5. Fetch model metadata when the selected dialect supports model listing.
+6. Validate the selected dialect endpoint shape.
+7. Run an optional test prompt when explicitly requested.
+
+Use the first failing step to decide whether the issue is DNS, certificate trust, network reachability, credentials, or gateway compatibility. If multiple critical connectivity checks fail, the remaining checks are skipped so the verifier can report the root connectivity issue quickly.
 
 ### Advanced Runtime Settings
 

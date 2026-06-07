@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Improved README quick-start, command reference, profile assignment, and verification troubleshooting documentation.
+
 ## [1.4.5] - 2026-06-04
 
 ## [1.4.4] - 2026-06-04
