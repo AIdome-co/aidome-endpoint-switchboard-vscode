@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-- Improved user, administrator, and enterprise rollout documentation with setup prerequisites, profile-switching workflow, configuration surfaces, and support escalation guidance.
+- Improved setup, verification, troubleshooting, administrator, and enterprise documentation with accurate command names, rollout prerequisites, configuration surfaces, and support escalation guidance.
 
 ## [1.4.5] - 2026-06-04
 

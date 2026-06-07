@@ -9,6 +9,21 @@
 5. **Ask users to verify routes** after setup and after any gateway, certificate, or assistant extension upgrade.
 6. **Collect redacted diagnostics** only when troubleshooting; diagnostics are designed for support review but should still be handled as operational data.
 
+## Pre-Installation Requirements
+
+Publish these details before broad installation so teams can complete setup without guessing:
+
+| Requirement | What to provide |
+|-------------|-----------------|
+| Gateway URLs | Approved base URLs per environment, including whether each URL should include `/v1`. |
+| Dialects | The required Switchboard dialect for each gateway front door, such as `openai.chat_completions`, `openai.responses`, or `anthropic.messages`. |
+| Credential/token process | Where users request tokens, expected scopes, expiration/rotation rules, and support contacts for `401`/`403` failures. |
+| Proxy variables | Required `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` values for local and remote development contexts. |
+| Certificate trust | Internal CA bundle or OS trust-store instructions; avoid disabling TLS verification except for approved internal endpoints. |
+| Supported assistants | The expected assistant list and tier per team, including which assistants should be assigned to production profiles. |
+
+Tokens should be entered by each user during setup so they land in VS Code SecretStorage. Do not distribute tokens through settings files, checked-in docs, machine images, or Settings Sync.
+
 ## Installing from .vsix (Air-Gapped / Offline)
 
 For environments without internet access:
@@ -41,7 +56,7 @@ export NO_PROXY=localhost,127.0.0.1
 
 - **No telemetry**: Zero data collection
 - **Local processing only**: All configuration is done locally
-- **SecretStorage**: Auth tokens encrypted via VS Code's native SecretStorage API
+- **SecretStorage**: Auth tokens encrypted via VS Code's native SecretStorage API and kept out of org-wide settings or Settings Sync
 - **Audit trail**: Full change log available via "Export Diagnostics"
 - **Reversible**: All changes can be undone via "Reset Switchboard"
 

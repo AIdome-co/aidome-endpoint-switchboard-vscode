@@ -37,6 +37,20 @@ Use this checklist before asking developers to run the Setup Wizard:
 | CodeGPT | Tier B — verify after | May need manual model selection |
 | Others | Tier C — guided | Follow OutputChannel instructions |
 
+### User Setup Runbook
+
+Give users these short setup steps after the rollout prerequisites are published:
+
+1. Install the target assistants first, then install or enable the Switchboard extension.
+2. Open the Command Palette and run **AIdome: Setup Endpoint Switchboard**.
+3. Enter the approved gateway base URL exactly as published, including whether it includes `/v1`.
+4. Select the required dialect and optional tenant/team identifier.
+5. Paste the user token when prompted; the extension stores it in VS Code SecretStorage, not plain-text settings.
+6. Assign only the assistants approved for that profile, apply the profile, and run **AIdome: Verify All Profile Routes**.
+7. Restart or reload assistants that cache configuration before confirming normal coding workflows.
+
+Remote contexts need the same runbook from inside the context that will run the assistant: SSH hosts, WSL distros, Dev Containers, and Codespaces may have different DNS, proxy, filesystem, and certificate trust than the local desktop.
+
 ## Tuning Advanced Runtime Settings
 
 For high-latency enterprise gateways, proxy chains, or remote development hosts, tune the extension's advanced runtime settings under `aidome-switchboard.advanced.*`.
@@ -156,9 +170,10 @@ If users encounter issues:
 1. Run **"AIdome: Verify All Profile Routes"** and capture the failing step name.
 2. Run **"AIdome: Export Diagnostics"**.
 3. Review the exported JSON locally and confirm tokens, endpoint credentials, and user-specific paths are redacted before sharing.
-4. Share the redacted JSON report with your support team.
-5. Check gateway logs for connection attempts from the affected machine or remote host.
-6. Verify network connectivity with `curl` or `wget`.
+4. Note whether the user is local or in a remote context (SSH, WSL, Dev Containers, or Codespaces), because DNS, proxy, and certificate trust can differ.
+5. Share the redacted JSON report with your support team.
+6. Check gateway logs for connection attempts from the affected machine or remote host.
+7. Verify network connectivity with `curl` or `wget`.
 
 Example verification:
 ```bash
