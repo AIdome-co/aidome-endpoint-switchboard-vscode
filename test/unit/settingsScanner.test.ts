@@ -25,7 +25,7 @@ vi.mock('vscode', () => {
       },
     },
   };
-  const getConfigFn = vi.fn(() => ({
+  const config = {
     get: vi.fn((key: string) => {
       const map: Record<string, unknown> = {
         'myext.baseUrl': 'https://api.example.com',
@@ -33,7 +33,8 @@ vi.mock('vscode', () => {
       return map[key];
     }),
     update: vi.fn(),
-  }));
+  };
+  const getConfigFn = vi.fn(() => config);
   return {
     extensions: {
       getExtension: vi.fn((id: string) => {
@@ -159,8 +160,14 @@ describe('settingsScanner', () => {
 
   describe('setSettingValue', () => {
     it('updates a setting value', async () => {
+      const config = vscode.workspace.getConfiguration();
       await setSettingValue('myext.baseUrl', 'https://new-api.example.com');
       expect(vscode.workspace.getConfiguration).toHaveBeenCalled();
+      expect(config.update).toHaveBeenCalledWith(
+        'myext.baseUrl',
+        'https://new-api.example.com',
+        vscode.ConfigurationTarget.Global
+      );
     });
   });
 });

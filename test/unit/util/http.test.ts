@@ -126,10 +126,18 @@ describe('HttpError', () => {
 });
 
 describe('httpRequest', () => {
+  let originalProxyEnv: Record<'HTTPS_PROXY' | 'HTTP_PROXY' | 'https_proxy' | 'http_proxy', string | undefined>;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(http.request).mockReset();
     vi.mocked(https.request).mockReset();
+    originalProxyEnv = {
+      HTTPS_PROXY: process.env.HTTPS_PROXY,
+      HTTP_PROXY: process.env.HTTP_PROXY,
+      https_proxy: process.env.https_proxy,
+      http_proxy: process.env.http_proxy,
+    };
     delete process.env.HTTPS_PROXY;
     delete process.env.HTTP_PROXY;
     delete process.env.https_proxy;
@@ -137,6 +145,13 @@ describe('httpRequest', () => {
   });
 
   afterEach(() => {
+    for (const [key, value] of Object.entries(originalProxyEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
     vi.useRealTimers();
   });
 
@@ -206,7 +221,7 @@ describe('httpRequest', () => {
     const assertion = expect(promise).rejects.toThrow(HttpError);
     await vi.runAllTimersAsync();
     await assertion;
-    expect(vi.mocked(http.request).mock.calls.length).toBeLessThanOrEqual(2);
+    expect(vi.mocked(http.request).mock.calls.length).toBe(1);
   });
 
   it('retries on network errors', async () => {

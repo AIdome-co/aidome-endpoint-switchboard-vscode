@@ -33,20 +33,24 @@ import {
   disposeStatusBar,
 } from '../../src/ui/statusBar';
 
+beforeEach(() => {
+  disposeStatusBar();
+  Object.assign(mockStatusBarItem, {
+    text: '',
+    tooltip: '',
+    color: undefined,
+    command: undefined,
+    accessibilityInformation: undefined,
+  });
+  mockStatusBarItem.show.mockClear();
+  mockStatusBarItem.hide.mockClear();
+  mockStatusBarItem.dispose.mockClear();
+});
+
 describe('StatusBarManager', () => {
   let manager: StatusBarManager;
 
   beforeEach(() => {
-    Object.assign(mockStatusBarItem, {
-      text: '',
-      tooltip: '',
-      color: undefined,
-      command: undefined,
-      accessibilityInformation: undefined,
-    });
-    mockStatusBarItem.show.mockClear();
-    mockStatusBarItem.hide.mockClear();
-    mockStatusBarItem.dispose.mockClear();
     manager = new StatusBarManager(mockStatusBarItem as any);
   });
 
