@@ -52,7 +52,9 @@ export async function patchCodexConfig(
         Logger.getInstance().warning(
           `Codex config at ${configPath} is malformed TOML, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
         );
-      } catch { /* best-effort */ }
+      } catch {
+        // Logging is best-effort; malformed configs must still fall back.
+      }
       config = {};
     }
   } else {

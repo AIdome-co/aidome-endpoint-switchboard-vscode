@@ -48,7 +48,9 @@ export async function patchContinueConfig(
         Logger.getInstance().warning(
           `Continue.dev config at ${configPath} is malformed JSON, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
         );
-      } catch { /* best-effort */ }
+      } catch {
+        // Logging is best-effort; malformed configs must still fall back.
+      }
       config = {};
     }
   } else {
