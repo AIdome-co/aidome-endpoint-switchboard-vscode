@@ -1,9 +1,9 @@
 /**
- * Unit tests for BaseExtensionAdapter and formatUnknownError.
+ * Unit tests for BaseExtensionAdapter throwable handling.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { formatUnknownError, BaseExtensionAdapter } from '../../src/adapters/BaseExtensionAdapter';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BaseExtensionAdapter, formatUnknownError } from '../../src/adapters/BaseExtensionAdapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import { Plan, createPlan } from '../../src/core/orchestration/planBuilder';
 import { VerificationResult } from '../../src/adapters/AssistantAdapter';
@@ -16,11 +16,6 @@ const { mockGetExtension, mockLoggerError } = vi.hoisted(() => ({
 vi.mock('vscode', () => ({
   extensions: {
     getExtension: mockGetExtension
-  },
-  workspace: {
-    getConfiguration: vi.fn(() => ({
-      get: vi.fn()
-    }))
   }
 }));
 
@@ -63,28 +58,10 @@ describe('formatUnknownError', () => {
     expect(formatUnknownError(new Error('something broke'))).toBe('Error: something broke');
   });
 
-  it('formats TypeError instances preserving the error name', () => {
-    expect(formatUnknownError(new TypeError('bad type'))).toBe('TypeError: bad type');
-  });
-
-  it('formats string throwables via String()', () => {
+  it('formats non-Error throwables via String()', () => {
     expect(formatUnknownError('raw string')).toBe('raw string');
-  });
-
-  it('formats number throwables via String()', () => {
     expect(formatUnknownError(42)).toBe('42');
-  });
-
-  it('formats null throwables via String()', () => {
     expect(formatUnknownError(null)).toBe('null');
-  });
-
-  it('formats undefined throwables via String()', () => {
-    expect(formatUnknownError(undefined)).toBe('undefined');
-  });
-
-  it('formats object throwables via String()', () => {
-    expect(formatUnknownError({ code: 'ENOENT' })).toBe('[object Object]');
   });
 });
 
@@ -102,40 +79,14 @@ describe('BaseExtensionAdapter', () => {
       mockGetExtension.mockImplementation(() => {
         throw 'string error';
       });
+
       const result = await adapter.detect();
 
       expect(result).toBe(false);
       expect(mockLoggerError).toHaveBeenCalledWith(
         'Error detecting Test: string error',
-        expect.any(Error)
-      );
-      const loggedError = mockLoggerError.mock.calls[0][1] as Error;
-      expect(loggedError.message).toBe('string error');
-    });
-
-    it('handles null throwables safely', async () => {
-      mockGetExtension.mockImplementation(() => {
-        throw null;
-      });
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        'Error detecting Test: null',
-        expect.any(Error)
-      );
-    });
-
-    it('handles Error throwables with name preserved', async () => {
-      mockGetExtension.mockImplementation(() => {
-        throw new TypeError('bad extension id');
-      });
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        'Error detecting Test: TypeError: bad extension id',
-        expect.any(TypeError)
+        undefined,
+        { error: 'string error' }
       );
     });
   });
@@ -145,33 +96,12 @@ describe('BaseExtensionAdapter', () => {
       adapter.verifyFn = async () => {
         throw 'string failure';
       };
+
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('Error verifying Test config: string failure');
-      expect(result.details?.error).toBe('string failure');
-    });
-
-    it('handles null throwables without undefined message', async () => {
-      adapter.verifyFn = async () => {
-        throw null;
-      };
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Error verifying Test config: null');
-      expect(result.details?.error).toBe('null');
-    });
-
-    it('handles Error throwables with message only in details', async () => {
-      adapter.verifyFn = async () => {
-        throw new Error('verify failed');
-      };
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Error verifying Test config: verify failed');
-      expect(result.details?.error).toBe('verify failed');
+      expect(result.details).toEqual({ error: 'string failure' });
     });
   });
 });

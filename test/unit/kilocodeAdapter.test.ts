@@ -255,7 +255,8 @@ describe('KiloCodeAdapter', () => {
       expect(mockLoggerWarning).toHaveBeenCalledWith(
         'Error discovering Kilo Code setting keys',
         expect.objectContaining({
-          error: expect.objectContaining({
+          error: 'boom',
+          errorDetails: expect.objectContaining({
             name: 'Error',
             message: 'boom',
             stack: expect.any(String)
@@ -264,7 +265,7 @@ describe('KiloCodeAdapter', () => {
       );
     });
 
-    it('logs non-Error discovery failures without dropping the raw detail', async () => {
+    it('logs non-Error discovery failures as serializable context', async () => {
       mockGetExtension.mockImplementation(() => {
         throw 'boom';
       });
@@ -277,6 +278,25 @@ describe('KiloCodeAdapter', () => {
         'Error discovering Kilo Code setting keys',
         { error: 'boom' }
       );
+    });
+
+
+    it('logs circular non-Error discovery failures as serializable strings', async () => {
+      const circular: Record<string, unknown> = { reason: 'circular' };
+      circular.self = circular;
+      mockGetExtension.mockImplementation(() => {
+        throw circular;
+      });
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some((s) => s.action === 'set-vscode-setting')).toBe(false);
+      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(true);
+      expect(mockLoggerWarning).toHaveBeenCalledWith(
+        'Error discovering Kilo Code setting keys',
+        { error: '[object Object]' }
+      );
+      expect(() => JSON.stringify(mockLoggerWarning.mock.calls.at(-1)?.[1])).not.toThrow();
     });
   });
 
@@ -373,7 +393,8 @@ describe('KiloCodeAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Error verifying Kilo Code config');
-      expect(result.details?.error).toContain('config read failed');
+      expect(result.details?.error).toBe('config read failed');
+      expect(result.details?.errorDetails).toEqual(expect.objectContaining({ message: 'config read failed' }));
     });
   });
 

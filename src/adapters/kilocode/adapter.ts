@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
-import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
+import { BaseExtensionAdapter, formatThrowable } from '../BaseExtensionAdapter';
 
 const FALLBACK_KEYS = [
   'kilocode.openaiBaseUrl',
@@ -37,16 +37,7 @@ function isStringLikeType(type: unknown): boolean {
 }
 
 function getDiscoveryErrorContext(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return {
-      error: {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      }
-    };
-  }
-  return { error: String(error) };
+  return formatThrowable(error).context;
 }
 
 /**
