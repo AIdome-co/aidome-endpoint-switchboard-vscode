@@ -1,5 +1,17 @@
 # Administrator Guide
 
+## Administrator Rollout Checklist
+
+Use this checklist before asking developers to run the Setup Wizard:
+
+1. **Publish the gateway base URL** developers should enter, including whether it already includes `/v1`.
+2. **Document the required dialect** for each gateway front door, especially if Claude Code needs an Anthropic Messages-compatible route.
+3. **Define token handling**: who issues user tokens, expected rotation cadence, and where users request replacements.
+4. **Validate network reachability** from common environments: local desktop, VPN, SSH remotes, Dev Containers, WSL, and Codespaces.
+5. **Decide TLS policy**: prefer trusted internal CAs; only allow `aidome-switchboard.advanced.tlsVerify: false` for explicitly approved internal endpoints.
+6. **Tell users which assistants to assign** to the production profile so unsupported or experimental tools remain guided or informational.
+7. **Ask users to export diagnostics** after first setup and verify the report is redacted before sharing it with support.
+
 ## Setting Up Profiles for Your Organization
 
 ### Recommended Profile Configuration
@@ -21,9 +33,23 @@
 | Roo Code | Tier A — auto-configure | Sets VS Code settings |
 | Kilo Code | Tier A — auto-configure | Sets VS Code settings |
 | Codex CLI | Tier A — auto-configure | Patches `~/.codex/config.toml` or env vars |
-| Claude Code | Tier B — config file + guided auth | Requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
+| Claude Code | Tier A — auto-configure | Rewrites Claude Code user settings and gateway bearer token; requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
 | CodeGPT | Tier B — verify after | May need manual model selection |
 | Others | Tier C — guided | Follow OutputChannel instructions |
+
+### User Setup Runbook
+
+Give users these short setup steps after the rollout prerequisites are published:
+
+1. Install the target assistants first, then install or enable the Switchboard extension.
+2. Open the Command Palette and run **AIdome: Setup Endpoint Switchboard**.
+3. Enter the approved gateway base URL exactly as published, including whether it includes `/v1`.
+4. Select the required dialect and optional tenant/team identifier.
+5. Paste the user token when prompted; the extension stores the profile secret in VS Code SecretStorage. For Claude Code Tier A assignments, profile activation also writes the active token into `env.ANTHROPIC_AUTH_TOKEN` in the shared Claude Code settings file so Claude Code can authenticate through the gateway.
+6. Assign only the assistants approved for that profile, apply the profile, and run **AIdome: Verify All Profile Routes**.
+7. Restart or reload assistants that cache configuration before confirming normal coding workflows.
+
+Remote contexts need the same runbook from inside the context that will run the assistant: SSH hosts, WSL distros, Dev Containers, and Codespaces may have different DNS, proxy, filesystem, and certificate trust than the local desktop.
 
 ## Tuning Advanced Runtime Settings
 
@@ -141,10 +167,13 @@ Switch between them as needed.
 
 If users encounter issues:
 
-1. Run **"AIdome: Export Diagnostics"**
-2. Share the redacted JSON report with your support team
-3. Check gateway logs for connection attempts
-4. Verify network connectivity with `curl` or `wget`
+1. Run **"AIdome: Verify All Profile Routes"** and capture the failing step name.
+2. Run **"AIdome: Export Diagnostics"**.
+3. Review the exported JSON locally and confirm tokens, endpoint credentials, and user-specific paths are redacted before sharing.
+4. Note whether the user is local or in a remote context (SSH, WSL, Dev Containers, or Codespaces), because DNS, proxy, and certificate trust can differ.
+5. Share the redacted JSON report with your support team.
+6. Check gateway logs for connection attempts from the affected machine or remote host.
+7. Verify network connectivity with `curl` or `wget`.
 
 Example verification:
 ```bash

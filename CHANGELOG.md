@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Improved setup, verification, troubleshooting, administrator, and enterprise documentation with accurate command names, rollout prerequisites, configuration surfaces, and support escalation guidance.
 - Improved error handling: silent `catch {}` blocks now log best-effort warnings via Logger for filesystem operations, config parsing, backup restoration, health-check probes, and dialect validation.
 - Exported `isFileNotFoundError` from `fsSafe` utility and removed duplicate definition in applier.
 - Added aggregated mapping-failure warning in Switchboard `applyPlan` so persistence issues are surfaced to the output channel.

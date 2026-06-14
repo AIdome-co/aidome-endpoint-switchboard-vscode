@@ -1,5 +1,29 @@
 # Enterprise Installation Guide
 
+## Recommended Enterprise Rollout
+
+1. **Pilot first** with a small group that represents your operating systems, remote-development modes, and target assistants.
+2. **Package or allowlist** the extension ID `aidome.aidome-endpoint-switchboard` through your standard VS Code extension-management policy.
+3. **Distribute profile values** out-of-band: gateway URL, dialect, tenant naming, and token-request process. Do not pre-place API tokens in files or settings.
+4. **Publish network prerequisites** for VPN, proxy, DNS, firewall, and internal CA trust before broad rollout.
+5. **Ask users to verify routes** after setup and after any gateway, certificate, or assistant extension upgrade.
+6. **Collect redacted diagnostics** only when troubleshooting; diagnostics are designed for support review but should still be handled as operational data.
+
+## Pre-Installation Requirements
+
+Publish these details before broad installation so teams can complete setup without guessing:
+
+| Requirement | What to provide |
+|-------------|-----------------|
+| Gateway URLs | Approved base URLs per environment, including whether each URL should include `/v1`. |
+| Dialects | The required Switchboard dialect for each gateway front door, such as `openai.chat_completions`, `openai.responses`, or `anthropic.messages`. |
+| Credential/token process | Where users request tokens, expected scopes, expiration/rotation rules, and support contacts for `401`/`403` failures. |
+| Proxy variables | Required `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` values for local and remote development contexts. |
+| Certificate trust | Internal CA bundle or OS trust-store instructions; avoid disabling TLS verification except for approved internal endpoints. |
+| Supported assistants | The expected assistant list and tier per team, including which assistants should be assigned to production profiles. |
+
+Tokens should be entered by each user during setup so they land in VS Code SecretStorage. Do not distribute tokens through settings files, checked-in docs, machine images, or Settings Sync.
+
 ## Installing from .vsix (Air-Gapped / Offline)
 
 For environments without internet access:
@@ -17,7 +41,7 @@ To allowlist this extension in your organization's VS Code policy:
 
 ### Settings Sync
 
-The extension stores profiles in VS Code's `globalState`, which is not synced via Settings Sync by default. This is by design — endpoint configurations should be environment-specific.
+The extension stores profiles in VS Code's `globalState`, which is not synced via Settings Sync by default. API tokens are stored separately in VS Code SecretStorage. This is by design: endpoint configurations and credentials should remain environment-specific, especially when users move between local and remote VS Code contexts.
 
 ### Proxy Configuration
 
@@ -32,7 +56,7 @@ export NO_PROXY=localhost,127.0.0.1
 
 - **No telemetry**: Zero data collection
 - **Local processing only**: All configuration is done locally
-- **SecretStorage**: Auth tokens encrypted via VS Code's native SecretStorage API
+- **SecretStorage**: Auth tokens encrypted via VS Code's native SecretStorage API and kept out of org-wide settings or Settings Sync
 - **Audit trail**: Full change log available via "Export Diagnostics"
 - **Reversible**: All changes can be undone via "Reset Switchboard"
 
@@ -82,9 +106,10 @@ For full details per assistant, see the `tlsVerification` field in `src/core/reg
 
 Currently, profiles are per-user (stored in globalState). For org-wide defaults:
 
-1. Distribute a profile configuration document to your team
-2. Each user creates the profile via the wizard
-3. Use "Export Diagnostics" to verify consistent configuration
+1. Distribute a profile configuration document to your team with the approved profile name, base URL, dialect, optional tenant, and supported assistant list.
+2. Each user creates the profile via the wizard and stores their own token in SecretStorage.
+3. Ask users to run "AIdome: Verify All Profile Routes" after setup.
+4. Use "Export Diagnostics" only for support cases where you need to verify consistent configuration.
 
 Future versions may support `.aidome-profile.json` workspace files for team-shared configurations.
 
