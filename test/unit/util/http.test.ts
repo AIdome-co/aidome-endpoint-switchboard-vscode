@@ -126,7 +126,10 @@ describe('HttpError', () => {
 });
 
 describe('httpRequest', () => {
-  let originalProxyEnv: Record<'HTTPS_PROXY' | 'HTTP_PROXY' | 'https_proxy' | 'http_proxy', string | undefined>;
+  let originalProxyEnv: Record<
+    'HTTPS_PROXY' | 'HTTP_PROXY' | 'NO_PROXY' | 'https_proxy' | 'http_proxy' | 'no_proxy',
+    string | undefined
+  >;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -135,13 +138,17 @@ describe('httpRequest', () => {
     originalProxyEnv = {
       HTTPS_PROXY: process.env.HTTPS_PROXY,
       HTTP_PROXY: process.env.HTTP_PROXY,
+      NO_PROXY: process.env.NO_PROXY,
       https_proxy: process.env.https_proxy,
       http_proxy: process.env.http_proxy,
+      no_proxy: process.env.no_proxy,
     };
     delete process.env.HTTPS_PROXY;
     delete process.env.HTTP_PROXY;
+    delete process.env.NO_PROXY;
     delete process.env.https_proxy;
     delete process.env.http_proxy;
+    delete process.env.no_proxy;
   });
 
   afterEach(() => {
