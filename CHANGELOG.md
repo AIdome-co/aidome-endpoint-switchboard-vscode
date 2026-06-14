@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Hardened shared adapter error handling for non-Error throwables and preserved fallback setting-key behavior when VS Code setting discovery fails.
 - Extracted `BaseExtensionAdapter` and `VscodeSettingsAdapter` shared base classes, eliminating duplicated detect/apply/verify/error-handling boilerplate across all assistant adapters.
+- Added unit tests for 9 previously untested or under-tested modules (http, statusBar, settingsScanner, continue/paths, detectCLIs, detectExtensions, authSchemes, dialectRules, profileSecrets) — 111 new tests.
 - Fixed `redactUrl()` and `sanitizeUrl()` to strip embedded credentials (`user:pass@host`) from URLs before logging or display.
 - Added `redactUrl()` to AIdome API endpoint debug logs so base URLs are never logged with sensitive fragments.
 - Enforced `validateProfileName()` during profile creation to reject names with special characters.
