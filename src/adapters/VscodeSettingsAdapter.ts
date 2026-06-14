@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../core/orchestration/planBuilder';
 import { VerificationResult } from './AssistantAdapter';
-import { BaseExtensionAdapter } from './BaseExtensionAdapter';
+import { BaseExtensionAdapter, formatThrowable } from './BaseExtensionAdapter';
 
 interface ExtensionConfiguration {
   properties?: Record<string, unknown>;
@@ -94,8 +94,12 @@ export abstract class VscodeSettingsAdapter extends BaseExtensionAdapter {
 
       return this.getKeysWhenNoConfiguration();
     } catch (error) {
-      this.logger.warning(`Error discovering ${this.getDisplayName()} setting keys`, error);
-      return [];
+      const formatted = formatThrowable(error);
+      this.logger.warning(
+        `Error discovering ${this.getDisplayName()} setting keys: ${formatted.message}`,
+        formatted.context
+      );
+      return this.getKeysWhenNoConfiguration();
     }
   }
 

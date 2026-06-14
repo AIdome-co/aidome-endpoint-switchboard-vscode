@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Hardened shared adapter error handling for non-Error throwables and preserved fallback setting-key behavior when VS Code setting discovery fails.
 - Extracted `BaseExtensionAdapter` and `VscodeSettingsAdapter` shared base classes, eliminating duplicated detect/apply/verify/error-handling boilerplate across all assistant adapters.
 
 ## [1.4.5] - 2026-06-04

@@ -11,6 +11,58 @@ import { EndpointProfile } from '../core/profiles/profileTypes';
 import { Plan } from '../core/orchestration/planBuilder';
 import { Logger } from '../util/log';
 
+export interface FormattedThrowable {
+  message: string;
+  context: Record<string, unknown>;
+  error?: Error;
+}
+
+function stringifyUnknownThrowable(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/**
+ * Converts any caught throwable into a safe message and logger context.
+ *
+ * JavaScript can throw arbitrary values, including strings, null, undefined,
+ * symbols, and objects with circular references. Keep Error instances as Error
+ * objects for logger stack handling, but never expose an undefined message.
+ */
+export function formatThrowable(error: unknown): FormattedThrowable {
+  if (error instanceof Error) {
+    const message = error.message || error.name || 'Unknown Error';
+    return {
+      message,
+      error,
+      context: {
+        error: message,
+        errorDetails: {
+          name: error.name,
+          message,
+          stack: error.stack
+        }
+      }
+    };
+  }
+
+  const serialized = stringifyUnknownThrowable(error);
+  const message = serialized === undefined || serialized === '' ? String(error) : serialized;
+  return {
+    message: message || 'Unknown non-Error throwable',
+    context: {
+      error: message || 'Unknown non-Error throwable'
+    }
+  };
+}
+
 /**
  * Abstract base class for adapters that detect presence via a VS Code extension ID.
  *
@@ -36,7 +88,12 @@ export abstract class BaseExtensionAdapter implements AssistantAdapter {
       const extension = vscode.extensions.getExtension(this.extensionId);
       return extension !== undefined;
     } catch (error) {
-      this.logger.error(`Error detecting ${this.getDisplayName()}`, error as Error);
+      const formatted = formatThrowable(error);
+      this.logger.error(
+        `Error detecting ${this.getDisplayName()}: ${formatted.message}`,
+        formatted.error,
+        formatted.context
+      );
       return false;
     }
   }
@@ -55,10 +112,11 @@ export abstract class BaseExtensionAdapter implements AssistantAdapter {
     try {
       return await this.verifyConfiguration();
     } catch (error) {
+      const formatted = formatThrowable(error);
       return {
         success: false,
-        message: `Error verifying ${this.getDisplayName()} config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: `Error verifying ${this.getDisplayName()} config: ${formatted.message}`,
+        details: formatted.context
       };
     }
   }
