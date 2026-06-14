@@ -64,6 +64,17 @@ export function formatThrowable(error: unknown): FormattedThrowable {
 }
 
 /**
+ * Formats an unknown throwable into a guaranteed-serializable string.
+ * Preserves Error name/message; falls back to String() for non-Error values.
+ */
+export function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
+/**
  * Abstract base class for adapters that detect presence via a VS Code extension ID.
  *
  * Subclasses must implement:

@@ -3,9 +3,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseExtensionAdapter } from '../../src/adapters/BaseExtensionAdapter';
+import { BaseExtensionAdapter, formatUnknownError } from '../../src/adapters/BaseExtensionAdapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
-import { Plan } from '../../src/core/orchestration/planBuilder';
+import { Plan, createPlan } from '../../src/core/orchestration/planBuilder';
 import { VerificationResult } from '../../src/adapters/AssistantAdapter';
 
 const { mockGetExtension, mockLoggerError } = vi.hoisted(() => ({
@@ -29,23 +29,23 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
-class ThrowingAdapter extends BaseExtensionAdapter {
-  protected readonly extensionId = 'test.throwing';
-
-  constructor(private readonly verifyThrowable: unknown) {
-    super();
-  }
+class ConcreteAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = 'test.extension-id';
+  verifyFn: (() => Promise<VerificationResult>) | undefined;
 
   async buildPlan(_profile: EndpointProfile): Promise<Plan> {
-    return { profileId: 'profile', assistantKeys: ['test'], steps: [] };
+    return createPlan('test', ['test']);
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
-    throw this.verifyThrowable;
+    if (this.verifyFn) {
+      return this.verifyFn();
+    }
+    return { success: true, message: 'ok', details: {} };
   }
 
   getDisplayName(): string {
-    return 'Throwing Adapter';
+    return 'Test';
   }
 
   getTier(): 'A' | 'B' | 'C' {
@@ -53,36 +53,55 @@ class ThrowingAdapter extends BaseExtensionAdapter {
   }
 }
 
+describe('formatUnknownError', () => {
+  it('formats Error instances with name and message', () => {
+    expect(formatUnknownError(new Error('something broke'))).toBe('Error: something broke');
+  });
+
+  it('formats non-Error throwables via String()', () => {
+    expect(formatUnknownError('raw string')).toBe('raw string');
+    expect(formatUnknownError(42)).toBe('42');
+    expect(formatUnknownError(null)).toBe('null');
+  });
+});
+
 describe('BaseExtensionAdapter', () => {
+  let adapter: ConcreteAdapter;
+
   beforeEach(() => {
+    adapter = new ConcreteAdapter();
     mockGetExtension.mockReset();
     mockLoggerError.mockReset();
   });
 
-  it('detect handles non-Error throwables without undefined messages', async () => {
-    const adapter = new ThrowingAdapter(new Error('unused'));
-    mockGetExtension.mockImplementation(() => {
-      throw 'lookup failed';
+  describe('detect', () => {
+    it('handles non-Error throwables without producing undefined messages', async () => {
+      mockGetExtension.mockImplementation(() => {
+        throw 'string error';
+      });
+
+      const result = await adapter.detect();
+
+      expect(result).toBe(false);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        'Error detecting Test: string error',
+        undefined,
+        { error: 'string error' }
+      );
     });
-
-    const result = await adapter.detect();
-
-    expect(result).toBe(false);
-    expect(mockLoggerError).toHaveBeenCalledWith(
-      'Error detecting Throwing Adapter: lookup failed',
-      undefined,
-      { error: 'lookup failed' }
-    );
   });
 
-  it('verify handles non-Error throwables without undefined messages', async () => {
-    const adapter = new ThrowingAdapter('verify failed');
+  describe('verify', () => {
+    it('handles non-Error throwables without undefined message', async () => {
+      adapter.verifyFn = async () => {
+        throw 'string failure';
+      };
 
-    const result = await adapter.verify();
+      const result = await adapter.verify();
 
-    expect(result.success).toBe(false);
-    expect(result.message).toBe('Error verifying Throwing Adapter config: verify failed');
-    expect(result.message).not.toContain('undefined');
-    expect(result.details).toEqual({ error: 'verify failed' });
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('Error verifying Test config: string failure');
+      expect(result.details).toEqual({ error: 'string failure' });
+    });
   });
 });

@@ -101,14 +101,27 @@ export function redactObject<T extends Record<string, unknown>>(
 export function redactUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    
-    // Strip all query parameters for safety
-    if (parsed.search) {
-      parsed.search = '';
-      return parsed.toString() + ' [query params redacted]';
+
+    // Strip embedded credentials (user:pass@host)
+    let credentialsStripped = false;
+    if (parsed.username || parsed.password) {
+      parsed.username = '';
+      parsed.password = '';
+      credentialsStripped = true;
     }
     
-    return parsed.toString();
+    // Strip all query parameters for safety
+    const queryStripped = !!parsed.search;
+    if (queryStripped) {
+      parsed.search = '';
+    }
+
+    const suffixes: string[] = [];
+    if (credentialsStripped) { suffixes.push('credentials'); }
+    if (queryStripped) { suffixes.push('query params'); }
+
+    const base = parsed.toString();
+    return suffixes.length > 0 ? `${base} [${suffixes.join(' & ')} redacted]` : base;
   } catch {
     return url;
   }
