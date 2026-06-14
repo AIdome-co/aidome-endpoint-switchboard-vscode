@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { validateInputUrl } from '../core/profiles/profileValidator';
+import { validateInputUrl, validateProfileName } from '../core/profiles/profileValidator';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { EndpointProfile } from '../core/profiles/profileTypes';
@@ -234,7 +234,10 @@ export async function createProfileFromPrompts(
       if (!trimmedValue) {
         return 'Profile name cannot be empty';
       }
-      if (options.name.maxLength && value.length > options.name.maxLength) {
+      if (!validateProfileName(trimmedValue)) {
+        return 'Profile name must be alphanumeric with hyphens/underscores only (max 64 chars)';
+      }
+      if (options.name.maxLength && trimmedValue.length > options.name.maxLength) {
         return `Profile name must be ${options.name.maxLength} characters or less`;
       }
       if (options.name.requireUniqueName && knownProfiles.some(profile => profile.name === trimmedValue)) {

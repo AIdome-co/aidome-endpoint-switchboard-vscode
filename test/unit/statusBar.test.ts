@@ -122,28 +122,30 @@ describe('updateStatusBar', () => {
   it('shows configured state when profile provided', () => {
     updateStatusBar('TestProfile');
     expect(mockStatusBarItem.text).toBe('$(shield) AIdome: TestProfile');
-    expect(mockStatusBarItem.show).toHaveBeenCalled();
+    expect(mockStatusBarItem.show).toHaveBeenCalledTimes(1);
   });
 
   it('shows not-configured state when no profile', () => {
     updateStatusBar();
     expect(mockStatusBarItem.text).toBe('$(warning) AIdome: Not configured');
-    expect(mockStatusBarItem.show).toHaveBeenCalled();
+    expect(mockStatusBarItem.show).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('hideStatusBar', () => {
   it('hides the status bar item', () => {
-    createStatusBarItem(); // ensure it's created
+    createStatusBarItem();
+    mockStatusBarItem.hide.mockClear();
     hideStatusBar();
-    expect(mockStatusBarItem.hide).toHaveBeenCalled();
+    expect(mockStatusBarItem.hide).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('disposeStatusBar', () => {
   it('disposes and clears the status bar item', () => {
-    createStatusBarItem(); // ensure it's created
+    createStatusBarItem();
+    mockStatusBarItem.dispose.mockClear();
     disposeStatusBar();
-    expect(mockStatusBarItem.dispose).toHaveBeenCalled();
+    expect(mockStatusBarItem.dispose).toHaveBeenCalledTimes(1);
   });
 });

@@ -151,6 +151,9 @@ export function validateApiKey(apiKey: string): boolean {
 export function sanitizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
+    // Strip embedded credentials
+    parsed.username = '';
+    parsed.password = '';
     // Remove common sensitive parameters
     parsed.searchParams.delete('api_key');
     parsed.searchParams.delete('apiKey');

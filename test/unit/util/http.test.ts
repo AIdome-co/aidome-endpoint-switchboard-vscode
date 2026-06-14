@@ -126,37 +126,26 @@ describe('HttpError', () => {
 });
 
 describe('httpRequest', () => {
-  let originalProxyEnv: Record<
-    'HTTPS_PROXY' | 'HTTP_PROXY' | 'NO_PROXY' | 'https_proxy' | 'http_proxy' | 'no_proxy',
-    string | undefined
-  >;
+  const proxyKeys = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy'] as const;
+  let originalProxyEnv: Record<(typeof proxyKeys)[number], string | undefined>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(http.request).mockReset();
     vi.mocked(https.request).mockReset();
-    originalProxyEnv = {
-      HTTPS_PROXY: process.env.HTTPS_PROXY,
-      HTTP_PROXY: process.env.HTTP_PROXY,
-      NO_PROXY: process.env.NO_PROXY,
-      https_proxy: process.env.https_proxy,
-      http_proxy: process.env.http_proxy,
-      no_proxy: process.env.no_proxy,
-    };
-    delete process.env.HTTPS_PROXY;
-    delete process.env.HTTP_PROXY;
-    delete process.env.NO_PROXY;
-    delete process.env.https_proxy;
-    delete process.env.http_proxy;
-    delete process.env.no_proxy;
+    originalProxyEnv = {} as Record<(typeof proxyKeys)[number], string | undefined>;
+    for (const key of proxyKeys) {
+      originalProxyEnv[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
-    for (const [key, value] of Object.entries(originalProxyEnv)) {
-      if (value === undefined) {
+    for (const key of proxyKeys) {
+      if (originalProxyEnv[key] === undefined) {
         delete process.env[key];
       } else {
-        process.env[key] = value;
+        process.env[key] = originalProxyEnv[key];
       }
     }
     vi.useRealTimers();
