@@ -10,109 +10,22 @@
  * Verified against: Cline v3.x source (saoudrizwan/claude-dev) as of 2026-04-24.
  */
 
-import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
-import { Logger } from '../../util/log';
-
-interface ExtensionConfiguration {
-  properties?: Record<string, unknown>;
-}
+import { GuidedStepsData } from '../../core/orchestration/planBuilder';
+import { VscodeSettingsAdapter } from '../VscodeSettingsAdapter';
 
 /**
  * Cline assistant adapter.
  */
-export class ClineAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class ClineAdapter extends VscodeSettingsAdapter {
+  protected readonly extensionId = 'saoudrizwan.claude-dev';
+  protected readonly assistantKey = 'cline';
 
-  async detect(): Promise<boolean> {
-    try {
-      const extension = vscode.extensions.getExtension('saoudrizwan.claude-dev');
-      return extension !== undefined;
-    } catch (error) {
-      this.logger.error('Error detecting Cline', error as Error);
-      return false;
-    }
+  protected getKeyMatchPatterns(): RegExp {
+    return /(baseurl|base_url|openai.*base)/;
   }
 
-  async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    let plan = createPlan(profile.id, ['cline']);
-
-    const settingKeys = await this.discoverSettingKeys();
-    
-    for (const key of settingKeys) {
-      plan = addStep(plan, {
-        action: 'set-vscode-setting',
-        description: `Set ${key} to ${profile.baseUrl}`,
-        assistantKey: 'cline',
-        targetPath: key,
-        newValue: profile.baseUrl,
-        data: { 
-          settingKey: key, 
-          value: profile.baseUrl 
-        },
-        reversible: true
-      });
-    }
-
-    if (settingKeys.length === 0) {
-      const guidedData: GuidedStepsData = {
-        message: 'Please configure Cline base URL manually in extension settings',
-        steps: [
-          'Open VS Code Settings (Ctrl+, or Cmd+,)',
-          'Search for "Cline" or "claude-dev"',
-          'Locate the base URL or API endpoint setting (e.g. cline.openAiBaseUrl)',
-          `Set the value to: ${profile.baseUrl}`,
-          'Save the settings and reload Cline if prompted'
-        ],
-        baseUrl: profile.baseUrl
-      };
-      plan = addStep(plan, {
-        action: 'show-guided-steps',
-        description: 'Manual configuration required for Cline',
-        assistantKey: 'cline',
-        data: guidedData,
-        reversible: false
-      });
-    }
-
-    return plan;
-  }
-
-  private async discoverSettingKeys(): Promise<string[]> {
-    try {
-      const extension = vscode.extensions.getExtension('saoudrizwan.claude-dev');
-      if (!extension) {
-        return [];
-      }
-
-      const packageJson = extension.packageJSON;
-      const contributes = packageJson?.contributes;
-      const configuration = contributes?.configuration;
-
-      if (!configuration) {
-        return this.getFallbackKeys();
-      }
-
-      const properties = Array.isArray(configuration) 
-        ? configuration.flatMap((c: ExtensionConfiguration) => Object.keys(c.properties || {}))
-        : Object.keys(configuration.properties || {});
-
-      const baseUrlKeys = properties.filter((key: string) => 
-        key.toLowerCase().includes('baseurl') || 
-        key.toLowerCase().includes('base_url') ||
-        (key.toLowerCase().includes('openai') && key.toLowerCase().includes('base'))
-      );
-
-      return baseUrlKeys.length > 0 ? baseUrlKeys : this.getFallbackKeys();
-    } catch (error) {
-      this.logger.warning('Error discovering Cline setting keys', error);
-      return this.getFallbackKeys();
-    }
-  }
-
-  private getFallbackKeys(): string[] {
+  protected getFallbackKeys(): string[] {
     return [
       'cline.openAiBaseUrl',
       'cline.baseUrl',
@@ -120,43 +33,18 @@ export class ClineAdapter implements AssistantAdapter {
     ];
   }
 
-  async apply(plan: Plan): Promise<void> {
-    return Promise.resolve();
-  }
-
-  async verify(): Promise<VerificationResult> {
-    try {
-      const config = vscode.workspace.getConfiguration();
-      const settingKeys = await this.discoverSettingKeys();
-
-      const configuredKeys: Record<string, string> = {};
-      for (const key of settingKeys) {
-        const value = config.get<string>(key);
-        if (value) {
-          configuredKeys[key] = value;
-        }
-      }
-
-      if (Object.keys(configuredKeys).length === 0) {
-        return {
-          success: false,
-          message: 'No Cline base URL settings configured',
-          details: { checkedKeys: settingKeys }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Cline configuration verified',
-        details: { configuredSettings: configuredKeys }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Error verifying Cline config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
-      };
-    }
+  protected getGuidedSteps(profile: EndpointProfile): GuidedStepsData {
+    return {
+      message: 'Please configure Cline base URL manually in extension settings',
+      steps: [
+        'Open VS Code Settings (Ctrl+, or Cmd+,)',
+        'Search for "Cline" or "claude-dev"',
+        'Locate the base URL or API endpoint setting (e.g. cline.openAiBaseUrl)',
+        `Set the value to: ${profile.baseUrl}`,
+        'Save the settings and reload Cline if prompted'
+      ],
+      baseUrl: profile.baseUrl
+    };
   }
 
   getDisplayName(): string {

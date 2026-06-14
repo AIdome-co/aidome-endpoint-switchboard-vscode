@@ -1,5 +1,8 @@
 /**
  * Adapter for AnythingLLM.
+ *
+ * AnythingLLM is a desktop application detected via filesystem paths.
+ * It does not use VS Code extension detection.
  */
 
 import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
@@ -14,12 +17,10 @@ import { fileExists } from '../../util/fsSafe';
  * AnythingLLM adapter.
  */
 export class AnythingLlmAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+  private readonly logger = Logger.getInstance();
 
   async detect(): Promise<boolean> {
     try {
-      // AnythingLLM is a desktop app, not a VS Code extension
-      // We can try to detect it by checking for common installation paths
       const detectionPaths = this.getDetectionPaths();
       
       for (const detectionPath of detectionPaths) {
@@ -28,8 +29,6 @@ export class AnythingLlmAdapter implements AssistantAdapter {
         }
       }
       
-      // If we can't detect it, we'll still return true for guidance
-      // since users might have it installed in a non-standard location
       return false;
     } catch (error) {
       this.logger.error('Error detecting AnythingLLM', error as Error);
@@ -44,7 +43,6 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     const paths: string[] = [];
     
     if (platform === 'win32') {
-      // Windows paths — use env vars so non-default drive letters are handled correctly
       paths.push(
         path.join(homeDir, 'AppData', 'Local', 'AnythingLLM'),
         path.join(homeDir, 'AppData', 'Local', 'Programs', 'AnythingLLM'),
@@ -52,13 +50,11 @@ export class AnythingLlmAdapter implements AssistantAdapter {
         path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'AnythingLLM')
       );
     } else if (platform === 'darwin') {
-      // macOS paths
       paths.push(
         '/Applications/AnythingLLM.app',
         path.join(homeDir, 'Applications', 'AnythingLLM.app')
       );
     } else {
-      // Linux paths
       paths.push(
         '/opt/AnythingLLM',
         path.join(homeDir, '.local', 'share', 'AnythingLLM'),
@@ -71,10 +67,8 @@ export class AnythingLlmAdapter implements AssistantAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    // AnythingLLM is Tier B (guided) - desktop app configuration
     let plan = createPlan(profile.id, ['anythingllm']);
 
-    // Add guided steps for configuring AnythingLLM
     const configGuidanceData = {
       message: 'Configure AnythingLLM to use your AIdome endpoint',
       steps: [
@@ -99,7 +93,6 @@ export class AnythingLlmAdapter implements AssistantAdapter {
       reversible: false
     });
 
-    // Add a step to copy the base URL to clipboard for convenience
     const clipboardGuidanceData = {
       message: 'For your convenience',
       steps: [
@@ -121,34 +114,25 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     return plan;
   }
 
-  async apply(plan: Plan): Promise<void> {
-    // For Tier B desktop app, application is guidance only - no VS Code changes
+  async apply(_plan: Plan): Promise<void> {
     return Promise.resolve();
   }
 
   async verify(): Promise<VerificationResult> {
-    try {
-      const detected = await this.detect();
-      
-      return {
-        success: true,
-        message: detected 
-          ? 'AnythingLLM detected. Configuration must be done in the AnythingLLM app (Tier B).' 
-          : 'AnythingLLM not auto-detected. If installed, configure it manually using the guided steps.',
-        details: { 
-          detected: detected,
-          tier: 'B',
-          note: 'AnythingLLM is a desktop application. Configuration is done through its UI, not VS Code settings.',
-          detectionPaths: this.getDetectionPaths()
-        }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Error verifying AnythingLLM: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
-      };
-    }
+    const detected = await this.detect();
+    
+    return {
+      success: true,
+      message: detected 
+        ? 'AnythingLLM detected. Configuration must be done in the AnythingLLM app (Tier B).' 
+        : 'AnythingLLM not auto-detected. If installed, configure it manually using the guided steps.',
+      details: { 
+        detected: detected,
+        tier: 'B',
+        note: 'AnythingLLM is a desktop application. Configuration is done through its UI, not VS Code settings.',
+        detectionPaths: this.getDetectionPaths()
+      }
+    };
   }
 
   getDisplayName(): string {

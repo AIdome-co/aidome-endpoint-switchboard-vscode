@@ -3,12 +3,12 @@
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { fileExists, readFileSafe, createBackup, writeFileAtomic } from '../../util/fsSafe';
-import { Logger } from '../../util/log';
 import { buildClaudeCodeSettingsContent, getClaudeCodeSettingsPath } from './claudeCodeConfigPatcher';
 import { parseJsonc } from '../../util/jsonc';
 import { validateUrl } from '../../core/profiles/profileValidator';
@@ -24,12 +24,11 @@ interface ClaudeCodeSettings {
 /**
  * Claude Code assistant adapter.
  */
-export class ClaudeCodeAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class ClaudeCodeAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = CLAUDE_CODE_EXTENSION_ID;
 
   async detect(): Promise<boolean> {
     try {
-      // Check for both VSCode extension and CLI
       const extensionDetected = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID) !== undefined;
       const cliDetected = await detectCli('claude');
       
@@ -135,77 +134,69 @@ export class ClaudeCodeAdapter implements AssistantAdapter {
     }
   }
 
-  async verify(): Promise<VerificationResult> {
-    try {
-      const extension = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID);
-      const cliDetected = await detectCli('claude');
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const extension = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID);
+    const cliDetected = await detectCli('claude');
 
-      if (!extension && !cliDetected) {
-        return {
-          success: false,
-          message: 'Claude Code is not installed',
-          details: { extension: false, cli: false }
-        };
-      }
-
-      const configPath = getClaudeCodeSettingsPath();
-      const content = await readFileSafe(configPath);
-      if (!content) {
-        return {
-          success: false,
-          message: 'Claude Code settings file not found',
-          details: { extension: !!extension, cli: cliDetected, configPath }
-        };
-      }
-
-      const settings = parseJsonc<ClaudeCodeSettings>(content);
-      const env = settings.env ?? {};
-      const baseUrl = env.ANTHROPIC_BASE_URL;
-      const anthropicAuthToken = env.ANTHROPIC_AUTH_TOKEN;
-
-      if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
-        return {
-          success: false,
-          message: 'Claude Code settings do not have ANTHROPIC_BASE_URL configured',
-          details: { extension: !!extension, cli: cliDetected, configPath }
-        };
-      }
-
-      if (!validateUrl(baseUrl)) {
-        return {
-          success: false,
-          message: 'Claude Code settings have an invalid ANTHROPIC_BASE_URL',
-          details: { extension: !!extension, cli: cliDetected, configPath }
-        };
-      }
-
-      if (typeof anthropicAuthToken !== 'string' || anthropicAuthToken.trim().length === 0) {
-        return {
-          success: false,
-          message: 'Claude Code settings do not have ANTHROPIC_AUTH_TOKEN configured',
-          details: { extension: !!extension, cli: cliDetected, configPath }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Claude Code gateway configuration verified',
-        details: {
-          extension: !!extension,
-          cli: cliDetected,
-          configPath,
-          baseUrlConfigured: true,
-          authTokenConfigured: true,
-          gatewayModelDiscovery: env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY === '1'
-        }
-      };
-    } catch (error) {
+    if (!extension && !cliDetected) {
       return {
         success: false,
-        message: `Error verifying Claude Code config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: 'Claude Code is not installed',
+        details: { extension: false, cli: false }
       };
     }
+
+    const configPath = getClaudeCodeSettingsPath();
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      return {
+        success: false,
+        message: 'Claude Code settings file not found',
+        details: { extension: !!extension, cli: cliDetected, configPath }
+      };
+    }
+
+    const settings = parseJsonc<ClaudeCodeSettings>(content);
+    const env = settings.env ?? {};
+    const baseUrl = env.ANTHROPIC_BASE_URL;
+    const anthropicAuthToken = env.ANTHROPIC_AUTH_TOKEN;
+
+    if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
+      return {
+        success: false,
+        message: 'Claude Code settings do not have ANTHROPIC_BASE_URL configured',
+        details: { extension: !!extension, cli: cliDetected, configPath }
+      };
+    }
+
+    if (!validateUrl(baseUrl)) {
+      return {
+        success: false,
+        message: 'Claude Code settings have an invalid ANTHROPIC_BASE_URL',
+        details: { extension: !!extension, cli: cliDetected, configPath }
+      };
+    }
+
+    if (typeof anthropicAuthToken !== 'string' || anthropicAuthToken.trim().length === 0) {
+      return {
+        success: false,
+        message: 'Claude Code settings do not have ANTHROPIC_AUTH_TOKEN configured',
+        details: { extension: !!extension, cli: cliDetected, configPath }
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Claude Code gateway configuration verified',
+      details: {
+        extension: !!extension,
+        cli: cliDetected,
+        configPath,
+        baseUrlConfigured: true,
+        authTokenConfigured: true,
+        gatewayModelDiscovery: env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY === '1'
+      }
+    };
   }
 
   getDisplayName(): string {
