@@ -5,6 +5,7 @@
 import { httpGet } from '../../util/http';
 import { Logger } from '../../util/log';
 import { joinApiPath } from '../../util/apiUrl';
+import { redactUrl } from '../../util/redact';
 import { AIdomeCapabilities, AIdomeProvider, AIdomeModel, AIdomeWhoAmI, AIdomeError } from './types';
 
 /**
@@ -33,7 +34,7 @@ export async function getCapabilities(
   const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.CAPABILITIES);
   
   try {
-    logger.debug(`Fetching capabilities from ${baseUrl}`);
+    logger.debug(`Fetching capabilities from ${redactUrl(baseUrl)}`);
     
     const headers: Record<string, string> = {};
     if (authToken) {
@@ -63,7 +64,7 @@ export async function getProviders(
   const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.PROVIDERS);
   
   try {
-    logger.debug(`Fetching providers from ${baseUrl}`);
+    logger.debug(`Fetching providers from ${redactUrl(baseUrl)}`);
     
     const headers: Record<string, string> = {};
     if (authToken) {
@@ -93,7 +94,7 @@ export async function getModels(
   const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.MODELS);
   
   try {
-    logger.debug(`Fetching models from ${baseUrl}`);
+    logger.debug(`Fetching models from ${redactUrl(baseUrl)}`);
     
     const headers: Record<string, string> = {};
     if (authToken) {
@@ -123,7 +124,7 @@ export async function getWhoAmI(
   const url = joinApiPath(baseUrl, AIDOME_ENDPOINTS.WHOAMI);
   
   try {
-    logger.debug(`Fetching WhoAmI from ${baseUrl}`);
+    logger.debug(`Fetching WhoAmI from ${redactUrl(baseUrl)}`);
     
     const headers: Record<string, string> = {};
     if (authToken) {
