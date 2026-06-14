@@ -38,6 +38,8 @@ const {
 vi.mock('../../../src/util/fsSafe', () => ({
   safeWriteFile: mockSafeWriteFile,
   createBackup: mockCreateBackup,
+  isFileNotFoundError: (error: unknown) =>
+    typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT',
 }));
 
 vi.mock('../../../src/ui/output', () => ({

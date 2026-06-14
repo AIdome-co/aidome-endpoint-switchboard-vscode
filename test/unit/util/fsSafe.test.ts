@@ -2,7 +2,7 @@
  * Unit tests for fsSafe utilities.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -271,6 +271,44 @@ describe('fsSafe', () => {
       const backupPath = await backupFile(filePath);
 
       expect(backupPath).toBeUndefined();
+    });
+  });
+
+
+  describe('logger fallback semantics', () => {
+    it('should not reject safe wrappers when logger resolution fails', async () => {
+      vi.resetModules();
+      const fsError = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      vi.doMock('fs/promises', () => ({
+        readFile: vi.fn().mockRejectedValue(fsError),
+        realpath: vi.fn().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' })),
+        copyFile: vi.fn().mockRejectedValue(fsError),
+        mkdir: vi.fn().mockRejectedValue(fsError),
+        writeFile: vi.fn().mockRejectedValue(fsError),
+        rename: vi.fn().mockRejectedValue(fsError),
+        unlink: vi.fn().mockResolvedValue(undefined),
+        access: vi.fn().mockRejectedValue(fsError)
+      }));
+      vi.doMock('../../../src/util/log', () => ({
+        Logger: {
+          getInstance: vi.fn(() => {
+            throw new Error('logger unavailable');
+          })
+        }
+      }));
+
+      const safe = await import('../../../src/util/fsSafe');
+
+      await expect(safe.readFileSafe('/tmp/input.txt')).resolves.toBeUndefined();
+      await expect(safe.createBackup('/tmp/input.txt')).resolves.toBeUndefined();
+      await expect(safe.ensureDir('/tmp/dir')).resolves.toBe(false);
+      await expect(safe.safeCopyFile('/tmp/input.txt', '/tmp/out.txt')).resolves.toBe(false);
+      await expect(safe.writeFileAtomic('/tmp/out.txt', 'content', 0)).resolves.toBe(false);
+      await expect(safe.safeWriteFile('/tmp/out.txt', 'content', 0)).resolves.toBe(false);
+
+      vi.doUnmock('fs/promises');
+      vi.doUnmock('../../../src/util/log');
+      vi.resetModules();
     });
   });
 

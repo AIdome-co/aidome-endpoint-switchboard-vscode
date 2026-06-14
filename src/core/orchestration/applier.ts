@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
-import { createBackup, safeWriteFile } from '../../util/fsSafe';
+import { createBackup, safeWriteFile, isFileNotFoundError } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
@@ -539,15 +539,6 @@ export class PlanApplier {
   }
 }
 
-/**
- * Checks whether a filesystem error means the target path does not exist.
- */
-function isFileNotFoundError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'ENOENT';
-}
 
 function isClaudeCodeConfigStepData(data: Record<string, unknown>): data is ClaudeCodeConfigStepData {
   return data.configBuilder === 'claude-code-settings';

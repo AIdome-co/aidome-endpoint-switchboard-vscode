@@ -501,8 +501,8 @@ export class Verifier {
             duration: Date.now() - startTime
           };
         }
-      } catch {
-        // Try next endpoint
+      } catch (error) {
+        this.logger.debug(`Health probe failed for ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     
@@ -689,7 +689,8 @@ export class Verifier {
         },
         duration: Date.now() - startTime
       };
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Dialect validation failed: ${error instanceof Error ? error.message : String(error)}`);
       return {
         name: 'dialect-validation',
         status: 'skipped',

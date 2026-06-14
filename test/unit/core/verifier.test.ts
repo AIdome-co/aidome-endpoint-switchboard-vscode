@@ -94,14 +94,20 @@ describe('Verifier', () => {
   });
 
   it('uses the stored auth token and avoids duplicate /v1 segments for model-list probes', async () => {
+    let baseUrlCalls = 0;
     httpRequestMock.mockImplementation(async (url: string) => {
       if (url === 'http://localhost:3000/v1') {
-        return {
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          body: {}
-        };
+        baseUrlCalls += 1;
+        if (baseUrlCalls === 1) {
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: {}
+          };
+        }
+
+        throw new Error(sensitiveError);
       }
 
       if (url === 'http://localhost:3000/v1/models') {
@@ -187,6 +193,58 @@ describe('Verifier', () => {
       status: 'passed',
       message: 'Validated dialect via /v1/chat/completions (HTTP 400)'
     });
+  });
+
+
+  it('keeps dialect validation skip output generic while debug logs include details', async () => {
+    profile.dialect = 'openai.responses';
+    const sensitiveError = 'connect ECONNREFUSED https://token.example.com/v1?api_key=secret at /home/user/config.json';
+
+    let baseUrlCalls = 0;
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://localhost:3000/v1') {
+        baseUrlCalls += 1;
+        if (baseUrlCalls === 1) {
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: {}
+          };
+        }
+
+        throw new Error(sensitiveError);
+      }
+
+      if (url === 'http://localhost:3000/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'gpt-4' }] }
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/responses') {
+        throw new Error('dialect endpoint unreachable');
+      }
+
+      throw new Error(sensitiveError);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'aid_pat_test_token'
+    });
+
+    const dialectStep = report.steps.find((step) => step.name === 'dialect-validation');
+    expect(dialectStep).toMatchObject({
+      status: 'skipped',
+      message: 'Could not validate dialect (endpoint unreachable)'
+    });
+    expect(dialectStep?.message).not.toContain('token.example.com');
+    expect(dialectStep?.message).not.toContain('secret');
+    expect(dialectStep?.message).not.toContain('/home/user/config.json');
+    expect(mockLoggerDebug).toHaveBeenCalledWith(`Dialect validation failed: ${sensitiveError}`);
   });
 
   it('uses dns.lookup for non-localhost DNS resolution', async () => {
@@ -286,5 +344,47 @@ describe('Verifier', () => {
     expect(result.actionableMessage).not.toContain('Verification failed');
     expect(result.checks.find((check) => check.name === 'dns-resolution')?.status).toBe('fail');
     expect(result.checks.find((check) => check.name === 'tls-verification')?.status).toBe('warn');
+  });
+
+  it('dialect-validation keeps a generic user-facing message while logging the error at debug level', async () => {
+    profile.baseUrl = 'http://gateway.example.com/v1';
+    profile.dialect = 'openai.chat_completions';
+
+    dnsLookupMock.mockResolvedValue({ address: '1.2.3.4', family: 4 });
+
+    // Track calls to the base URL — health check succeeds, but the
+    // header-based dialect detection GET (second call) must throw.
+    let baseUrlCallCount = 0;
+
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://gateway.example.com/v1') {
+        baseUrlCallCount++;
+        if (baseUrlCallCount === 1) {
+          // Health-check probe: succeed
+          return { status: 200, statusText: 'OK', headers: {}, body: {} };
+        }
+        // Header-based dialect detection: network failure
+        throw new Error('ECONNREFUSED 127.0.0.1:3000');
+      }
+      if (url === 'http://gateway.example.com/v1/models') {
+        return { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json' }, body: { data: [{ id: 'model-1' }] } };
+      }
+      // Dialect endpoint probe: non-HttpError → { exists: false, status: 0 }
+      throw new Error('ECONNREFUSED 127.0.0.1:3000');
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'test-token'
+    });
+
+    const dialectStep = report.steps.find((step) => step.name === 'dialect-validation');
+    expect(dialectStep?.status).toBe('skipped');
+    // User-facing message must be generic — no raw error text, URLs, or paths
+    expect(dialectStep?.message).toBe('Could not validate dialect (endpoint unreachable)');
+    expect(dialectStep?.message).not.toContain('ECONNREFUSED');
+    // The detailed error must be in the debug log
+    expect(mockLoggerDebug).toHaveBeenCalledWith(
+      expect.stringContaining('ECONNREFUSED')
+    );
   });
 });
