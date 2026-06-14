@@ -2,17 +2,17 @@
  * Adapter for Gemini CLI.
  */
 
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
-import { Logger } from '../../util/log';
 
 /**
  * Gemini CLI adapter.
  */
-export class GeminiCliAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class GeminiCliAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = '';
 
   async detect(): Promise<boolean> {
     try {
@@ -24,10 +24,8 @@ export class GeminiCliAdapter implements AssistantAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    // Gemini CLI is Tier C (guided only) - no base URL override support
     let plan = createPlan(profile.id, ['gemini-cli']);
 
-    // Add guided steps explaining the limitation
     const guidanceData = {
       message: 'Gemini CLI does not support custom base URL configuration',
       steps: [
@@ -54,39 +52,26 @@ export class GeminiCliAdapter implements AssistantAdapter {
     return plan;
   }
 
-  async apply(plan: Plan): Promise<void> {
-    // For Tier C, application is guidance only - no actual changes
-    return Promise.resolve();
-  }
-
-  async verify(): Promise<VerificationResult> {
-    try {
-      const cliDetected = await detectCli('gemini');
-      
-      if (!cliDetected) {
-        return {
-          success: false,
-          message: 'Gemini CLI is not installed or not in PATH',
-          details: { cli: false }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Gemini CLI is installed. Note: Gemini CLI does not support custom endpoint configuration (Tier C).',
-        details: { 
-          cli: true,
-          tier: 'C',
-          limitation: 'Gemini CLI does not support base URL override'
-        }
-      };
-    } catch (error) {
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const cliDetected = await detectCli('gemini');
+    
+    if (!cliDetected) {
       return {
         success: false,
-        message: `Error verifying Gemini CLI: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: 'Gemini CLI is not installed or not in PATH',
+        details: { cli: false }
       };
     }
+
+    return {
+      success: true,
+      message: 'Gemini CLI is installed. Note: Gemini CLI does not support custom endpoint configuration (Tier C).',
+      details: { 
+        cli: true,
+        tier: 'C',
+        limitation: 'Gemini CLI does not support base URL override'
+      }
+    };
   }
 
   getDisplayName(): string {

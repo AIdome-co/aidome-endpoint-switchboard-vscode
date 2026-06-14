@@ -1,59 +1,100 @@
 /**
  * Adapter for Kilo Code assistant.
+ *
+ * Kilo Code has specialized discovery logic that checks both key names and
+ * property descriptions for URL-related patterns, and validates types as
+ * string-like before including them.
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
-import { Logger } from '../../util/log';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter, formatThrowable } from '../BaseExtensionAdapter';
 
-interface ExtensionConfiguration {
-  properties?: Record<string, unknown>;
-}
+const FALLBACK_KEYS = [
+  'kilocode.openaiBaseUrl',
+  'kilocode.customProviderEndpoint',
+  'kilocode.baseUrl'
+];
 
-interface ConfigurationProperty {
+const URL_SETTING_KEY_PATTERN = /(baseurl|base_url|apibase|endpoint|customproviderendpoint)/;
+const URL_SETTING_DESCRIPTION_PATTERN = /(url|endpoint)/i;
+
+interface SettingProperty {
   type?: string | string[];
   description?: string;
 }
 
-const URL_SETTING_DESCRIPTION_PATTERN = /\b(?:base[\s_-]*url|endpoint|url)\b/;
+function isStringLikeType(type: unknown): boolean {
+  if (typeof type === 'string') {
+    return type === 'string';
+  }
+  if (Array.isArray(type)) {
+    return type.includes('string');
+  }
+  return false;
+}
 
 function getDiscoveryErrorContext(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return {
-      error: {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      }
-    };
-  }
-
-  return { error: String(error) };
+  return formatThrowable(error).context;
 }
 
 /**
  * Kilo Code assistant adapter.
  */
-export class KiloCodeAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class KiloCodeAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = 'kilocode.kilo-code';
 
-  async detect(): Promise<boolean> {
-    try {
-      const extension = vscode.extensions.getExtension('kilocode.kilo-code');
-      return extension !== undefined;
-    } catch (error) {
-      this.logger.error('Error detecting Kilo Code', error as Error);
-      return false;
+  private discoverSettingKeys(): string[] {
+    const extension = vscode.extensions.getExtension(this.extensionId);
+    if (!extension) {
+      return FALLBACK_KEYS;
     }
+
+    const packageJson = extension.packageJSON;
+    const contributes = packageJson?.contributes;
+    const configuration = contributes?.configuration;
+
+    if (!configuration) {
+      return [];
+    }
+
+    const entries: Array<[string, SettingProperty | undefined]> = Array.isArray(configuration)
+      ? configuration.flatMap((c: { properties?: Record<string, SettingProperty> }) =>
+          Object.entries(c.properties || {}))
+      : Object.entries((configuration as { properties?: Record<string, SettingProperty> }).properties || {});
+
+    const matchedKeys: string[] = [];
+
+    for (const [key, prop] of entries) {
+      if (!key.startsWith('kilocode.')) {
+        continue;
+      }
+      if (!prop || !isStringLikeType(prop.type)) {
+        continue;
+      }
+      const keyLower = key.toLowerCase();
+      const desc = prop.description ?? '';
+      if (URL_SETTING_KEY_PATTERN.test(keyLower) || URL_SETTING_DESCRIPTION_PATTERN.test(desc)) {
+        matchedKeys.push(key);
+      }
+    }
+
+    return [...new Set(matchedKeys)];
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     let plan = createPlan(profile.id, ['kilo-code']);
+    let settingKeys: string[];
 
-    const settingKeys = await this.discoverSettingKeys();
-    
+    try {
+      settingKeys = this.discoverSettingKeys();
+    } catch (error) {
+      this.logger.warning('Error discovering Kilo Code setting keys', getDiscoveryErrorContext(error));
+      settingKeys = [];
+    }
+
     for (const key of settingKeys) {
       plan = addStep(plan, {
         action: 'set-vscode-setting',
@@ -61,9 +102,9 @@ export class KiloCodeAdapter implements AssistantAdapter {
         assistantKey: 'kilo-code',
         targetPath: key,
         newValue: profile.baseUrl,
-        data: { 
-          settingKey: key, 
-          value: profile.baseUrl 
+        data: {
+          settingKey: key,
+          value: profile.baseUrl
         },
         reversible: true
       });
@@ -93,114 +134,42 @@ export class KiloCodeAdapter implements AssistantAdapter {
     return plan;
   }
 
-  private async discoverSettingKeys(): Promise<string[]> {
-    try {
-      const extension = vscode.extensions.getExtension('kilocode.kilo-code');
-      if (!extension) {
-        return this.getFallbackKeys();
-      }
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const config = vscode.workspace.getConfiguration();
+    const settingKeys = this.discoverSettingKeys();
 
-      const packageJson = extension.packageJSON;
-      const contributes = packageJson?.contributes;
-      const configuration = contributes?.configuration;
-
-      if (!configuration) {
-        // Extension is installed but does not expose configurable keys.
-        // Avoid writing guessed keys that may not be registered.
-        return [];
-      }
-
-      const properties = Array.isArray(configuration) 
-        ? configuration.flatMap((c: ExtensionConfiguration) => Object.keys(c.properties || {}))
-        : Object.keys(configuration.properties || {});
-
-      const propertiesMap = Array.isArray(configuration)
-        ? configuration.reduce<Record<string, ConfigurationProperty>>((acc, c: ExtensionConfiguration) => {
-            for (const [key, value] of Object.entries(c.properties || {})) {
-              acc[key] = value as ConfigurationProperty;
-            }
-            return acc;
-          }, {})
-        : (configuration.properties || {}) as Record<string, ConfigurationProperty>;
-
-      const baseUrlKeys = properties
-        .filter((key: string) => {
-          const normalizedKey = key.toLowerCase();
-          const property = propertiesMap[key] || {};
-          const description = (property.description || '').toLowerCase();
-          const propertyType = Array.isArray(property.type) ? property.type : [property.type];
-          const isStringLike = propertyType.filter(Boolean).includes('string') || propertyType.length === 0;
-          const keyLooksLikeUrlSetting = /(baseurl|base_url|apibase|endpoint|customproviderendpoint)/.test(normalizedKey);
-          const descMentionsUrl = URL_SETTING_DESCRIPTION_PATTERN.test(description);
-
-          return isStringLike && (keyLooksLikeUrlSetting || descMentionsUrl);
-        })
-        .filter((key) => key.startsWith('kilocode.'));
-
-      // Do not guess unknown keys when extension is installed; use guided mode instead.
-      return [...new Set(baseUrlKeys)];
-    } catch (error) {
-      this.logger.warning('Error discovering Kilo Code setting keys', getDiscoveryErrorContext(error));
-      return [];
-    }
-  }
-
-  private getFallbackKeys(): string[] {
-    return [
-      'kilocode.openaiBaseUrl',
-      'kilocode.customProviderEndpoint',
-      'kilocode.baseUrl'
-    ];
-  }
-
-  async apply(plan: Plan): Promise<void> {
-    return Promise.resolve();
-  }
-
-  async verify(): Promise<VerificationResult> {
-    try {
-      const config = vscode.workspace.getConfiguration();
-      const settingKeys = await this.discoverSettingKeys();
-
-      if (settingKeys.length === 0) {
-        return {
-          success: false,
-          message: 'No registered Kilo Code URL settings were discovered. Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.',
-          details: {
-            checkedKeys: [],
-            nextStep: 'Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.'
-          }
-        };
-      }
-
-      const configuredKeys: Record<string, string> = {};
-      for (const key of settingKeys) {
-        const value = config.get<string>(key);
-        if (value) {
-          configuredKeys[key] = value;
-        }
-      }
-
-      if (Object.keys(configuredKeys).length === 0) {
-        return {
-          success: false,
-          message: 'No Kilo Code base URL settings configured',
-          details: { checkedKeys: settingKeys }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Kilo Code configuration verified',
-        details: { configuredSettings: configuredKeys }
-      };
-    } catch (error) {
+    if (settingKeys.length === 0) {
       return {
         success: false,
-        message: `Error verifying Kilo Code config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: 'No registered Kilo Code URL settings were discovered. Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.',
+        details: {
+          checkedKeys: [],
+          nextStep: 'Configure the endpoint manually in Kilo Code settings or update the Kilo Code extension.'
+        }
       };
     }
+
+    const configuredKeys: Record<string, string> = {};
+    for (const key of settingKeys) {
+      const value = config.get<string>(key);
+      if (value) {
+        configuredKeys[key] = value;
+      }
+    }
+
+    if (Object.keys(configuredKeys).length === 0) {
+      return {
+        success: false,
+        message: 'No Kilo Code base URL settings configured',
+        details: { checkedKeys: settingKeys }
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Kilo Code configuration verified',
+      details: { configuredSettings: configuredKeys }
+    };
   }
 
   getDisplayName(): string {

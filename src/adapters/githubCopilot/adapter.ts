@@ -22,10 +22,10 @@
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
-import { Logger } from '../../util/log';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 
 /** VS Code setting key for the proxy override object. */
 const ADVANCED_SETTING_KEY = 'github.copilot.advanced';
@@ -44,8 +44,8 @@ const PROXY_URL_PROPERTY = 'debug.overrideProxyUrl';
  * Sets `github.copilot.advanced.debug.overrideProxyUrl` so that all Copilot
  * REST calls (inline completions + chat) are routed through the AIdome gateway.
  */
-export class GitHubCopilotAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
+export class GitHubCopilotAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = 'GitHub.copilot';
 
   async detect(): Promise<boolean> {
     try {
@@ -63,9 +63,6 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
 
     const config = vscode.workspace.getConfiguration();
 
-    // Proxy Override — sets github.copilot.advanced.debug.overrideProxyUrl so
-    // that ALL Copilot REST calls (inline completions + chat) are routed through
-    // the gateway. Existing keys inside the `advanced` object are preserved.
     const currentAdvanced =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
     const newAdvanced: Record<string, unknown> = {
@@ -91,55 +88,42 @@ export class GitHubCopilotAdapter implements AssistantAdapter {
     return plan;
   }
 
-  async apply(_plan: Plan): Promise<void> {
-    // Steps are executed by the PlanApplier; nothing extra needed here.
-    return Promise.resolve();
-  }
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const copilotExtension = vscode.extensions.getExtension('GitHub.copilot');
+    const copilotChatExtension = vscode.extensions.getExtension('GitHub.copilot-chat');
 
-  async verify(): Promise<VerificationResult> {
-    try {
-      const copilotExtension = vscode.extensions.getExtension('GitHub.copilot');
-      const copilotChatExtension = vscode.extensions.getExtension('GitHub.copilot-chat');
-
-      if (!copilotExtension && !copilotChatExtension) {
-        return {
-          success: false,
-          message: 'GitHub Copilot is not installed',
-          details: {
-            copilot: false,
-            copilotChat: false,
-          },
-        };
-      }
-
-      const config = vscode.workspace.getConfiguration();
-
-      const advancedSettings =
-        config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
-      const proxyUrl = advancedSettings[PROXY_URL_PROPERTY];
-
-      const isConfigured = !!proxyUrl;
-
-      return {
-        success: isConfigured,
-        message: isConfigured
-          ? 'GitHub Copilot is configured with AIdome endpoint routing'
-          : 'GitHub Copilot is installed but endpoint routing is not yet configured',
-        details: {
-          copilot: !!copilotExtension,
-          copilotChat: !!copilotChatExtension,
-          tier: 'B',
-          proxyOverrideConfigured: isConfigured,
-          proxyUrl: proxyUrl ?? null,
-        },
-      };
-    } catch (error) {
+    if (!copilotExtension && !copilotChatExtension) {
       return {
         success: false,
-        message: `Error verifying GitHub Copilot: ${(error as Error).message}`,
-        details: { error: (error as Error).message },
+        message: 'GitHub Copilot is not installed',
+        details: {
+          copilot: false,
+          copilotChat: false,
+        },
       };
     }
+
+    const config = vscode.workspace.getConfiguration();
+
+    const advancedSettings =
+      config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
+    const proxyUrl = advancedSettings[PROXY_URL_PROPERTY];
+
+    const isConfigured = !!proxyUrl;
+
+    return {
+      success: isConfigured,
+      message: isConfigured
+        ? 'GitHub Copilot is configured with AIdome endpoint routing'
+        : 'GitHub Copilot is installed but endpoint routing is not yet configured',
+      details: {
+        copilot: !!copilotExtension,
+        copilotChat: !!copilotChatExtension,
+        tier: 'B',
+        proxyOverrideConfigured: isConfigured,
+        proxyUrl: proxyUrl ?? null,
+      },
+    };
   }
 
   getDisplayName(): string {
