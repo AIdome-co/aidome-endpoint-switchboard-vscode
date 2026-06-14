@@ -5,26 +5,26 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-type SafeLogger = {
-  debug: (message: string) => void;
-  info: (message: string) => void;
-  warning: (message: string) => void;
-  error: (message: string) => void;
-};
+/** Minimal logger surface used by safe wrappers. */
+interface MinimalLogger {
+  debug(msg: string, ...args: unknown[]): void;
+  info(msg: string, ...args: unknown[]): void;
+  warning(msg: string, ...args: unknown[]): void;
+  error(msg: string, ...args: unknown[]): void;
+}
 
-const noopLogger: SafeLogger = {
-  debug: () => undefined,
-  info: () => undefined,
-  warning: () => undefined,
-  error: () => undefined
+const noopLogger: MinimalLogger = {
+  debug() {},
+  info() {},
+  warning() {},
+  error() {},
 };
 
 /**
- * Lazily resolves the Logger to avoid a static dependency on `vscode`
- * (which would break pure-Node unit tests). Logger resolution is best-effort
- * so safe filesystem wrappers never reject because logging is unavailable.
+ * Best-effort logger resolution.  Never throws — returns a no-op logger
+ * when `./log` cannot be imported or `Logger` is not yet initialised.
  */
-async function getLogger(): Promise<SafeLogger> {
+async function getLogger(): Promise<MinimalLogger> {
   try {
     const { Logger } = await import('./log');
     return Logger.getInstance();

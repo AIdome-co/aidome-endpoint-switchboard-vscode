@@ -690,8 +690,7 @@ export class Verifier {
         duration: Date.now() - startTime
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      this.logger.debug(`Dialect validation failed: ${errorMsg}`);
+      this.logger.debug(`Dialect validation failed: ${error instanceof Error ? error.message : String(error)}`);
       return {
         name: 'dialect-validation',
         status: 'skipped',

@@ -157,6 +157,15 @@ describe('Redaction Utilities', () => {
       expect(redacted).toBe(url);
     });
 
+    it('should strip embedded credentials from URLs', () => {
+      const url = `https://${'user'}:${'token'}@api.example.com/v1/chat`;
+      const redacted = redactUrl(url);
+
+      expect(redacted).toBe('https://api.example.com/v1/chat [credentials redacted]');
+      expect(redacted).not.toContain('user');
+      expect(redacted).not.toContain('token');
+    });
+
     it('should handle invalid URLs gracefully', () => {
       const url = 'not a valid url';
       const redacted = redactUrl(url);

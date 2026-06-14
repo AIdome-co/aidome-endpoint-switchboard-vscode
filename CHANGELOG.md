@@ -6,10 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-- Improved error handling: silent `catch {}` blocks now log warnings via Logger for filesystem operations, config parsing, backup restoration, health-check probes, and dialect validation.
+- Improved error handling: silent `catch {}` blocks now log best-effort warnings via Logger for filesystem operations, config parsing, backup restoration, health-check probes, and dialect validation.
 - Exported `isFileNotFoundError` from `fsSafe` utility and removed duplicate definition in applier.
 - Added aggregated mapping-failure warning in Switchboard `applyPlan` so persistence issues are surfaced to the output channel.
 - Hardened new diagnostics so logger failures cannot change safe filesystem or malformed-config fallback behavior, and kept dialect-validation skip output generic.
+- Fixed `redactUrl()` and `sanitizeUrl()` to strip embedded credentials (`user:pass@host`) from URLs before logging or display.
+- Added `redactUrl()` to AIdome API endpoint debug logs so base URLs are never logged with sensitive fragments.
+- Enforced `validateProfileName()` during profile creation to reject names with special characters.
+- Patched `minimatch`, `qs`, and `tmp` devDependency vulnerabilities via `npm audit fix`.
 
 ## [1.4.5] - 2026-06-04
 
