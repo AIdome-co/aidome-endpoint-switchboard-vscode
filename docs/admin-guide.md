@@ -45,7 +45,7 @@ Give users these short setup steps after the rollout prerequisites are published
 2. Open the Command Palette and run **AIdome: Setup Endpoint Switchboard**.
 3. Enter the approved gateway base URL exactly as published, including whether it includes `/v1`.
 4. Select the required dialect and optional tenant/team identifier.
-5. Paste the user token when prompted; the extension stores it in VS Code SecretStorage, not plain-text settings.
+5. Paste the user token when prompted; the extension stores the profile secret in VS Code SecretStorage. For Claude Code Tier A assignments, profile activation also writes the active token into `env.ANTHROPIC_AUTH_TOKEN` in the shared Claude Code settings file so Claude Code can authenticate through the gateway.
 6. Assign only the assistants approved for that profile, apply the profile, and run **AIdome: Verify All Profile Routes**.
 7. Restart or reload assistants that cache configuration before confirming normal coding workflows.
 
