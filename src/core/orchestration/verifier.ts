@@ -695,7 +695,7 @@ export class Verifier {
       return {
         name: 'dialect-validation',
         status: 'skipped',
-        message: `Could not validate dialect (endpoint unreachable): ${errorMsg}`,
+        message: 'Could not validate dialect (endpoint unreachable)',
         duration: Date.now() - startTime
       };
     }

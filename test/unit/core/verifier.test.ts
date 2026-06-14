@@ -94,14 +94,20 @@ describe('Verifier', () => {
   });
 
   it('uses the stored auth token and avoids duplicate /v1 segments for model-list probes', async () => {
+    let baseUrlCalls = 0;
     httpRequestMock.mockImplementation(async (url: string) => {
       if (url === 'http://localhost:3000/v1') {
-        return {
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          body: {}
-        };
+        baseUrlCalls += 1;
+        if (baseUrlCalls === 1) {
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: {}
+          };
+        }
+
+        throw new Error(sensitiveError);
       }
 
       if (url === 'http://localhost:3000/v1/models') {
@@ -187,6 +193,58 @@ describe('Verifier', () => {
       status: 'passed',
       message: 'Validated dialect via /v1/chat/completions (HTTP 400)'
     });
+  });
+
+
+  it('keeps dialect validation skip output generic while debug logs include details', async () => {
+    profile.dialect = 'openai.responses';
+    const sensitiveError = 'connect ECONNREFUSED https://token.example.com/v1?api_key=secret at /home/user/config.json';
+
+    let baseUrlCalls = 0;
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://localhost:3000/v1') {
+        baseUrlCalls += 1;
+        if (baseUrlCalls === 1) {
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            body: {}
+          };
+        }
+
+        throw new Error(sensitiveError);
+      }
+
+      if (url === 'http://localhost:3000/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'gpt-4' }] }
+        };
+      }
+
+      if (url === 'http://localhost:3000/v1/responses') {
+        throw new Error('dialect endpoint unreachable');
+      }
+
+      throw new Error(sensitiveError);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'aid_pat_test_token'
+    });
+
+    const dialectStep = report.steps.find((step) => step.name === 'dialect-validation');
+    expect(dialectStep).toMatchObject({
+      status: 'skipped',
+      message: 'Could not validate dialect (endpoint unreachable)'
+    });
+    expect(dialectStep?.message).not.toContain('token.example.com');
+    expect(dialectStep?.message).not.toContain('secret');
+    expect(dialectStep?.message).not.toContain('/home/user/config.json');
+    expect(mockLoggerDebug).toHaveBeenCalledWith(`Dialect validation failed: ${sensitiveError}`);
   });
 
   it('uses dns.lookup for non-localhost DNS resolution', async () => {

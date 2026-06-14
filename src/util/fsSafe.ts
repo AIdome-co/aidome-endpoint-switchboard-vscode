@@ -5,13 +5,32 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+type SafeLogger = {
+  debug: (message: string) => void;
+  info: (message: string) => void;
+  warning: (message: string) => void;
+  error: (message: string) => void;
+};
+
+const noopLogger: SafeLogger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warning: () => undefined,
+  error: () => undefined
+};
+
 /**
  * Lazily resolves the Logger to avoid a static dependency on `vscode`
- * (which would break pure-Node unit tests).
+ * (which would break pure-Node unit tests). Logger resolution is best-effort
+ * so safe filesystem wrappers never reject because logging is unavailable.
  */
-async function getLogger() {
-  const { Logger } = await import('./log');
-  return Logger.getInstance();
+async function getLogger(): Promise<SafeLogger> {
+  try {
+    const { Logger } = await import('./log');
+    return Logger.getInstance();
+  } catch {
+    return noopLogger;
+  }
 }
 
 /**

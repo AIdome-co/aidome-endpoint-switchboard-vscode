@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { patchCodexConfig, getCodexConfigPath } from '../../src/adapters/codex/codexConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
+import { Logger } from '../../src/util/log';
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
@@ -117,6 +118,21 @@ model = "custom-model"
 
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
+      expect(writtenContent).toContain('[providers.aidome]');
+    });
+
+
+    it('should fall back for malformed config when logging fails', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('this is not valid TOML {{[');
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+      vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
+        throw new Error('logger unavailable');
+      });
+
+      await expect(patchCodexConfig(mockProfile, '/path/to/config.toml')).resolves.toBeUndefined();
+
+      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
+      const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
       expect(writtenContent).toContain('[providers.aidome]');
     });
 

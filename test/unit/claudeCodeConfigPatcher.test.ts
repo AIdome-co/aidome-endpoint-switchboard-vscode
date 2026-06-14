@@ -11,6 +11,7 @@ import {
 } from '../../src/adapters/claudeCode/claudeCodeConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
+import { Logger } from '../../src/util/log';
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
@@ -198,6 +199,21 @@ describe('Claude Code Config Patcher', () => {
       await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).rejects.toThrow(
         'Failed to write Claude Code settings to /path/to/settings.json'
       );
+    });
+
+
+    it('should fall back for malformed config when logging fails', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('not valid json');
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+      vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
+        throw new Error('logger unavailable');
+      });
+
+      await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).resolves.toBeUndefined();
+
+      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
+      const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
+      expect(writtenContent).toContain('ANTHROPIC_BASE_URL');
     });
 
     it('should pass a managed Anthropic token through patchClaudeCodeConfig when provided', async () => {
