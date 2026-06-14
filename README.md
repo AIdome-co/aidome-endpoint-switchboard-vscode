@@ -111,7 +111,7 @@ Have these values ready before running the wizard:
 |-------|----------------|---------|
 | Gateway base URL | The endpoint each assistant should call after configuration; confirm whether your gateway expects the base URL to include `/v1` | `https://llm-gateway.yourorg.com/v1` |
 | Dialect | The API protocol exposed by that gateway front door | `openai.chat_completions` |
-| API token | Stored in VS Code SecretStorage and applied only where the assistant needs it; never paste tokens into plain-text settings | `aidome_...` |
+| API token | Profile secrets are stored in VS Code SecretStorage. Most assistant configuration avoids plain-text token storage where possible; Claude Code Tier A is an explicit exception noted below. | `aidome_...` |
 | Tenant/team identifier | Optional org, tenant, or team routing value when your gateway requires one | `engineering-team` |
 | Target assistants | Install the assistants you want routed before detection so the wizard can find and assign them | Continue, Cline, Codex CLI |
 
@@ -198,7 +198,7 @@ The verifier reports each route through these checks:
 
 This extension is designed for enterprise environments with strict security requirements:
 
-- 🔒 **SecretStorage**: Auth tokens stored via VS Code's encrypted SecretStorage API — never in settings files
+- 🔒 **SecretStorage**: Profile secrets are stored via VS Code's encrypted SecretStorage API; most assistant configuration avoids plain-text token storage where possible. Claude Code Tier A is an explicit exception: profile activation writes the active token to `env.ANTHROPIC_AUTH_TOKEN` in the shared Claude Code settings file because Claude Code reads auth from that environment setting.
 - 📊 **No Telemetry**: Zero data collection. All processing is local.
 - 💾 **Backup Before Modify**: Timestamped backups created before any configuration change
 - 📋 **Audit Trail**: Full change log with undo capability. Export redacted diagnostics for support.
@@ -226,7 +226,7 @@ Profiles store your endpoint configuration:
 - **Name**: Human-readable identifier (e.g., "Production", "Staging")
 - **Base URL**: Your LLM gateway endpoint (e.g., `https://gateway.yourorg.com`)
 - **Dialect**: API protocol type (e.g., `openai.chat_completions`)
-- **Auth**: API key (stored in SecretStorage, never in plain text)
+- **Auth**: API key (profile secret stored in SecretStorage; Claude Code Tier A also receives the active token in `env.ANTHROPIC_AUTH_TOKEN` during profile activation)
 - **Tenant** (optional): Organization or team identifier
 
 Profiles are stored in VS Code's `globalState` and persist across sessions. API tokens are stored separately in VS Code SecretStorage.
