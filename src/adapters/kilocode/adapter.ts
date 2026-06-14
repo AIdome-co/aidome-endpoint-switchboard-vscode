@@ -36,7 +36,7 @@ function isStringLikeType(type: unknown): boolean {
   return false;
 }
 
-function getDiscoveryErrorContext(error: unknown): Record<string, unknown> | unknown {
+function getDiscoveryErrorContext(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     return {
       error: {
@@ -46,7 +46,7 @@ function getDiscoveryErrorContext(error: unknown): Record<string, unknown> | unk
       }
     };
   }
-  return { error };
+  return { error: String(error) };
 }
 
 /**

@@ -171,6 +171,20 @@ describe('ClineAdapter', () => {
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.steps.length).toBeGreaterThan(0);
     });
+
+    it('should fall back to fallback keys when discovery throws', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
+        throw new Error('unexpected');
+      });
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      // Error path should fall back to getKeysWhenNoConfiguration() → getFallbackKeys()
+      const settingSteps = plan.steps.filter((s) => s.action === 'set-vscode-setting');
+      expect(settingSteps.length).toBeGreaterThan(0);
+      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(false);
+    });
   });
 
   describe('verify', () => {
