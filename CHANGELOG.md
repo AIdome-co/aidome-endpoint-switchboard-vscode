@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Exported `isFileNotFoundError` from `fsSafe` utility and removed duplicate definition in applier.
 - Added aggregated mapping-failure warning in Switchboard `applyPlan` so persistence issues are surfaced to the output channel.
 - Hardened new diagnostics so logger failures cannot change safe filesystem or malformed-config fallback behavior, and kept dialect-validation skip output generic.
+- Hardened shared adapter error handling for non-Error throwables and preserved fallback setting-key behavior when VS Code setting discovery fails.
+- Extracted `BaseExtensionAdapter` and `VscodeSettingsAdapter` shared base classes, eliminating duplicated detect/apply/verify/error-handling boilerplate across all assistant adapters.
 - Added unit tests for 9 previously untested or under-tested modules (http, statusBar, settingsScanner, continue/paths, detectCLIs, detectExtensions, authSchemes, dialectRules, profileSecrets) — 111 new tests.
 - Fixed `redactUrl()` and `sanitizeUrl()` to strip embedded credentials (`user:pass@host`) from URLs before logging or display.
 - Added `redactUrl()` to AIdome API endpoint debug logs so base URLs are never logged with sensitive fragments.

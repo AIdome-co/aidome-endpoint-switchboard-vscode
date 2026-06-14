@@ -8,26 +8,16 @@
  */
 
 import * as vscode from 'vscode';
-import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
-import { Logger } from '../../util/log';
+import { VerificationResult } from '../AssistantAdapter';
+import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 
 /**
  * Roo Code assistant adapter.
  */
-export class RooCodeAdapter implements AssistantAdapter {
-  private logger = Logger.getInstance();
-
-  async detect(): Promise<boolean> {
-    try {
-      const extension = vscode.extensions.getExtension('RooVeterinaryInc.roo-cline');
-      return extension !== undefined;
-    } catch (error) {
-      this.logger.error('Error detecting Roo Code', error as Error);
-      return false;
-    }
-  }
+export class RooCodeAdapter extends BaseExtensionAdapter {
+  protected readonly extensionId = 'RooVeterinaryInc.roo-cline';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     let plan = createPlan(profile.id, ['roo-code']);
@@ -61,41 +51,29 @@ export class RooCodeAdapter implements AssistantAdapter {
     return plan;
   }
 
-  async apply(plan: Plan): Promise<void> {
-    return Promise.resolve();
-  }
+  protected async verifyConfiguration(): Promise<VerificationResult> {
+    const config = vscode.workspace.getConfiguration();
+    
+    const baseUrl = config.get<string>('roo-cline.openAiBaseUrl');
+    const apiProvider = config.get<string>('roo-cline.apiProvider');
 
-  async verify(): Promise<VerificationResult> {
-    try {
-      const config = vscode.workspace.getConfiguration();
-      
-      const baseUrl = config.get<string>('roo-cline.openAiBaseUrl');
-      const apiProvider = config.get<string>('roo-cline.apiProvider');
-
-      if (!baseUrl) {
-        return {
-          success: false,
-          message: 'Roo Code openAiBaseUrl not configured',
-          details: { baseUrl, apiProvider }
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Roo Code configuration verified',
-        details: { 
-          baseUrl, 
-          apiProvider,
-          configured: true 
-        }
-      };
-    } catch (error) {
+    if (!baseUrl) {
       return {
         success: false,
-        message: `Error verifying Roo Code config: ${(error as Error).message}`,
-        details: { error: (error as Error).message }
+        message: 'Roo Code openAiBaseUrl not configured',
+        details: { baseUrl, apiProvider }
       };
     }
+
+    return {
+      success: true,
+      message: 'Roo Code configuration verified',
+      details: { 
+        baseUrl, 
+        apiProvider,
+        configured: true 
+      }
+    };
   }
 
   getDisplayName(): string {
