@@ -127,13 +127,13 @@ describe('HttpError', () => {
 
 describe('httpRequest', () => {
   const proxyKeys = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy'] as const;
-  let originalProxyEnv: Record<string, string | undefined>;
+  let originalProxyEnv: Record<(typeof proxyKeys)[number], string | undefined>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(http.request).mockReset();
     vi.mocked(https.request).mockReset();
-    originalProxyEnv = {};
+    originalProxyEnv = {} as Record<(typeof proxyKeys)[number], string | undefined>;
     for (const key of proxyKeys) {
       originalProxyEnv[key] = process.env[key];
       delete process.env[key];

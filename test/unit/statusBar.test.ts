@@ -42,9 +42,7 @@ beforeEach(() => {
     command: undefined,
     accessibilityInformation: undefined,
   });
-  mockStatusBarItem.show.mockClear();
-  mockStatusBarItem.hide.mockClear();
-  mockStatusBarItem.dispose.mockClear();
+  vi.clearAllMocks();
 });
 
 describe('StatusBarManager', () => {
