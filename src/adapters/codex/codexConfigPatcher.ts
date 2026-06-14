@@ -47,10 +47,12 @@ export async function patchCodexConfig(
     try {
       config = parse(content) as CodexConfig;
     } catch (error) {
-      const { Logger } = await import('../../util/log');
-      Logger.getInstance().warning(
-        `Codex config at ${configPath} is malformed TOML, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
-      );
+      try {
+        const { Logger } = await import('../../util/log');
+        Logger.getInstance().warning(
+          `Codex config at ${configPath} is malformed TOML, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
+        );
+      } catch { /* best-effort */ }
       config = {};
     }
   } else {

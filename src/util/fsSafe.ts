@@ -5,13 +5,32 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+/** Minimal logger surface used by safe wrappers. */
+interface MinimalLogger {
+  debug(msg: string, ...args: unknown[]): void;
+  info(msg: string, ...args: unknown[]): void;
+  warning(msg: string, ...args: unknown[]): void;
+  error(msg: string, ...args: unknown[]): void;
+}
+
+const noopLogger: MinimalLogger = {
+  debug() {},
+  info() {},
+  warning() {},
+  error() {},
+};
+
 /**
- * Lazily resolves the Logger to avoid a static dependency on `vscode`
- * (which would break pure-Node unit tests).
+ * Best-effort logger resolution.  Never throws — returns a no-op logger
+ * when `./log` cannot be imported or `Logger` is not yet initialised.
  */
-async function getLogger() {
-  const { Logger } = await import('./log');
-  return Logger.getInstance();
+async function getLogger(): Promise<MinimalLogger> {
+  try {
+    const { Logger } = await import('./log');
+    return Logger.getInstance();
+  } catch {
+    return noopLogger;
+  }
 }
 
 /**

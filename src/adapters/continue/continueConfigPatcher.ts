@@ -43,10 +43,12 @@ export async function patchContinueConfig(
     try {
       config = JSON.parse(content);
     } catch (error) {
-      const { Logger } = await import('../../util/log');
-      Logger.getInstance().warning(
-        `Continue.dev config at ${configPath} is malformed JSON, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
-      );
+      try {
+        const { Logger } = await import('../../util/log');
+        Logger.getInstance().warning(
+          `Continue.dev config at ${configPath} is malformed JSON, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
+        );
+      } catch { /* best-effort */ }
       config = {};
     }
   } else {

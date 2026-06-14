@@ -287,4 +287,46 @@ describe('Verifier', () => {
     expect(result.checks.find((check) => check.name === 'dns-resolution')?.status).toBe('fail');
     expect(result.checks.find((check) => check.name === 'tls-verification')?.status).toBe('warn');
   });
+
+  it('dialect-validation keeps a generic user-facing message while logging the error at debug level', async () => {
+    profile.baseUrl = 'http://gateway.example.com/v1';
+    profile.dialect = 'openai.chat_completions';
+
+    dnsLookupMock.mockResolvedValue({ address: '1.2.3.4', family: 4 });
+
+    // Track calls to the base URL — health check succeeds, but the
+    // header-based dialect detection GET (second call) must throw.
+    let baseUrlCallCount = 0;
+
+    httpRequestMock.mockImplementation(async (url: string) => {
+      if (url === 'http://gateway.example.com/v1') {
+        baseUrlCallCount++;
+        if (baseUrlCallCount === 1) {
+          // Health-check probe: succeed
+          return { status: 200, statusText: 'OK', headers: {}, body: {} };
+        }
+        // Header-based dialect detection: network failure
+        throw new Error('ECONNREFUSED 127.0.0.1:3000');
+      }
+      if (url === 'http://gateway.example.com/v1/models') {
+        return { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json' }, body: { data: [{ id: 'model-1' }] } };
+      }
+      // Dialect endpoint probe: non-HttpError → { exists: false, status: 0 }
+      throw new Error('ECONNREFUSED 127.0.0.1:3000');
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      authToken: 'test-token'
+    });
+
+    const dialectStep = report.steps.find((step) => step.name === 'dialect-validation');
+    expect(dialectStep?.status).toBe('skipped');
+    // User-facing message must be generic — no raw error text, URLs, or paths
+    expect(dialectStep?.message).toBe('Could not validate dialect (endpoint unreachable)');
+    expect(dialectStep?.message).not.toContain('ECONNREFUSED');
+    // The detailed error must be in the debug log
+    expect(mockLoggerDebug).toHaveBeenCalledWith(
+      expect.stringContaining('ECONNREFUSED')
+    );
+  });
 });

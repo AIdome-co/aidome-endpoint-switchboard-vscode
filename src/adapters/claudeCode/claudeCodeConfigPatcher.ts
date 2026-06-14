@@ -114,12 +114,14 @@ function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
       return parsed as ClaudeCodeSettings;
     }
   } catch (error) {
-    // Fire-and-forget: log the parse failure without blocking the sync call path
-    void import('../../util/log').then(({ Logger }) =>
-      Logger.getInstance().warning(
-        `Claude Code settings file is malformed, starting with empty settings: ${error instanceof Error ? error.message : String(error)}`
-      )
-    );
+    // Best-effort logging — must never escape the parse fallback path
+    void import('../../util/log').then(({ Logger }) => {
+      try {
+        Logger.getInstance().warning(
+          `Claude Code settings file is malformed, starting with empty settings: ${error instanceof Error ? error.message : String(error)}`
+        );
+      } catch { /* logger not initialised */ }
+    }).catch(() => { /* import failed */ });
   }
 
   return {};
