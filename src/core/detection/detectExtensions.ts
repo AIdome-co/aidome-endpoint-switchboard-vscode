@@ -67,6 +67,8 @@ export function detectExtensions(registry: AssistantRegistry): DetectedAssistant
   const allExtensions = getAllExtensions();
   const logger = Logger.getInstance().scoped('Detection');
   
+  logger.info(`Scanning ${allExtensions.length} VS Code extensions: ${allExtensions.map(e => e.id).join(', ')}`);
+  
   for (const entry of registry.assistants) {
     const extensionIds = entry.detection.vscodeExtensionIds || [];
     logger.debug(`Checking registry entry: ${entry.key} against ${extensionIds.length} extension ID(s)`);
