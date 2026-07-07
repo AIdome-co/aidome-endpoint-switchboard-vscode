@@ -37,20 +37,26 @@ export async function patchContinueConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
+  const updated = buildContinueConfigContent(profile.baseUrl, content);
+  await writeFileAtomic(configPath, updated);
+}
+
+/**
+ * Builds Continue.dev config content.
+ * @param baseUrl Base URL to set
+ * @param existingContent Existing config content
+ * @returns Patched config content
+ */
+export function buildContinueConfigContent(
+  baseUrl: string,
+  existingContent?: string
+): string {
   let config: ContinueConfig;
 
-  if (content) {
+  if (existingContent) {
     try {
-      config = JSON.parse(content);
-    } catch (error) {
-      try {
-        const { Logger } = await import('../../util/log');
-        Logger.getInstance().warning(
-          `Continue.dev config at ${configPath} is malformed JSON, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
-        );
-      } catch {
-        // Logging is best-effort; malformed configs must still fall back.
-      }
+      config = JSON.parse(existingContent);
+    } catch {
       config = {};
     }
   } else {
@@ -61,22 +67,21 @@ export async function patchContinueConfig(
     config.models = [];
   }
 
-  let modelEntry = config.models.find((m) => m.apiBase === profile.baseUrl);
+  let modelEntry = config.models.find((m) => m.apiBase === baseUrl);
   if (!modelEntry) {
     modelEntry = config.models.find((m) => m.provider === 'openai');
   }
 
   if (modelEntry) {
-    modelEntry.apiBase = profile.baseUrl;
+    modelEntry.apiBase = baseUrl;
     modelEntry.provider = 'openai';
   } else {
     config.models.push({
       provider: 'openai',
-      apiBase: profile.baseUrl,
+      apiBase: baseUrl,
       model: 'gpt-4'
     });
   }
 
-  const updated = JSON.stringify(config, null, 2);
-  await writeFileAtomic(configPath, updated);
+  return JSON.stringify(config, null, 2);
 }

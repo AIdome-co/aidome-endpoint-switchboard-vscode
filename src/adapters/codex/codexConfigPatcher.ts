@@ -41,20 +41,27 @@ export async function patchCodexConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
+  const updated = buildCodexConfigContent(profile.baseUrl, content);
+  await writeFileAtomic(configPath, updated);
+}
+
+/**
+ * Builds Codex config content.
+ * @param baseUrl Base URL to set
+ * @param existingContent Existing config content
+ * @returns Patched config content
+ */
+export function buildCodexConfigContent(
+  baseUrl: string,
+  existingContent?: string
+): string {
   let config: CodexConfig;
 
-  if (content) {
+  if (existingContent) {
     try {
-      config = parse(content) as CodexConfig;
-    } catch (error) {
-      try {
-        const { Logger } = await import('../../util/log');
-        Logger.getInstance().warning(
-          `Codex config at ${configPath} is malformed TOML, starting with empty config: ${error instanceof Error ? error.message : String(error)}`
-        );
-      } catch {
-        // Logging is best-effort; malformed configs must still fall back.
-      }
+      config = parse(existingContent) as CodexConfig;
+    } catch {
+      // If parse fails, start with empty config
       config = {};
     }
   } else {
@@ -68,7 +75,7 @@ export async function patchCodexConfig(
 
   // Configure AIdome provider
   config.providers.aidome = {
-    base_url: profile.baseUrl,
+    base_url: baseUrl,
     wire_api: 'responses' // OpenAI Responses API (Codex's preferred wire format)
     // Note: API key is stored in SecretStorage, not in config file
   };
@@ -82,6 +89,5 @@ export async function patchCodexConfig(
   }
 
   // Convert back to TOML and write
-  const updated = stringify(config);
-  await writeFileAtomic(configPath, updated);
+  return stringify(config);
 }
