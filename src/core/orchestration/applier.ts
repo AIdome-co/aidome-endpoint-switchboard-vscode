@@ -279,6 +279,33 @@ export class PlanApplier {
       return await this.buildClaudeCodeConfigContent(step, fileExists, step.data);
     }
 
+    const existingContent = fileExists
+      ? await fs.readFile(step.targetPath!, 'utf-8')
+      : undefined;
+
+    if (step.assistantKey === 'kilo-code') {
+      const { buildKiloConfigContent, discoverModels, buildModelEntries } = await import('../../adapters/kilocode/kiloConfigPatcher');
+
+      const kiloData = step.data as Record<string, unknown> | undefined;
+      const authRef = typeof kiloData?.authRef === 'string' && kiloData.authRef.trim().length > 0
+        ? kiloData.authRef.trim()
+        : undefined;
+      const apiKey = authRef
+        ? await this.profileSecrets.getSecret(authRef)
+        : undefined;
+
+      // Discover models with the API key (unavailable during buildPlan)
+      let models = kiloData?.models as Record<string, { name: string }> | undefined;
+      if (!models || Object.keys(models).length === 0) {
+        const modelSlugs = await discoverModels(step.newValue as string, apiKey);
+        if (modelSlugs.length > 0) {
+          models = buildModelEntries(modelSlugs);
+        }
+      }
+
+      return buildKiloConfigContent(step.newValue as string, existingContent, apiKey, models);
+    }
+
     return typeof step.newValue === 'string'
       ? step.newValue
       : JSON.stringify(step.newValue, null, 2);
