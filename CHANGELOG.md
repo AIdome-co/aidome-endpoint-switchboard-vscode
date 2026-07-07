@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Bumped eslint, @typescript-eslint/parser, @typescript-eslint/eslint-plugin, and @stylistic/eslint-plugin to latest major versions (resolves peer dependency conflicts from dependabot PRs #45, #54, #55).
+
 - Improved setup, verification, troubleshooting, administrator, and enterprise documentation with accurate command names, rollout prerequisites, configuration surfaces, and support escalation guidance.
 - Improved error handling: silent `catch {}` blocks now log best-effort warnings via Logger for filesystem operations, config parsing, backup restoration, health-check probes, and dialect validation.
 - Exported `isFileNotFoundError` from `fsSafe` utility and removed duplicate definition in applier.
