@@ -260,7 +260,7 @@
     "@typescript-eslint/parser": "^8.63.0",
     "@vitest/coverage-v8": "^4.1.6",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.3.0",
+    "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
     "eslint": "^10.6.0",
     "glob": "^13.0.6",
