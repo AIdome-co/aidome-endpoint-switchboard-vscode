@@ -11,14 +11,18 @@ const {
   mockReadFileSafe,
   mockLoggerError,
   mockLoggerInfo,
-  mockLoggerWarning
+  mockLoggerWarning,
+  mockDiscoverModels,
+  mockBuildModelEntries
 } = vi.hoisted(() => ({
   mockGetExtension: vi.fn(),
   mockFileExists: vi.fn(),
   mockReadFileSafe: vi.fn(),
   mockLoggerError: vi.fn(),
   mockLoggerInfo: vi.fn(),
-  mockLoggerWarning: vi.fn()
+  mockLoggerWarning: vi.fn(),
+  mockDiscoverModels: vi.fn(),
+  mockBuildModelEntries: vi.fn(() => ({}))
 }));
 
 vi.mock('vscode', () => ({
@@ -39,8 +43,8 @@ vi.mock('../../src/util/log', () => ({
 
 vi.mock('../../src/adapters/kilocode/kiloConfigPatcher', () => ({
   getKiloConfigPath: vi.fn(() => '/home/user/.config/kilo/kilo.jsonc'),
-  discoverModels: vi.fn().mockResolvedValue([]),
-  buildModelEntries: vi.fn().mockReturnValue({})
+  discoverModels: mockDiscoverModels,
+  buildModelEntries: mockBuildModelEntries
 }));
 
 vi.mock('../../src/util/fsSafe', () => ({
@@ -70,6 +74,10 @@ describe('KiloCodeAdapter', () => {
     mockLoggerError.mockReset();
     mockLoggerInfo.mockReset();
     mockLoggerWarning.mockReset();
+    mockDiscoverModels.mockReset();
+    mockDiscoverModels.mockResolvedValue([]);
+    mockBuildModelEntries.mockReset();
+    mockBuildModelEntries.mockReturnValue({});
   });
 
   describe('detect', () => {
@@ -147,6 +155,43 @@ describe('KiloCodeAdapter', () => {
       expect(actions).toContain('backup-file');
       expect(actions).toContain('edit-config-file');
       expect(actions).toContain('verify-endpoint');
+    });
+
+    it('passes discovered models to the edit-config-file step when discovery returns slugs', async () => {
+      mockFileExists.mockResolvedValue(true);
+      mockDiscoverModels.mockResolvedValue(['gpt-4', 'claude-3-opus']);
+      const discoveredEntries = {
+        'gpt-4': { name: 'gpt-4' },
+        'claude-3-opus': { name: 'claude-3-opus' }
+      };
+      mockBuildModelEntries.mockReturnValue(discoveredEntries);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(mockDiscoverModels).toHaveBeenCalledWith(mockProfile.baseUrl);
+      expect(mockBuildModelEntries).toHaveBeenCalledWith(['gpt-4', 'claude-3-opus']);
+
+      const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
+      expect(editStep?.data?.models).toEqual(discoveredEntries);
+
+      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeUndefined();
+    });
+
+    it('adds guided-steps when no models are discovered and no config exists', async () => {
+      mockFileExists.mockResolvedValue(false);
+      mockDiscoverModels.mockResolvedValue([]);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeDefined();
+      expect(guidedStep?.data?.baseUrl).toBe(mockProfile.baseUrl);
+      expect(Array.isArray(guidedStep?.data?.steps)).toBe(true);
+      expect((guidedStep?.data?.steps as string[]).length).toBeGreaterThan(0);
+
+      const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
+      expect(editStep?.data?.models).toBeUndefined();
     });
   });
 
