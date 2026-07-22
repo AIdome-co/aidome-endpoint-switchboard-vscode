@@ -1,7 +1,8 @@
 /**
  * Unit tests for Kilo Code config patcher.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'path';
 import {
   patchKiloConfig,
   getKiloConfigPath,
@@ -9,6 +10,21 @@ import {
 } from '../../src/adapters/kilocode/kiloConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
+
+/**
+ * Mutable mock-state for the `os` module. We mock the whole module via
+ * vi.mock because Node's `os.platform` is non-configurable in ESM, which
+ * makes vi.spyOn throw "Cannot redefine property: platform".
+ */
+const mockOs = {
+  platform: 'linux',
+  homedir: '/home/testuser'
+};
+
+vi.mock('os', () => ({
+  platform: () => mockOs.platform,
+  homedir: () => mockOs.homedir
+}));
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
@@ -27,6 +43,8 @@ vi.mock('../../src/util/log', () => ({
 
 describe('Kilo Config Patcher', () => {
   let mockProfile: EndpointProfile;
+  let originalAppData: string | undefined;
+  let originalXdgConfigHome: string | undefined;
 
   beforeEach(() => {
     mockProfile = {
@@ -37,12 +55,68 @@ describe('Kilo Config Patcher', () => {
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+    mockOs.platform = 'linux';
+    mockOs.homedir = '/home/testuser';
+    originalAppData = process.env.APPDATA;
+    originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  });
+
+  afterEach(() => {
+    if (originalAppData === undefined) {
+      delete process.env.APPDATA;
+    } else {
+      process.env.APPDATA = originalAppData;
+    }
+    if (originalXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    }
   });
 
   describe('getKiloConfigPath', () => {
-    it('should return the correct config path', () => {
-      const path = getKiloConfigPath();
-      expect(path).toContain('.config/kilo/kilo.jsonc');
+    it('returns APPDATA-based path on win32', () => {
+      mockOs.platform = 'win32';
+      process.env.APPDATA = 'C:\\Users\\testuser\\AppData\\Roaming';
+
+      expect(getKiloConfigPath()).toBe(
+        path.join('C:\\Users\\testuser\\AppData\\Roaming', 'Kilo', 'kilo.jsonc')
+      );
+    });
+
+    it('falls back to homedir when APPDATA is unset on win32', () => {
+      mockOs.platform = 'win32';
+      delete process.env.APPDATA;
+
+      expect(getKiloConfigPath()).toBe(
+        path.join('/home/testuser', 'AppData', 'Roaming', 'Kilo', 'kilo.jsonc')
+      );
+    });
+
+    it('returns Library/Application Support path on darwin', () => {
+      mockOs.platform = 'darwin';
+
+      expect(getKiloConfigPath()).toBe(
+        path.join('/home/testuser', 'Library', 'Application Support', 'kilo', 'kilo.jsonc')
+      );
+    });
+
+    it('honors XDG_CONFIG_HOME when set on linux', () => {
+      mockOs.platform = 'linux';
+      process.env.XDG_CONFIG_HOME = '/custom/config';
+
+      expect(getKiloConfigPath()).toBe(
+        path.join('/custom/config', 'kilo', 'kilo.jsonc')
+      );
+    });
+
+    it('falls back to ~/.config/kilo on linux when XDG_CONFIG_HOME is unset', () => {
+      mockOs.platform = 'linux';
+      delete process.env.XDG_CONFIG_HOME;
+
+      expect(getKiloConfigPath()).toBe(
+        path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc')
+      );
     });
   });
 

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 - Added unit tests covering Kilo Code adapter model-discovery branch (`discoverModels` returning slugs) and the no-models/no-config guided-steps path; restores 100% branch coverage required by the Kilo adapter coverage gate.
+- Made `kiloConfigPatcher.test.ts` runner-portable by replacing the single platform-agnostic `.toContain('.config/kilo/kilo.jsonc')` assertion with explicit per-branch tests for `getKiloConfigPath()` (win32 with/without APPDATA, darwin, linux with/without XDG_CONFIG_HOME) using `vi.mock('os')`; fixes macOS and Windows CI failures without affecting the implementation.
 - Bumped eslint, @typescript-eslint/parser, @typescript-eslint/eslint-plugin, and @stylistic/eslint-plugin to latest major versions (resolves peer dependency conflicts from dependabot PRs #45, #54, #55).
 
 - Improved setup, verification, troubleshooting, administrator, and enterprise documentation with accurate command names, rollout prerequisites, configuration surfaces, and support escalation guidance.
