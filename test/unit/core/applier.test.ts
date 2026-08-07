@@ -224,6 +224,50 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(mockRecordApply.mock.calls[0][0].steps[0].newValue).toBe('[redacted config-file content]');
   });
 
+  it('patches Continue config content instead of replacing it with the URL', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue('{"models":[{"provider":"openai","model":"existing"}],"custom":true}');
+    const step = makeStep({
+      action: 'edit-config-file',
+      assistantKey: 'continue',
+      targetPath: '/tmp/continue-config.json',
+      newValue: 'https://gateway.example.com/v1',
+      data: { format: 'json' },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    const written = JSON.parse(mockSafeWriteFile.mock.calls.at(-1)?.[1]);
+    expect(written.custom).toBe(true);
+    expect(written.models[0]).toMatchObject({
+      provider: 'openai',
+      apiBase: 'https://gateway.example.com/v1',
+    });
+  });
+
+  it('patches Codex config content instead of replacing it with the URL', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue('model = "existing-model"\n\n[providers.openai]\nbase_url = "https://api.openai.com/v1"\n');
+    const step = makeStep({
+      action: 'edit-config-file',
+      assistantKey: 'openai-codex',
+      targetPath: '/tmp/codex-config.toml',
+      newValue: 'https://gateway.example.com/v1',
+      data: { format: 'toml' },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    const written = mockSafeWriteFile.mock.calls.at(-1)?.[1];
+    expect(written).toContain('model = "existing-model"');
+    expect(written).toContain('[providers.aidome]');
+    expect(written).toContain('base_url = "https://gateway.example.com/v1"');
+  });
+
   it('records a composite changeLogEntry for API compatibility', async () => {
     const applier = new PlanApplier(fakeContext);
     const steps = [
