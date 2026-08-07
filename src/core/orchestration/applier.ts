@@ -283,6 +283,16 @@ export class PlanApplier {
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
 
+    if (step.assistantKey === 'continue') {
+      const { buildContinueConfigContent } = await import('../../adapters/continue/continueConfigPatcher');
+      return buildContinueConfigContent(step.newValue as string, existingContent);
+    }
+
+    if (step.assistantKey === 'openai-codex') {
+      const { buildCodexConfigContent } = await import('../../adapters/codex/codexConfigPatcher');
+      return buildCodexConfigContent(step.newValue as string, existingContent);
+    }
+
     if (step.assistantKey === 'kilo-code') {
       const { buildKiloConfigContent, discoverModels, buildModelEntries } = await import('../../adapters/kilocode/kiloConfigPatcher');
 
