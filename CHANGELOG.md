@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Added TypeScript 7 typecheck gates for application and E2E sources while retaining TypeScript 6 compatibility for the current typescript-eslint parser.
 - Updated the VS Code extension test runner to resolve current macOS app executables and pinned CI to Node.js 22, restoring Extension Development Host tests after VS Code removed the legacy `Electron` executable path.
 - Added unit tests covering Kilo Code adapter model-discovery branch (`discoverModels` returning slugs) and the no-models/no-config guided-steps path; restores 100% branch coverage required by the Kilo adapter coverage gate.
 - Made `kiloConfigPatcher.test.ts` runner-portable by replacing the single platform-agnostic `.toContain('.config/kilo/kilo.jsonc')` assertion with explicit per-branch tests for `getKiloConfigPath()` (win32 with/without APPDATA, darwin, linux with/without XDG_CONFIG_HOME) using `vi.mock('os')`; fixes macOS and Windows CI failures without affecting the implementation.

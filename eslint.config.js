@@ -1,3 +1,6 @@
+// typescript-eslint v8 does not support TypeScript 7's compiler API yet.
+// ESLint uses the compatible TypeScript 6 package; compile/e2e scripts use the
+// separately installed TypeScript 7 alias.
 const tsParser = require('@typescript-eslint/parser');
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const stylistic = require('@stylistic/eslint-plugin');
