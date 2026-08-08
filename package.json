@@ -269,6 +269,10 @@
     "vite": "^8.2.0",
     "vitest": "^4.1.6"
   },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.5"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode"
