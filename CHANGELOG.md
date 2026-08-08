@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Upgraded CI and release workflows to Node.js 24.19.0 LTS.
 - Patched transitive development dependencies for known security advisories and locked the safe `diff` and `serialize-javascript` versions.
 - Updated the VS Code extension test runner to resolve current macOS app executables and pinned CI to Node.js 22, restoring Extension Development Host tests after VS Code removed the legacy `Electron` executable path.
 - Fixed Continue and Codex adapter plans writing the endpoint URL over the entire configuration file instead of applying the existing JSON/TOML config patchers.
