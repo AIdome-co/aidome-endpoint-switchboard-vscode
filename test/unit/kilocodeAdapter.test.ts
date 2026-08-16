@@ -115,6 +115,12 @@ describe('KiloCodeAdapter', () => {
   });
 
   describe('buildPlan', () => {
+    it('rejects unsafe endpoint URLs', async () => {
+      await expect(adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)'
+      })).rejects.toThrow('endpoint URL is invalid');
+    });
     it('creates backup-file and edit-config-file steps for Kilo Code config', async () => {
       mockFileExists.mockResolvedValue(true);
 
@@ -317,7 +323,7 @@ describe('KiloCodeAdapter', () => {
     });
 
     it('returns tier A', () => {
-      expect(adapter.getTier()).toBe('A');
+      expect(adapter.getTier()).toBe('B');
     });
 
     it('apply resolves without side effects', async () => {

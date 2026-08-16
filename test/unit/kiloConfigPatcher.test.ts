@@ -45,6 +45,9 @@ vi.mock('../../src/util/log', () => ({
 }));
 
 describe('Kilo Config Patcher', () => {
+  it('rejects unsafe endpoint URLs', () => {
+    expect(() => buildKiloConfigContent('javascript:alert(1)')).toThrow('endpoint URL is invalid');
+  });
   let mockProfile: EndpointProfile;
   let originalAppData: string | undefined;
   let originalXdgConfigHome: string | undefined;

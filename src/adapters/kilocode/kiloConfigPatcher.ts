@@ -247,6 +247,10 @@ export function buildKiloConfigContent(
   apiKey?: string,
   models?: Record<string, KiloProviderModel>
 ): string {
+  if (!validateUrl(baseUrl)) {
+    throw new Error('Kilo Code endpoint URL is invalid or uses an unsupported scheme');
+  }
+
   // The API key is used by the applier for authenticated model discovery only.
   // Kilo credentials must remain in its native auth store or an environment
   // reference; never serialize a SecretStorage value into JSONC.

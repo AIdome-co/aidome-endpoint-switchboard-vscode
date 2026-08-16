@@ -73,7 +73,7 @@
       },
       "endpointSwitching": {
         "supported": true,
-        "tier": "A",
+        "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
           "in-extension-ui",
@@ -188,7 +188,8 @@
         "notes": [
           "Kilo Code 7.4+ loads native provider definitions from the global kilo.jsonc JSONC config and uses provider.<id>.options.baseURL plus provider.<id>.models.",
           "The adapter discovers models from the OpenAI-compatible /models endpoint with the profile token from SecretStorage, but never writes that token into JSONC.",
-          "Existing provider models, auth references, headers, and unrelated providers/settings are preserved."
+          "Existing provider models, auth references, headers, and unrelated providers/settings are preserved.",
+          "Runtime authentication remains a guided Kilo-native environment-reference or provider-auth step when the gateway requires a token, so the adapter does not claim full authentication automation."
         ]
       },
       "tlsVerification": {

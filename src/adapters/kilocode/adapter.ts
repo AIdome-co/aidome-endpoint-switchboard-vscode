@@ -21,6 +21,7 @@ import {
   inspectKiloConfigContent
 } from './kiloConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 /**
  * Kilo Code assistant adapter.
@@ -29,6 +30,10 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = 'kilocode.kilo-code';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('Kilo Code endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     const configPath = getKiloConfigPath();
     let plan = createPlan(profile.id, ['kilo-code']);
 
@@ -88,7 +93,8 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
             `Save the provider configuration`,
             `If the gateway requires authentication, configure Kilo's provider API key using a trusted environment reference; Switchboard never writes the profile secret to JSONC`
           ],
-          baseUrl: profile.baseUrl
+          baseUrl: profile.baseUrl,
+          tier: 'B'
         },
         reversible: false
       });
@@ -158,6 +164,6 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'A';
+    return 'B';
   }
 }

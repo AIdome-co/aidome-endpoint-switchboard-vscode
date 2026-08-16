@@ -64,7 +64,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | Continue.dev | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | Cline | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | Roo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
-| Kilo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
+| Kilo Code | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | OpenAI Codex CLI | CLI | A — Full | ✅ Yes | OpenAI Responses |
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
@@ -82,7 +82,7 @@ Claude Code gateway routing:
 
 Kilo Code gateway routing:
 
-- Kilo Code 7.4+ uses the native global JSONC provider configuration (`~/.config/kilo/kilo.jsonc`, or the path selected by `KILO_CONFIG_DIR`/`KILO_CONFIG`), not the former `kilocode.*` VS Code settings.
+- Kilo Code 7.4+ uses the native global JSONC provider configuration (`~/.config/kilo/kilo.jsonc`, or the path selected by `KILO_CONFIG_DIR`/`KILO_CONFIG`), not the former `kilocode.*` VS Code settings. Endpoint and model configuration is automated; runtime authentication may require guided Kilo-native setup.
 - The adapter writes `provider.aidome-gateway` with Kilo's `@ai-sdk/openai-compatible` provider, updates only its `options.baseURL`, and adds OpenAI-compatible model IDs discovered from `{baseURL}/models`.
 - Authenticated model discovery uses the profile token from SecretStorage. The token is never serialized into Kilo's JSONC; existing Kilo auth references, headers, models, providers, and settings are preserved. Configure runtime credentials through Kilo's native environment-reference or provider-auth flow when the gateway requires authentication.
 
