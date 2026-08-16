@@ -8,6 +8,7 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 const DESCRIPTOR = getProviderConfigDescriptor('gemini-cli');
 
@@ -27,21 +28,29 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('Gemini CLI endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     let plan = createPlan(profile.id, ['gemini-cli']);
 
     const guidanceData = {
-      message: 'Configure Gemini CLI through its gateway environment variables',
+      message: 'Gemini CLI supports gateway base URLs through environment variables',
       steps: [
-        'Set GOOGLE_GEMINI_BASE_URL in the environment that launches Gemini CLI',
-        `Use this endpoint value: ${profile.baseUrl}`,
-        'Set GEMINI_API_KEY in that same environment if the gateway requires authentication',
-        'Start a new Gemini CLI process after changing the environment variables',
-        'Switchboard keeps any saved profile credential in SecretStorage and does not modify the parent process environment'
+        'Choose the environment variable that matches your Gemini CLI authentication mode:',
+        '  - Gemini API key authentication: GOOGLE_GEMINI_BASE_URL',
+        '  - Vertex AI authentication: GOOGLE_VERTEX_BASE_URL',
+        `Set the selected variable to: ${profile.baseUrl}`,
+        'For macOS/Linux: export VARIABLE_NAME="<your AIdome endpoint>"',
+        'For Windows PowerShell: $env:VARIABLE_NAME="<your AIdome endpoint>"',
+        'Persist the variable in your shell profile or a Gemini CLI .env file, then restart Gemini CLI',
+        'Keep the existing Gemini API key or Vertex AI authentication configuration unchanged'
       ],
       baseUrl: profile.baseUrl,
-      limitation: 'process-environment-guidance',
-      envVarName: 'GOOGLE_GEMINI_BASE_URL',
+      envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+      limitation: 'environment-variable-configuration-required',
       tier: DESCRIPTOR?.tier ?? 'C'
+
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
@@ -65,15 +74,28 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       };
     }
 
+    const configuredEnvironmentVariables = [
+      ...(process.env['GOOGLE_GEMINI_BASE_URL'] ? ['GOOGLE_GEMINI_BASE_URL'] : []),
+      ...(process.env['GOOGLE_VERTEX_BASE_URL'] ? ['GOOGLE_VERTEX_BASE_URL'] : [])
+    ];
+    const configured = configuredEnvironmentVariables.length > 0;
+
     return {
-      success: false,
-      message: 'Gemini CLI is installed, but gateway environment configuration must be verified in the launching process',
+      success: configured,
+      message: configured
+        ? 'Gemini CLI is installed and a supported gateway base-URL environment variable is configured.'
+        : 'Gemini CLI is installed, but a supported gateway base-URL environment variable is not configured.',
       details: { 
         cli: true,
         tier: DESCRIPTOR?.tier ?? 'C',
-        configurationStatus: 'manual-configuration-required',
-        environmentVariable: 'GOOGLE_GEMINI_BASE_URL',
-        limitation: 'Switchboard cannot inspect or change the environment of an already running CLI parent process'
+        configurationStatus: configured ? 'environment-variable-configured' : 'manual-configuration-required',
+        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+        supportedEnvironmentVariables: [
+          'GOOGLE_GEMINI_BASE_URL',
+          'GOOGLE_VERTEX_BASE_URL'
+        ],
+        configuredEnvironmentVariables
+
       }
     };
   }
