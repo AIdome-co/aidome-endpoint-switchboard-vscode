@@ -9,6 +9,7 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getContinueConfigPath } from './paths';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { parseJsonc } from '../../util/jsonc';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 interface ContinueModel extends Record<string, unknown> {
   provider?: unknown;
@@ -41,6 +42,10 @@ export class ContinueAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = 'Continue.continue';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('Continue.dev endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     const configPath = getContinueConfigPath();
     let plan = createPlan(profile.id, ['continue']);
 
@@ -139,7 +144,8 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     const hasOpenAiApiBase = models.some((model) =>
       model.provider === 'openai' &&
       typeof model.apiBase === 'string' &&
-      model.apiBase.trim().length > 0
+      model.apiBase.trim().length > 0 &&
+      validateUrl(model.apiBase)
     );
 
     if (!hasOpenAiApiBase) {

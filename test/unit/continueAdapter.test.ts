@@ -84,6 +84,13 @@ describe('ContinueAdapter', () => {
   });
 
   describe('buildPlan', () => {
+    it('rejects unsafe endpoint URLs', async () => {
+      await expect(adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)'
+      })).rejects.toThrow('endpoint URL is invalid');
+    });
+
     it('should create config-file steps that set the Continue apiBase', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 

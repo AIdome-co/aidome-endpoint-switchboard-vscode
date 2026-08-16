@@ -16,6 +16,10 @@ vi.mock('../../src/adapters/continue/paths', () => ({
 }));
 
 describe('Continue Config Patcher', () => {
+  it('rejects unsafe endpoint URLs', () => {
+    expect(() => buildContinueConfigContent('javascript:alert(1)')).toThrow('endpoint URL is invalid');
+  });
+
   let mockProfile: EndpointProfile;
 
   beforeEach(() => {

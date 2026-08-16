@@ -7,6 +7,7 @@ import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { getContinueConfigPath } from './paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 interface ContinueModel extends Record<string, unknown> {
   provider?: unknown;
@@ -52,6 +53,10 @@ export function buildContinueConfigContent(
   baseUrl: string,
   existingContent?: string
 ): string {
+  if (!validateUrl(baseUrl)) {
+    throw new Error('Continue.dev endpoint URL is invalid or uses an unsupported scheme');
+  }
+
   let config: ContinueConfig = {};
 
   if (existingContent !== undefined) {
