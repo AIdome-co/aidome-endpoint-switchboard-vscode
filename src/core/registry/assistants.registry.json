@@ -527,7 +527,8 @@
         "notes": "Tabnine has no extension-specific TLS toggle. Relies on VS Code's http.proxyStrictSSL and NODE_EXTRA_CA_CERTS for custom CA trust."
       },
       "sources": [
-        "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode"
+        "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode",
+        "https://docs.tabnine.com/main/getting-started/install/client-setup-private-installation/vs-code-private-installation"
       ]
     }
   ]
