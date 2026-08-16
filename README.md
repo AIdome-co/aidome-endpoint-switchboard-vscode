@@ -96,7 +96,7 @@ Different AI providers use different API protocols. The Switchboard understands 
 - **`openai.responses`** — Newer OpenAI format, `/v1/responses` (OpenAI Codex CLI)
 - **`anthropic.messages`** — Anthropic's `/v1/messages` (Claude Code)
 - **`google.gemini.generate_content`** — Google Gemini (Gemini CLI)
-- **`github.copilot`** — Routable via proxy override (`debug.overrideProxyUrl`). ⚠️ This setting is undocumented and may change without notice.
+- **`github.copilot`** — Routable via proxy override (`debug.overrideProxyUrl`). ⚠️ This setting is undocumented and may change without notice; BYOK model setup is a separate VS Code flow.
 - **`tabnine.proprietary`** — Proprietary (not switchable)
 
 ---
@@ -213,6 +213,7 @@ This extension is designed for enterprise environments with strict security requ
 - [Administrator Guide](docs/admin-guide.md) — rollout checklist, user setup runbook, troubleshooting, and support escalation.
 - [Enterprise Installation Guide](docs/enterprise-install.md) — recommended rollout, pre-install requirements, Settings Sync, SecretStorage, proxy, and certificate guidance.
 - [Platform Support](docs/platform-support.md) — supported operating systems and remote VS Code contexts.
+- [GitHub Copilot Evidence](docs/github-copilot.md) — upstream source trace, archived-repository note, proxy override behavior, and BYOK scope.
 - [Architecture Reference](.github/references/architecture.md) — extension architecture, adapter boundaries, and design notes.
 
 ---
@@ -329,11 +330,13 @@ Yes. The extension detects remote environments and provides warnings if you conf
 ### What about GitHub Copilot?
 
 Copilot is supported at **Tier B** using the proxy override mechanism:
-- **Proxy Override** (`github.copilot.advanced.debug.overrideProxyUrl`): routes all Copilot REST traffic (inline completions + chat) through your gateway.
+- **Proxy Override** (`github.copilot.advanced.debug.overrideProxyUrl`): routes Copilot completion and chat API traffic that uses the Copilot proxy endpoint through your gateway.
 
 > ⚠️ **Note:** `debug.overrideProxyUrl` is an undocumented internal setting and may change or be removed in future Copilot updates. Verify after major Copilot extension updates.
 
-This setting is applied automatically and is fully reversible.
+When the installed Copilot build registers this setting, the Switchboard applies it automatically and records the prior value for rollback. If the setting is not registered, the Switchboard shows guided `settings.json` instructions instead of claiming that an automatic write succeeded.
+
+Copilot BYOK is supported separately by current VS Code releases through **Chat: Manage Language Models** and the **Custom Endpoint** provider. The Switchboard does not configure BYOK provider records, `chatLanguageModels.json`, model metadata, or API keys; use the [VS Code language models documentation](https://code.visualstudio.com/docs/agent-customization/language-models) for that flow.
 
 ---
 
