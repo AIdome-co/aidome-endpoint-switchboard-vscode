@@ -22,3 +22,9 @@ tsconfig.e2e.json
 **/.eslintrc.json
 out/test/**
 out-test/**
+audit.json
+coverage/**
+.playwright-cli/**
+.playwright-mcp/**
+maintenance/**
+docs/maintenance-automation.md

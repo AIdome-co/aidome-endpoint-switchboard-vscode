@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0.0",
+  "switchboardRepository": "https://github.com/AIdome-co/aidome-endpoint-switchboard-vscode.git",
+  "pubRefsRoot": "/home/aidome-dev/pub-refs",
+  "providers": [
+    {
+      "key": "github-copilot",
+      "displayName": "GitHub Copilot",
+      "url": "https://github.com/microsoft/vscode-copilot-chat.git",
+      "branch": "main",
+      "path": "github-copilot",
+      "status": "archived-reference",
+      "notes": "Official public Copilot Chat source repository; the registry relies on the VS Code Copilot extension behavior."
+    },
+    {
+      "key": "cline",
+      "displayName": "Cline",
+      "url": "https://github.com/cline/cline.git",
+      "branch": "main",
+      "path": "cline",
+      "status": "active"
+    },
+    {
+      "key": "roo-code",
+      "displayName": "Roo Code",
+      "url": "https://github.com/RooCodeInc/Roo-Code.git",
+      "branch": "main",
+      "path": "roo-code",
+      "status": "archived-reference",
+      "notes": "Retained because the assistant remains in the Switchboard registry; do not assume new upstream maintenance."
+    },
+    {
+      "key": "kilo-code",
+      "displayName": "Kilo Code",
+      "url": "https://github.com/Kilo-Org/kilocode.git",
+      "branch": "main",
+      "path": "kilo-code",
+      "status": "active"
+    },
+    {
+      "key": "continue",
+      "displayName": "Continue.dev",
+      "url": "https://github.com/continuedev/continue.git",
+      "branch": "main",
+      "path": "continue",
+      "status": "active"
+    },
+    {
+      "key": "claude-code",
+      "displayName": "Claude Code",
+      "url": "https://github.com/anthropics/claude-code.git",
+      "branch": "main",
+      "path": "claude-code",
+      "status": "active"
+    },
+    {
+      "key": "openai-codex",
+      "displayName": "OpenAI Codex",
+      "url": "https://github.com/openai/codex.git",
+      "branch": "main",
+      "path": "openai-codex",
+      "status": "active"
+    },
+    {
+      "key": "gemini-cli",
+      "displayName": "Gemini CLI",
+      "url": "https://github.com/google-gemini/gemini-cli.git",
+      "branch": "main",
+      "path": "gemini-cli",
+      "status": "active"
+    },
+    {
+      "key": "codegpt",
+      "displayName": "CodeGPT",
+      "url": "https://github.com/timkmecl/codegpt.git",
+      "branch": "master",
+      "path": "codegpt",
+      "status": "legacy-reference",
+      "notes": "Public source repository associated with the CodeGPT VS Code extension; verify ownership and activity before relying on behavior."
+    },
+    {
+      "key": "anythingllm",
+      "displayName": "AnythingLLM",
+      "url": "https://github.com/Mintplex-Labs/anything-llm.git",
+      "branch": "master",
+      "path": "anythingllm",
+      "status": "active"
+    },
+    {
+      "key": "tabnine",
+      "displayName": "Tabnine",
+      "url": "https://github.com/codota/tabnine-vscode.git",
+      "branch": "master",
+      "path": "tabnine",
+      "status": "legacy-reference",
+      "notes": "Official public VS Code client source; Tabnine backend behavior remains proprietary."
+    }
+  ]
+}
