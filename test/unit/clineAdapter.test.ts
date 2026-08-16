@@ -5,6 +5,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { ClineAdapter } from '../../src/adapters/cline/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
+import { getClineConfigPaths } from '../../src/adapters/cline/clineConfigPatcher';
 
 const {
   mockGetExtension,
@@ -150,9 +151,10 @@ describe('ClineAdapter', () => {
 
       expect(plan.assistantKeys).toEqual(['cline']);
       expect(editSteps).toHaveLength(2);
+      const paths = getClineConfigPaths();
       expect(editSteps.map((step) => step.targetPath)).toEqual([
-        '/tmp/cline-switchboard-test/settings/providers.json',
-        '/tmp/cline-switchboard-test/globalState.json'
+        paths.providerSettingsPath,
+        paths.globalStatePath
       ]);
       expect(plan.steps.some((step) => step.action === 'set-vscode-setting')).toBe(false);
       expect(plan.steps.some((step) => step.action === 'verify-endpoint')).toBe(true);
@@ -187,9 +189,10 @@ describe('ClineAdapter', () => {
 
       const plan = await adapter.buildPlan(mockProfile);
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
+      const paths = getClineConfigPaths();
 
-      expect(editSteps[0].targetPath).toBe('/tmp/cline-switchboard-test/settings/providers.json');
-      expect(editSteps[1].targetPath).toBe('/tmp/cline-switchboard-test/globalState.json');
+      expect(editSteps[0].targetPath).toBe(paths.providerSettingsPath);
+      expect(editSteps[1].targetPath).toBe(paths.globalStatePath);
     });
 
     it('creates native files without explicit backup steps when files are missing', async () => {
