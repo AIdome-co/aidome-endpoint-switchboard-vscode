@@ -73,7 +73,7 @@
       },
       "endpointSwitching": {
         "supported": true,
-        "tier": "B",
+        "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
           "in-extension-ui",
@@ -167,7 +167,7 @@
       },
       "endpointSwitching": {
         "supported": true,
-        "tier": "A",
+        "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
           "config-file",
