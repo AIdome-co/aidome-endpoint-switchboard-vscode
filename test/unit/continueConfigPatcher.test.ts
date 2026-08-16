@@ -3,24 +3,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { patchContinueConfig } from '../../src/adapters/continue/continueConfigPatcher';
+import {
+  buildContinueConfigContent,
+  patchContinueConfig
+} from '../../src/adapters/continue/continueConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
-import { Logger } from '../../src/util/log';
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/adapters/continue/paths', () => ({
   getContinueConfigPath: () => '/home/user/.continue/config.json'
-}));
-vi.mock('../../src/util/log', () => ({
-  Logger: {
-    getInstance: vi.fn(() => ({
-      info: vi.fn(),
-      debug: vi.fn(),
-      warning: vi.fn(),
-      error: vi.fn()
-    }))
-  }
 }));
 
 describe('Continue Config Patcher', () => {
@@ -37,21 +29,94 @@ describe('Continue Config Patcher', () => {
     vi.clearAllMocks();
   });
 
-  it('should fall back to an empty config for malformed JSON when logging fails', async () => {
-    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ malformed json');
-    vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
-    vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
-      throw new Error('logger unavailable');
+  it('updates the existing OpenAI model and preserves other models and settings', () => {
+    const existingContent = JSON.stringify({
+      models: [
+        {
+          title: 'Local model',
+          provider: 'ollama',
+          model: 'qwen2.5-coder',
+          apiBase: mockProfile.baseUrl,
+          customModelSetting: true
+        },
+        {
+          title: 'Existing OpenAI',
+          provider: 'openai',
+          model: 'gpt-4o',
+          apiBase: 'https://api.openai.com/v1',
+          requestOptions: { timeout: 30000 }
+        }
+      ],
+      customSetting: { enabled: true }
     });
 
-    await expect(patchContinueConfig(mockProfile, '/path/to/config.json')).resolves.toBeUndefined();
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl, existingContent));
 
-    expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-    const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-    const parsed = JSON.parse(writtenContent);
-    expect(parsed.models).toContainEqual(expect.objectContaining({
+    expect(result.customSetting).toEqual({ enabled: true });
+    expect(result.models).toHaveLength(2);
+    expect(result.models[0]).toEqual(JSON.parse(existingContent).models[0]);
+    expect(result.models[1]).toMatchObject({
+      title: 'Existing OpenAI',
       provider: 'openai',
-      apiBase: mockProfile.baseUrl
-    }));
+      model: 'gpt-4o',
+      apiBase: mockProfile.baseUrl,
+      requestOptions: { timeout: 30000 }
+    });
+  });
+
+  it('adds exactly one valid OpenAI model when one is absent', () => {
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl, JSON.stringify({
+      models: [{ title: 'Claude', provider: 'anthropic', model: 'claude-sonnet' }],
+      customSetting: true
+    })));
+
+    expect(result.customSetting).toBe(true);
+    expect(result.models).toHaveLength(2);
+    expect(result.models.filter((model: { provider?: string }) => model.provider === 'openai')).toHaveLength(1);
+    expect(result.models[1]).toEqual({
+      title: 'AIdome Gateway',
+      provider: 'openai',
+      apiBase: mockProfile.baseUrl,
+      model: 'gpt-4'
+    });
+  });
+
+  it('creates a valid config with one model when the file is missing', () => {
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl));
+
+    expect(result.models).toEqual([{
+      title: 'AIdome Gateway',
+      provider: 'openai',
+      apiBase: mockProfile.baseUrl,
+      model: 'gpt-4'
+    }]);
+  });
+
+  it('accepts Continue JSONC comments while patching', () => {
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl, `{
+      // Continue's legacy config loader accepts JSONC comments.
+      "models": [{
+        "title": "Existing OpenAI",
+        "provider": "openai",
+        "model": "gpt-4o"
+      }]
+    }`));
+
+    expect(result.models[0].apiBase).toBe(mockProfile.baseUrl);
+  });
+
+  it('rejects malformed JSONC without replacing the file', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ malformed json');
+    vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+
+    await expect(patchContinueConfig(mockProfile, '/path/to/config.json')).rejects.toThrow();
+    expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported models shape without replacing the file', () => {
+    expect(() => buildContinueConfigContent(
+      mockProfile.baseUrl,
+      JSON.stringify({ models: { provider: 'openai' }, customSetting: true })
+    )).toThrow('models must be an array of objects');
   });
 });

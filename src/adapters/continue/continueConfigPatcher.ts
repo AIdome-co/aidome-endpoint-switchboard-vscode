@@ -1,23 +1,24 @@
 /**
  * Configuration file patcher for Continue.dev.
- * Handles JSON config file modification with backup.
+ * Handles JSONC-compatible config file modification.
  */
 
-import { readFileSafe, writeFileAtomic, createBackup } from '../../util/fsSafe';
+import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { getContinueConfigPath } from './paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 
-interface ContinueModel {
-  provider?: string;
-  apiBase?: string;
-  apiKey?: string;
-  model?: string;
-  [key: string]: unknown;
+interface ContinueModel extends Record<string, unknown> {
+  provider?: unknown;
+  apiBase?: unknown;
 }
 
-interface ContinueConfig {
-  models?: ContinueModel[];
-  [key: string]: unknown;
+interface ContinueConfig extends Record<string, unknown> {
+  models?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -51,37 +52,36 @@ export function buildContinueConfigContent(
   baseUrl: string,
   existingContent?: string
 ): string {
-  let config: ContinueConfig;
+  let config: ContinueConfig = {};
 
-  if (existingContent) {
-    try {
-      config = JSON.parse(existingContent);
-    } catch {
-      config = {};
+  if (existingContent !== undefined) {
+    const parsed = parseJsonc<unknown>(existingContent);
+    if (!isRecord(parsed)) {
+      throw new SyntaxError('Continue config must be a JSON object');
     }
-  } else {
-    config = {};
+    config = parsed;
   }
 
-  if (!config.models) {
+  if (config.models === undefined) {
     config.models = [];
   }
-
-  let modelEntry = config.models.find((m) => m.apiBase === baseUrl);
-  if (!modelEntry) {
-    modelEntry = config.models.find((m) => m.provider === 'openai');
+  if (!Array.isArray(config.models) || !config.models.every(isRecord)) {
+    throw new TypeError('Continue config models must be an array of objects');
   }
+
+  const models = config.models as ContinueModel[];
+  const modelEntry = models.find((model) => model.provider === 'openai');
 
   if (modelEntry) {
     modelEntry.apiBase = baseUrl;
-    modelEntry.provider = 'openai';
   } else {
-    config.models.push({
+    models.push({
+      title: 'AIdome Gateway',
       provider: 'openai',
       apiBase: baseUrl,
       model: 'gpt-4'
     });
   }
 
-  return JSON.stringify(config, null, 2);
+  return stringifyJsonc(config);
 }

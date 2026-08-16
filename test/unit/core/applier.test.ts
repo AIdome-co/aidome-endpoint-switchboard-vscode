@@ -227,7 +227,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
   it('patches Continue config content instead of replacing it with the URL', async () => {
     const applier = new PlanApplier(fakeContext);
     mockAccess.mockResolvedValue(undefined);
-    mockReadFile.mockResolvedValue('{"models":[{"provider":"openai","model":"existing"}],"custom":true}');
+    mockReadFile.mockResolvedValue('{"models":[{"title":"Existing OpenAI","provider":"openai","model":"existing"}],"custom":true}');
     const step = makeStep({
       action: 'edit-config-file',
       assistantKey: 'continue',
@@ -245,6 +245,35 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
       provider: 'openai',
       apiBase: 'https://gateway.example.com/v1',
     });
+  });
+
+  it('restores the original Continue config when a later step fails', async () => {
+    const originalContent = '{"models":[{"title":"Existing OpenAI","provider":"openai","model":"existing"}],"custom":true}';
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue(originalContent);
+    mockUpdateConfig.mockRejectedValueOnce(new Error('later step failed'));
+    const steps = [
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'continue',
+        targetPath: '/tmp/continue-config.json',
+        newValue: 'https://gateway.example.com/v1',
+        data: { format: 'jsonc' },
+      }),
+      makeStep({
+        action: 'set-vscode-setting',
+        assistantKey: 'continue',
+        targetPath: 'continue.testSetting',
+        newValue: true,
+      }),
+    ];
+
+    const result = await applier.applyPlan(makePlan(steps), 'profile');
+
+    expect(result.success).toBe(false);
+    expect(mockSafeWriteFile.mock.calls.at(-1)?.[1]).toBe(originalContent);
+    expect(result.assistantResults.get('continue')?.success).toBe(false);
   });
 
   it('patches Codex config content instead of replacing it with the URL', async () => {
