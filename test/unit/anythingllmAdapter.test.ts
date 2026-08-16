@@ -151,26 +151,37 @@ describe('AnythingLlmAdapter', () => {
   });
 
   describe('verify', () => {
-    it('should return success when AnythingLLM is detected', async () => {
+    it('should not claim configuration success when AnythingLLM is only detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('detected');
       expect(result.details?.detected).toBe(true);
       expect(result.details?.tier).toBe('B');
     });
 
-    it('should return success with guidance when not detected', async () => {
+    it('should return a failed verification with guidance when not detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('not auto-detected');
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not detected');
       expect(result.details?.detected).toBe(false);
       expect(result.details?.tier).toBe('B');
+      expect(result.details?.configurationStatus).toBe('not-detected');
+    });
+
+    it('should report manual configuration as required when detected', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+      expect(result.details?.supportedProvider).toBe('Generic OpenAI / OpenAI Compatible');
     });
 
     it('should include detection paths in details', async () => {
@@ -187,9 +198,8 @@ describe('AnythingLlmAdapter', () => {
 
       const result = await adapter.verify();
 
-      // verify() wraps detect() which catches errors and returns false
-      // So verify() still returns success: true with detected: false
-      expect(result.success).toBe(true);
+      // verify() reports the detection failure instead of claiming the app is usable.
+      expect(result.success).toBe(false);
       expect(result.details?.detected).toBe(false);
     });
   });
