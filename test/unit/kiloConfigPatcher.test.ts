@@ -6,7 +6,10 @@ import * as path from 'path';
 import {
   patchKiloConfig,
   getKiloConfigPath,
-  buildKiloConfigContent
+  buildKiloConfigContent,
+  buildModelEntries,
+  discoverModels,
+  inspectKiloConfigContent
 } from '../../src/adapters/kilocode/kiloConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
@@ -45,6 +48,8 @@ describe('Kilo Config Patcher', () => {
   let mockProfile: EndpointProfile;
   let originalAppData: string | undefined;
   let originalXdgConfigHome: string | undefined;
+  let originalKiloConfigDir: string | undefined;
+  let originalKiloConfig: string | undefined;
 
   beforeEach(() => {
     mockProfile = {
@@ -59,6 +64,8 @@ describe('Kilo Config Patcher', () => {
     mockOs.homedir = '/home/testuser';
     originalAppData = process.env.APPDATA;
     originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    originalKiloConfigDir = process.env.KILO_CONFIG_DIR;
+    originalKiloConfig = process.env.KILO_CONFIG;
   });
 
   afterEach(() => {
@@ -71,6 +78,16 @@ describe('Kilo Config Patcher', () => {
       delete process.env.XDG_CONFIG_HOME;
     } else {
       process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    }
+    if (originalKiloConfigDir === undefined) {
+      delete process.env.KILO_CONFIG_DIR;
+    } else {
+      process.env.KILO_CONFIG_DIR = originalKiloConfigDir;
+    }
+    if (originalKiloConfig === undefined) {
+      delete process.env.KILO_CONFIG;
+    } else {
+      process.env.KILO_CONFIG = originalKiloConfig;
     }
   });
 
@@ -118,6 +135,18 @@ describe('Kilo Config Patcher', () => {
         path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc')
       );
     });
+
+    it('uses KILO_CONFIG_DIR as the upstream global config directory override', () => {
+      process.env.KILO_CONFIG_DIR = '/managed/kilo-config';
+
+      expect(getKiloConfigPath()).toBe(path.join('/managed/kilo-config', 'kilo.jsonc'));
+    });
+
+    it('uses KILO_CONFIG when an explicit config file is selected', () => {
+      process.env.KILO_CONFIG = '/managed/explicit.jsonc';
+
+      expect(getKiloConfigPath()).toBe('/managed/explicit.jsonc');
+    });
   });
 
   describe('buildKiloConfigContent', () => {
@@ -162,6 +191,78 @@ describe('Kilo Config Patcher', () => {
       // Other sections preserved
       expect(parsed.$schema).toBe('https://app.kilo.ai/config.json');
       expect(parsed.permission.bash).toBe('allow');
+    });
+
+    it('preserves upstream-compatible model entries that omit optional names', () => {
+      const existing = JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: { baseURL: 'https://old-gateway.example.com/v1' },
+            models: { 'unnamed-model': { vision: true } }
+          }
+        }
+      });
+
+      const result = buildKiloConfigContent(
+        'https://new-gateway.example.com/v1',
+        existing,
+        undefined,
+        buildModelEntries(['discovered-model'])
+      );
+      const provider = JSON.parse(result).provider['aidome-gateway'];
+
+      expect(provider.models['unnamed-model']).toEqual({ vision: true });
+      expect(provider.models['discovered-model']).toEqual({ name: 'discovered-model' });
+    });
+
+    it('does not serialize the SecretStorage API key and preserves native auth references', () => {
+      const existing = JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: {
+              apiKey: '{env:OPENAI_API_KEY}',
+              headers: { 'X-Tenant': 'engineering' }
+            },
+            models: {
+              'manual-model': { name: 'Manual model', reasoning: true }
+            }
+          }
+        }
+      });
+
+      const result = buildKiloConfigContent(
+        'https://new-gateway.example.com/v1',
+        existing,
+        'profile-secret',
+        buildModelEntries(['discovered-model', 'manual-model'])
+      );
+      const parsed = JSON.parse(result);
+      const provider = parsed.provider['aidome-gateway'];
+
+      expect(result).not.toContain('profile-secret');
+      expect(provider.options.apiKey).toBe('{env:OPENAI_API_KEY}');
+      expect(provider.options.headers).toEqual({ 'X-Tenant': 'engineering' });
+      expect(provider.models['manual-model']).toEqual({ name: 'Manual model', reasoning: true });
+      expect(provider.models['discovered-model']).toEqual({ name: 'discovered-model' });
+    });
+
+    it('creates a schema-compatible provider with discovered models and no plaintext auth', () => {
+      const result = buildKiloConfigContent(
+        'https://gateway.example.com/v1',
+        undefined,
+        'profile-secret',
+        buildModelEntries(['gpt-4'])
+      );
+      const provider = JSON.parse(result).provider['aidome-gateway'];
+
+      expect(provider).toEqual({
+        name: 'AIdome Gateway',
+        npm: '@ai-sdk/openai-compatible',
+        options: { baseURL: 'https://gateway.example.com/v1' },
+        models: { 'gpt-4': { name: 'gpt-4' } }
+      });
+      expect(result).not.toContain('OPENAI_API_KEY=');
+      expect(result).not.toContain('profile-secret');
     });
 
     it('should add new provider alongside existing unrelated providers', () => {
@@ -228,6 +329,82 @@ describe('Kilo Config Patcher', () => {
       const parsed = JSON.parse(writtenContent);
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe(mockProfile.baseUrl);
       expect(parsed.provider['other-provider'].options.baseURL).toBe('https://other.com');
+    });
+  });
+
+  describe('discoverModels', () => {
+    it('uses the upstream /models path with bearer auth and returns unique sorted IDs', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'z-model' },
+            { id: ' a-model ' },
+            { id: 'z-model' },
+            { id: 42 },
+            {}
+          ]
+        })
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(discoverModels('https://gateway.example.com/v1', ' secret-token ')).resolves.toEqual([
+        'a-model',
+        'z-model'
+      ]);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://gateway.example.com/v1/models',
+        expect.objectContaining({
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer secret-token'
+          }
+        })
+      );
+    });
+
+    it('returns an empty list for invalid URLs, failed responses, malformed payloads, and fetch errors', async () => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({ ok: false, json: vi.fn() })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'not-an-array' } }) })
+        .mockRejectedValueOnce(new Error('network failure'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(discoverModels('javascript:alert(1)', 'secret-token')).resolves.toEqual([]);
+      await expect(discoverModels('https://gateway.example.com/v1', 'secret-token')).resolves.toEqual([]);
+      await expect(discoverModels('https://gateway.example.com/v1', 'secret-token')).resolves.toEqual([]);
+      await expect(discoverModels('https://gateway.example.com/v1', 'secret-token')).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('inspectKiloConfigContent', () => {
+    it('recognizes the native provider, models, base URL, and auth reference', () => {
+      expect(inspectKiloConfigContent(`{
+        // Kilo accepts JSONC comments.
+        "provider": {
+          "aidome-gateway": {
+            "options": { "baseURL": "https://gateway.example.com/v1", "apiKey": "{env:OPENAI_API_KEY}" },
+            "env": ["OPENAI_API_KEY"],
+            "models": { "gpt-4": { "name": "GPT-4" } }
+          }
+        }
+      }`)).toEqual({
+        hasProvider: true,
+        baseUrl: 'https://gateway.example.com/v1',
+        modelCount: 1,
+        hasAuthReference: true
+      });
+    });
+
+    it('rejects malformed JSONC and unsupported provider shapes', () => {
+      expect(inspectKiloConfigContent('{not-json')).toBeUndefined();
+      expect(inspectKiloConfigContent('{ "provider": [] }')).toEqual({
+        hasProvider: false,
+        modelCount: 0,
+        hasAuthReference: false
+      });
     });
   });
 });

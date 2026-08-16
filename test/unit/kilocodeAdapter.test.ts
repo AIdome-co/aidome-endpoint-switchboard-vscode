@@ -41,11 +41,15 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
-vi.mock('../../src/adapters/kilocode/kiloConfigPatcher', () => ({
-  getKiloConfigPath: vi.fn(() => '/home/user/.config/kilo/kilo.jsonc'),
-  discoverModels: mockDiscoverModels,
-  buildModelEntries: mockBuildModelEntries
-}));
+vi.mock('../../src/adapters/kilocode/kiloConfigPatcher', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/adapters/kilocode/kiloConfigPatcher')>();
+  return {
+    ...actual,
+    getKiloConfigPath: vi.fn(() => '/home/user/.config/kilo/kilo.jsonc'),
+    discoverModels: mockDiscoverModels,
+    buildModelEntries: mockBuildModelEntries
+  };
+});
 
 vi.mock('../../src/util/fsSafe', () => ({
   fileExists: mockFileExists,
@@ -64,6 +68,7 @@ describe('KiloCodeAdapter', () => {
       profileType: 'custom',
       baseUrl: 'https://gateway.example.com/v1',
       dialect: 'openai.chat_completions',
+      authRef: 'profile-secret-ref',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -129,6 +134,7 @@ describe('KiloCodeAdapter', () => {
       expect(editStep?.assistantKey).toBe('kilo-code');
       expect(editStep?.data?.format).toBe('jsonc');
       expect(editStep?.data?.providerSlug).toBe('aidome-gateway');
+      expect(editStep?.data?.authRef).toBe('profile-secret-ref');
 
       const verifyStep = plan.steps.find((s) => s.action === 'verify-endpoint');
       expect(verifyStep).toBeDefined();
@@ -193,6 +199,23 @@ describe('KiloCodeAdapter', () => {
       const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
       expect(editStep?.data?.models).toBeUndefined();
     });
+
+    it('does not add model guidance when an existing native provider already has models', async () => {
+      mockFileExists.mockResolvedValue(true);
+      mockDiscoverModels.mockResolvedValue([]);
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: { baseURL: 'https://gateway.example.com/v1' },
+            models: { 'existing-model': { name: 'Existing model' } }
+          }
+        }
+      }));
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.find((s) => s.action === 'show-guided-steps')).toBeUndefined();
+    });
   });
 
   describe('verify', () => {
@@ -203,7 +226,8 @@ describe('KiloCodeAdapter', () => {
           'aidome-gateway': {
             name: 'AIdome Gateway',
             npm: '@ai-sdk/openai-compatible',
-            options: { baseURL: 'https://gateway.example.com/v1' }
+            options: { baseURL: 'https://gateway.example.com/v1' },
+            models: { 'gpt-4': { name: 'gpt-4' } }
           }
         }
       }));
@@ -247,6 +271,31 @@ describe('KiloCodeAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('does not have AIdome Gateway provider configured');
+    });
+
+    it('returns failure for malformed JSONC', async () => {
+      mockReadFileSafe.mockResolvedValue('{not-json');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid JSONC');
+    });
+
+    it('returns failure when the provider has no selectable models', async () => {
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: { baseURL: 'https://gateway.example.com/v1' },
+            models: {}
+          }
+        }
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('has no models configured');
     });
 
     it('wraps unexpected errors into failed result', async () => {

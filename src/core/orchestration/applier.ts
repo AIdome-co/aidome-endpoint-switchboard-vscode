@@ -12,6 +12,7 @@ import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { buildClaudeCodeSettingsContent } from '../../adapters/claudeCode/claudeCodeConfigPatcher';
+import type { KiloProviderModel } from '../../adapters/kilocode/kiloConfigPatcher';
 
 interface ClaudeCodeConfigStepData extends Record<string, unknown> {
   configBuilder?: string;
@@ -305,7 +306,7 @@ export class PlanApplier {
         : undefined;
 
       // Discover models with the API key (unavailable during buildPlan)
-      let models = kiloData?.models as Record<string, { name: string }> | undefined;
+      let models = kiloData?.models as Record<string, KiloProviderModel> | undefined;
       if (!models || Object.keys(models).length === 0) {
         const modelSlugs = await discoverModels(step.newValue as string, apiKey);
         if (modelSlugs.length > 0) {

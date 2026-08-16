@@ -6,24 +6,27 @@
 import * as os from 'os';
 import * as path from 'path';
 import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
-import { parseJsonc, safeParseJsonc, stringifyJsonc } from '../../util/jsonc';
+import { safeParseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { validateUrl } from '../../core/profiles/profileValidator';
+import { joinApiPath } from '../../util/apiUrl';
 
 interface KiloProviderOptions {
-  baseURL: string;
+  baseURL?: string;
+  apiKey?: string;
   headers?: Record<string, string>;
   [key: string]: unknown;
 }
 
-interface KiloProviderModel {
-  name: string;
+export interface KiloProviderModel {
+  name?: string;
   [key: string]: unknown;
 }
 
 interface KiloProvider {
-  name: string;
-  npm: string;
-  options: KiloProviderOptions;
+  name?: string;
+  npm?: string;
+  options?: KiloProviderOptions;
   env?: string[];
   models?: Record<string, KiloProviderModel>;
   [key: string]: unknown;
@@ -43,6 +46,61 @@ const AIDOME_PROVIDER_SLUG = 'aidome-gateway';
 /** The AI SDK package for OpenAI-compatible providers. */
 const AI_SDK_OPENAI_COMPATIBLE = '@ai-sdk/openai-compatible';
 
+/** Summary of the AIdome provider entry in a Kilo config file. */
+export interface KiloProviderInspection {
+  hasProvider: boolean;
+  baseUrl?: string;
+  modelCount: number;
+  hasAuthReference: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isModel(value: unknown): value is KiloProviderModel {
+  return isRecord(value);
+}
+
+/**
+ * Inspects the native AIdome provider entry without accepting malformed JSONC
+ * as a successful configuration.
+ * @param content Existing Kilo JSONC content
+ * @returns Provider inspection, or undefined when the document is malformed
+ */
+export function inspectKiloConfigContent(content: string): KiloProviderInspection | undefined {
+  const config = safeParseJsonc<Record<string, unknown>>(content);
+  if (!config || !isRecord(config)) {
+    return undefined;
+  }
+
+  const providers = config.provider;
+  if (!isRecord(providers)) {
+    return { hasProvider: false, modelCount: 0, hasAuthReference: false };
+  }
+
+  const provider = providers[AIDOME_PROVIDER_SLUG];
+  if (!isRecord(provider)) {
+    return { hasProvider: false, modelCount: 0, hasAuthReference: false };
+  }
+
+  const options = isRecord(provider.options) ? provider.options : undefined;
+  const models = isRecord(provider.models) ? provider.models : undefined;
+  const modelCount = models
+    ? Object.values(models).filter(isModel).length
+    : 0;
+  const env = provider.env;
+
+  return {
+    hasProvider: true,
+    baseUrl: typeof options?.baseURL === 'string' ? options.baseURL : undefined,
+    modelCount,
+    hasAuthReference:
+      (typeof options?.apiKey === 'string' && options.apiKey.trim().length > 0) ||
+      (Array.isArray(env) && env.some((value) => typeof value === 'string' && value.trim().length > 0))
+  };
+}
+
 /**
  * Gets the Kilo Code global config file path.
  * Matches Kilo's own globalConfigDir() resolution:
@@ -53,6 +111,16 @@ const AI_SDK_OPENAI_COMPATIBLE = '@ai-sdk/openai-compatible';
  * @returns Config file path
  */
 export function getKiloConfigPath(): string {
+  const explicitConfig = process.env.KILO_CONFIG?.trim();
+  if (explicitConfig) {
+    return explicitConfig;
+  }
+
+  const configuredDirectory = process.env.KILO_CONFIG_DIR?.trim();
+  if (configuredDirectory) {
+    return path.join(configuredDirectory, 'kilo.jsonc');
+  }
+
   const platform = os.platform();
   let dir: string;
 
@@ -81,33 +149,47 @@ export async function discoverModels(
   baseUrl: string,
   apiKey?: string
 ): Promise<string[]> {
-  const url = `${baseUrl.replace(/\/+$/, '')}/models`;
+  if (!validateUrl(baseUrl)) {
+    return [];
+  }
+
+  const url = joinApiPath(baseUrl, '/models');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
+  const trimmedApiKey = apiKey?.trim();
+  if (trimmedApiKey) {
+    headers['Authorization'] = `Bearer ${trimmedApiKey}`;
   }
 
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers,
-      signal: AbortSignal.timeout(10_000)
+      signal: AbortSignal.timeout(15_000)
     });
 
     if (!response.ok) {
       return [];
     }
 
-    const body = await response.json() as { data?: Array<{ id?: string }> };
-    if (!body.data || !Array.isArray(body.data)) {
+    const body = await response.json() as unknown;
+    if (!isRecord(body) || !Array.isArray(body.data)) {
       return [];
     }
 
-    return body.data
-      .map((item) => item.id?.trim() ?? '')
-      .filter((id): id is string => id.length > 0);
+    const ids = new Set<string>();
+    for (const item of body.data) {
+      if (!isRecord(item) || typeof item.id !== 'string') {
+        continue;
+      }
+      const id = item.id.trim();
+      if (id) {
+        ids.add(id);
+      }
+    }
+
+    return [...ids].sort((left, right) => left.localeCompare(right));
   } catch {
     return [];
   }
@@ -121,9 +203,34 @@ export async function discoverModels(
 export function buildModelEntries(modelSlugs: string[]): Record<string, KiloProviderModel> {
   const models: Record<string, KiloProviderModel> = {};
   for (const slug of modelSlugs) {
-    models[slug] = { name: slug };
+    const trimmedSlug = slug.trim();
+    if (trimmedSlug) {
+      models[trimmedSlug] = { name: trimmedSlug };
+    }
   }
   return models;
+}
+
+function mergeModelEntries(
+  existingModels: unknown,
+  discoveredModels: Record<string, KiloProviderModel>
+): Record<string, KiloProviderModel> {
+  const merged: Record<string, KiloProviderModel> = {};
+  if (isRecord(existingModels)) {
+    for (const [id, model] of Object.entries(existingModels)) {
+      if (isModel(model)) {
+        merged[id] = model;
+      }
+    }
+  }
+
+  for (const [id, model] of Object.entries(discoveredModels)) {
+    merged[id] = {
+      ...model,
+      ...(merged[id] ?? {})
+    };
+  }
+  return merged;
 }
 
 /**
@@ -140,6 +247,11 @@ export function buildKiloConfigContent(
   apiKey?: string,
   models?: Record<string, KiloProviderModel>
 ): string {
+  // The API key is used by the applier for authenticated model discovery only.
+  // Kilo credentials must remain in its native auth store or an environment
+  // reference; never serialize a SecretStorage value into JSONC.
+  void apiKey;
+
   let config: KiloConfig = {};
 
   if (existingContent) {
@@ -150,40 +262,33 @@ export function buildKiloConfigContent(
   }
 
   // Initialize provider section if it doesn't exist
-  if (!config.provider) {
+  if (!isRecord(config.provider)) {
     config.provider = {};
   }
 
   // Add or update the AIdome Gateway provider entry
   const existingProvider = config.provider[AIDOME_PROVIDER_SLUG];
-  if (existingProvider) {
+  if (existingProvider && isRecord(existingProvider)) {
     // Update only the baseURL, preserving existing name, headers, models, etc.
-    existingProvider.options = existingProvider.options || {};
+    existingProvider.options = isRecord(existingProvider.options) ? existingProvider.options : {};
     existingProvider.options.baseURL = baseUrl;
 
-    // Override models if explicitly provided (auto-discovered or from user)
+    // Add discovered models without deleting manually configured metadata.
     if (models && Object.keys(models).length > 0) {
-      existingProvider.models = models;
-    }
-
-    // Set env var for API key if provided
-    if (apiKey) {
-      const existingEnv = existingProvider.env as string[] | undefined;
-      const env = existingEnv ? [...existingEnv] : [];
-      const filtered = env.filter((e) => !e.startsWith('OPENAI_API_KEY='));
-      filtered.push(`OPENAI_API_KEY=${apiKey}`);
-      existingProvider.env = filtered;
+      existingProvider.models = mergeModelEntries(existingProvider.models, models);
     }
   } else {
-    config.provider[AIDOME_PROVIDER_SLUG] = {
+    const provider: KiloProvider = {
       name: 'AIdome Gateway',
       npm: AI_SDK_OPENAI_COMPATIBLE,
       options: {
         baseURL: baseUrl
-      },
-      models: (models && Object.keys(models).length > 0) ? models : undefined,
-      ...(apiKey ? { env: [`OPENAI_API_KEY=${apiKey}`] } : {})
+      }
     };
+    if (models && Object.keys(models).length > 0) {
+      provider.models = models;
+    }
+    config.provider[AIDOME_PROVIDER_SLUG] = provider;
   }
 
   return stringifyJsonc(config);
