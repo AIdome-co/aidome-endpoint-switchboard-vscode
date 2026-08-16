@@ -1,256 +1,375 @@
 /**
- * Unit tests for Cline adapter.
+ * Regression tests for Cline's native file-backed provider configuration.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { ClineAdapter } from '../../src/adapters/cline/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 
-const mockExtension = {
-  packageJSON: {
-    contributes: {
-      configuration: {
-        properties: {
-          'cline.openAiBaseUrl': { type: 'string' },
-          'cline.apiProvider': { type: 'string' },
-          'cline.model': { type: 'string' }
-        }
-      }
-    }
-  }
-};
-
-const mockConfig = {
-  get: vi.fn(),
-  update: vi.fn()
-};
+const {
+  mockGetExtension,
+  mockFileExists,
+  mockReadFileSafe,
+  mockLoggerError,
+  mockLoggerInfo,
+  mockLoggerWarning
+} = vi.hoisted(() => ({
+  mockGetExtension: vi.fn(),
+  mockFileExists: vi.fn(),
+  mockReadFileSafe: vi.fn(),
+  mockLoggerError: vi.fn(),
+  mockLoggerInfo: vi.fn(),
+  mockLoggerWarning: vi.fn()
+}));
 
 vi.mock('vscode', () => ({
   extensions: {
-    getExtension: vi.fn()
-  },
-  workspace: {
-    getConfiguration: vi.fn(() => mockConfig)
+    getExtension: mockGetExtension
   }
 }));
 
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: () => ({
-      error: vi.fn(),
-      warning: vi.fn(),
-      info: vi.fn(),
+      error: mockLoggerError,
+      warning: mockLoggerWarning,
+      info: mockLoggerInfo
     })
   }
+}));
+
+vi.mock('../../src/util/fsSafe', () => ({
+  fileExists: mockFileExists,
+  readFileSafe: mockReadFileSafe
 }));
 
 describe('ClineAdapter', () => {
   let adapter: ClineAdapter;
   let mockProfile: EndpointProfile;
+  const originalDataDir = process.env.CLINE_DATA_DIR;
+  const originalProviderSettingsPath = process.env.CLINE_PROVIDER_SETTINGS_PATH;
 
   beforeEach(() => {
     adapter = new ClineAdapter();
     mockProfile = {
-      id: 'test-profile',
-      name: 'Test Profile',
+      id: 'profile-1',
+      name: 'Profile 1',
       profileType: 'custom',
-      baseUrl: 'https://aidome.example.com/v1',
+      baseUrl: 'https://gateway.example.com/v1',
       dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    vi.clearAllMocks();
-    mockConfig.get.mockReturnValue(undefined);
+    process.env.CLINE_DATA_DIR = '/tmp/cline-switchboard-test';
+    delete process.env.CLINE_PROVIDER_SETTINGS_PATH;
+    mockGetExtension.mockReset();
+    mockFileExists.mockReset();
+    mockFileExists.mockResolvedValue(true);
+    mockReadFileSafe.mockReset();
+    mockReadFileSafe.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('providers.json')) {
+        return JSON.stringify({
+          version: 1,
+          modes: { voiceInput: { providerId: 'anthropic', modelId: 'claude' } },
+          lastUsedProvider: 'anthropic',
+          providers: {
+            anthropic: {
+              settings: { provider: 'anthropic', apiKey: 'keep-this-provider' },
+              updatedAt: '2026-08-01T00:00:00.000Z',
+              tokenSource: 'manual'
+            },
+            'openai-compatible': {
+              settings: {
+                provider: 'openai-compatible',
+                apiKey: 'keep-this-key',
+                model: 'keep-this-model',
+                baseUrl: 'https://old.example/v1'
+              },
+              updatedAt: '2026-08-01T00:00:00.000Z',
+              tokenSource: 'manual'
+            }
+          }
+        });
+      }
+
+      return JSON.stringify({
+        unrelatedSetting: true,
+        openAiBaseUrl: 'https://old.example/v1',
+        planModeApiProvider: 'anthropic',
+        actModeApiProvider: 'anthropic',
+        actModeOpenAiModelId: 'keep-this-model'
+      });
+    });
+    mockLoggerError.mockReset();
+    mockLoggerInfo.mockReset();
+    mockLoggerWarning.mockReset();
+  });
+
+  afterEach(() => {
+    if (originalDataDir === undefined) {
+      delete process.env.CLINE_DATA_DIR;
+    } else {
+      process.env.CLINE_DATA_DIR = originalDataDir;
+    }
+    if (originalProviderSettingsPath === undefined) {
+      delete process.env.CLINE_PROVIDER_SETTINGS_PATH;
+    } else {
+      process.env.CLINE_PROVIDER_SETTINGS_PATH = originalProviderSettingsPath;
+    }
   });
 
   describe('detect', () => {
-    it('should return true when Cline is installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
+    it('detects the current Cline extension ID', async () => {
+      mockGetExtension.mockReturnValue({ packageJSON: { name: 'claude-dev' } });
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(true);
-      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('saoudrizwan.claude-dev');
+      await expect(adapter.detect()).resolves.toBe(true);
+      expect(mockGetExtension).toHaveBeenCalledWith('saoudrizwan.claude-dev');
     });
 
-    it('should return false when Cline is not installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
+    it('returns false when Cline is not installed', async () => {
+      mockGetExtension.mockReturnValue(undefined);
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+      await expect(adapter.detect()).resolves.toBe(false);
     });
 
-    it('should return false when extension lookup throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('extension lookup failed');
+    it('returns false when extension detection throws', async () => {
+      mockGetExtension.mockImplementation(() => {
+        throw new Error('lookup failed');
       });
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+      await expect(adapter.detect()).resolves.toBe(false);
+      expect(mockLoggerError).toHaveBeenCalled();
     });
   });
 
   describe('buildPlan', () => {
-    it('should configure Cline using discovered setting keys', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
-
+    it('plans native provider and active-state edits instead of VS Code settings', async () => {
       const plan = await adapter.buildPlan(mockProfile);
+      const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.assistantKeys).toContain('cline');
-      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.assistantKeys).toEqual(['cline']);
+      expect(editSteps).toHaveLength(2);
+      expect(editSteps.map((step) => step.targetPath)).toEqual([
+        '/tmp/cline-switchboard-test/settings/providers.json',
+        '/tmp/cline-switchboard-test/globalState.json'
+      ]);
+      expect(plan.steps.some((step) => step.action === 'set-vscode-setting')).toBe(false);
+      expect(plan.steps.some((step) => step.action === 'verify-endpoint')).toBe(true);
 
-      const baseUrlStep = plan.steps.find(step =>
-        step.targetPath?.includes('openAiBaseUrl') || step.targetPath?.includes('baseUrl')
-      );
-      expect(baseUrlStep).toBeDefined();
-      expect(baseUrlStep?.newValue).toBe(mockProfile.baseUrl);
-    });
-
-    it('should use fallback setting keys when extension is installed but exposes no configuration', async () => {
-      const vscode = await import('vscode');
-      const noConfigExtension = {
-        packageJSON: {}
+      const providers = JSON.parse(String(editSteps[0].newValue)) as {
+        providers: Record<string, { settings?: Record<string, unknown> }>;
+        modes: Record<string, unknown>;
+        lastUsedProvider: string;
       };
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(noConfigExtension as never);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan.profileId).toBe(mockProfile.id);
-      // Extension found but no contributes.configuration → getFallbackKeys() is used, not guided mode
-      const settingSteps = plan.steps.filter((s) => s.action === 'set-vscode-setting');
-      expect(settingSteps.length).toBeGreaterThan(0);
-      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(false);
-    });
-
-    it('should use fallback setting keys when setting discovery throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('metadata unavailable');
+      expect(providers.providers.anthropic.settings?.apiKey).toBe('keep-this-provider');
+      expect(providers.providers['openai-compatible'].settings).toMatchObject({
+        provider: 'openai-compatible',
+        baseUrl: mockProfile.baseUrl,
+        apiKey: 'keep-this-key',
+        model: 'keep-this-model'
       });
+      expect(providers.modes.voiceInput).toEqual({ providerId: 'anthropic', modelId: 'claude' });
+      expect(providers.lastUsedProvider).toBe('anthropic');
+
+      const globalState = JSON.parse(String(editSteps[1].newValue)) as Record<string, unknown>;
+      expect(globalState).toMatchObject({
+        unrelatedSetting: true,
+        openAiBaseUrl: mockProfile.baseUrl,
+        planModeApiProvider: 'openai',
+        actModeApiProvider: 'openai',
+        actModeOpenAiModelId: 'keep-this-model'
+      });
+    });
+
+    it('follows the VS Code host path even when the CLI-only provider path override is set', async () => {
+      process.env.CLINE_PROVIDER_SETTINGS_PATH = '/custom/cline/providers.json';
+
+      const plan = await adapter.buildPlan(mockProfile);
+      const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
+
+      expect(editSteps[0].targetPath).toBe('/tmp/cline-switchboard-test/settings/providers.json');
+      expect(editSteps[1].targetPath).toBe('/tmp/cline-switchboard-test/globalState.json');
+    });
+
+    it('creates native files without explicit backup steps when files are missing', async () => {
+      mockFileExists.mockResolvedValue(false);
+      mockReadFileSafe.mockResolvedValue(undefined);
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      const settingSteps = plan.steps.filter((s) => s.action === 'set-vscode-setting');
-      expect(settingSteps.length).toBeGreaterThan(0);
-      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(false);
-    });
-
-    it('should fall back to default keys when extension is not found', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan.profileId).toBe(mockProfile.id);
-      // Extension not found → guided steps with steps array
-      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
-      expect(guidedStep).toBeDefined();
-      expect(Array.isArray(guidedStep?.data?.steps)).toBe(true);
-      expect((guidedStep?.data?.steps as string[]).length).toBeGreaterThan(0);
-    });
-
-    it('should handle array configuration format', async () => {
-      const vscode = await import('vscode');
-      const arrayConfigExtension = {
-        packageJSON: {
-          contributes: {
-            configuration: [
-              {
-                properties: {
-                  'cline.openAiBaseUrl': { type: 'string' }
-                }
-              },
-              {
-                properties: {
-                  'cline.apiProvider': { type: 'string' }
-                }
-              }
-            ]
+      expect(plan.steps.filter((step) => step.action === 'backup-file')).toHaveLength(0);
+      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(2);
+      expect(JSON.parse(String(plan.steps[0].newValue))).toMatchObject({
+        version: 1,
+        providers: {
+          'openai-compatible': {
+            settings: {
+              provider: 'openai-compatible',
+              baseUrl: mockProfile.baseUrl
+            }
           }
         }
-      };
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(arrayConfigExtension as never);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.steps.length).toBeGreaterThan(0);
+      });
     });
 
-    it('should fall back to fallback keys when discovery throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('unexpected');
-      });
+    it('recovers from malformed or unsupported native JSON using a schema-valid replacement', async () => {
+      mockReadFileSafe.mockResolvedValue('{not-json');
 
       const plan = await adapter.buildPlan(mockProfile);
+      const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      // Error path should fall back to getKeysWhenNoConfiguration() → getFallbackKeys()
-      const settingSteps = plan.steps.filter((s) => s.action === 'set-vscode-setting');
-      expect(settingSteps.length).toBeGreaterThan(0);
-      expect(plan.steps.some((s) => s.action === 'show-guided-steps')).toBe(false);
+      expect(() => JSON.parse(String(editSteps[0].newValue))).not.toThrow();
+      expect(() => JSON.parse(String(editSteps[1].newValue))).not.toThrow();
+      expect(JSON.parse(String(editSteps[0].newValue)).version).toBe(1);
+    });
+
+    it('rejects unsafe or unsupported endpoint URLs before reading native files', async () => {
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+        .rejects.toThrow('Invalid Cline endpoint URL');
+      expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
   });
 
   describe('verify', () => {
-    it('should succeed when Cline base URL is configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
-
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'cline.openAiBaseUrl') {
-          return 'https://aidome.example.com/v1';
+    it('verifies provider ID, active mode selection, and matching endpoint values', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
         }
-        return undefined;
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
       });
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('verified');
+      expect(result).toEqual(expect.objectContaining({
+        success: true,
+        message: 'Cline native provider configuration verified'
+      }));
+      expect(result.details).toMatchObject({
+        providerId: 'openai-compatible',
+        planModeApiProvider: 'openai',
+        actModeApiProvider: 'openai',
+        baseUrlConfigured: true
+      });
     });
 
-    it('should fail when no Cline settings are configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
+    it('accepts the SDK provider spelling in global state for compatibility', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai-compatible',
+          actModeApiProvider: 'openai-compatible'
+        });
+      });
 
-      mockConfig.get.mockReturnValue(undefined);
+      await expect(adapter.verify()).resolves.toMatchObject({ success: true });
+    });
+
+    it('fails when either native file is missing', async () => {
+      mockReadFileSafe.mockResolvedValue(undefined);
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
+      expect(result.message).toContain('files are missing');
     });
 
-    it('should fail gracefully when configuration access throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.workspace, 'getConfiguration').mockImplementationOnce(() => {
-        throw new Error('configuration unavailable');
+    it('fails closed for malformed native JSON', async () => {
+      mockReadFileSafe.mockResolvedValue('{not-json');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('invalid JSON');
+    });
+
+    it('fails when the native provider or active mode selection is wrong', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'anthropic',
+          actModeApiProvider: 'anthropic'
+        });
       });
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Error');
+      expect(result.message).toContain('does not select');
+    });
+
+    it('fails when provider and legacy endpoint values diverge', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: 'https://different.example/v1',
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('do not match');
     });
   });
 
-  describe('getDisplayName', () => {
-    it('should return "Cline"', () => {
-      expect(adapter.getDisplayName()).toBe('Cline');
-    });
-  });
-
-  describe('getTier', () => {
-    it('should return Tier A', () => {
-      expect(adapter.getTier()).toBe('A');
-    });
+  it('reports Tier A and the current display name', () => {
+    expect(adapter.getTier()).toBe('A');
+    expect(adapter.getDisplayName()).toBe('Cline');
   });
 });
