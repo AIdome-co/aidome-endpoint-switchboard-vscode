@@ -1,12 +1,12 @@
 {
   "$schemaVersion": "0.1.0",
-  "updatedAt": "2026-08-29",
+  "updatedAt": "2026-08-16",
   "dialectCatalog": {
     "openai.chat_completions": "OpenAI-style /v1/chat/completions",
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot \u2014 uses the legacy proxy override when registered; current releases may require Custom Endpoint UI guidance",
+    "github.copilot": "GitHub Copilot \u2014 routable via proxy override (debug.overrideProxyUrl in github.copilot.advanced)",
     "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server",
     "bedrock.invoke_model": "Amazon Bedrock InvokeModel pass-through API",
     "vertex.raw_predict": "Google Vertex AI rawPredict pass-through API"
@@ -39,7 +39,7 @@
         ],
         "notes": [
           "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic \u2014 inline completions and chat \u2014 through the gateway.",
-          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API and may be absent from current releases.",
+          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API but is stable across current releases.",
           "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
           "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting that may break in future releases; users should be aware it may change or be removed in future Copilot updates."
         ]
@@ -76,19 +76,17 @@
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "provider-settings-file",
-          "global-state-file"
+          "in-extension-ui",
+          "vscode-settings-scan"
         ],
         "settingKeyHints": [
-          "providers.openai-compatible.settings.baseUrl",
-          "globalState.openAiBaseUrl",
-          "globalState.planModeApiProvider",
-          "globalState.actModeApiProvider"
+          "cline.*baseUrl*",
+          "cline.*openai*base*",
+          "cline.*openaiCompatible*"
         ],
         "notes": [
-          "Current Cline releases store the OpenAI-compatible provider in <CLINE_DATA_DIR>/settings/providers.json (default ~/.cline/data/settings/providers.json), using provider ID openai-compatible and settings.baseUrl.",
-          "The VS Code package contributes an empty Cline configuration schema; endpoint switching must not write cline.* VS Code settings.",
-          "The active provider and legacy endpoint field are stored in <CLINE_DATA_DIR>/globalState.json as openai, openAiBaseUrl, planModeApiProvider, and actModeApiProvider.",
+          "Cline supports 'OpenAI Compatible' and also supports a Base URL for OpenAI provider.",
+          "Implementation should treat exact setting keys as discoverable by scanning contributes.configuration at runtime.",
           "Cline is now multi-IDE: supports VS Code, Cursor, Windsurf, JetBrains (IntelliJ, PyCharm, WebStorm), Antigravity, Zed, and Neovim (via ACP mode)."
         ]
       },
@@ -99,12 +97,7 @@
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev",
-        "https://docs.cline.bot/provider-config/openai-compatible",
-        "https://github.com/cline/cline/blob/main/apps/vscode/package.json",
-        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/provider-migration.ts",
-        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/model-catalog/store.ts",
-        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/cline-session-factory.ts",
-        "https://github.com/cline/cline/blob/main/apps/cli/DEVELOPMENT.md"
+        "https://docs.cline.bot"
       ]
     },
     {
@@ -129,19 +122,32 @@
         "tier": "C",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
+          "in-extension-ui",
           "guided-only"
         ],
         "notes": [
-          "⚠️ DEFUNCT: Roo Code shut down on May 15, 2026. The extension and documentation are no longer maintained. Community fork 'ZooCode' exists but uses a different extension ID.",
-          "Switchboard does not write the retired roo-cline settings. A supported fork requires a separate descriptor and fresh evidence."
+          "⚠️ ARCHIVED: Roo Code's final 3.54.0 release was published before the repository was archived on May 15, 2026. Community fork 'ZooCode' exists but uses a different extension ID.",
+          "Roo Code stores provider profiles as JSON in its own SecretStorage; its final extension manifest has no endpoint configuration keys for the Switchboard to write.",
+          "The final source supports OpenAI-compatible chat completions and a separate native OpenAI Responses provider, but endpoint routing must be configured in Roo Code's settings UI.",
+          "The adapter therefore detects Roo Code and provides guided setup without claiming automatic endpoint switching or automatic verification."
         ]
       },
       "tlsVerification": {
-        "support": "vscode-global",
-        "settingHint": "http.proxyStrictSSL",
-        "notes": "Roo Code relies on VS Code's http.proxyStrictSSL. No extension-specific TLS toggle."
+        "support": "none",
+        "notes": "The final Roo Code source uses the OpenAI SDK/Node request path. Its debugProxy.tlsInsecure setting is for the debug proxy, not provider endpoint TLS; no endpoint-specific TLS override is exposed."
       },
       "sources": [
+        "https://github.com/RooCodeInc/Roo-Code",
+        "https://github.com/RooCodeInc/Roo-Code/tree/v3.54.0/apps/docs/docs/providers",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/apps/docs/docs/providers/openai-compatible.md",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/apps/docs/docs/providers/openai.md",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/packages/types/src/provider-settings.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/core/config/ProviderSettingsManager.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/index.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/providers/openai.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/providers/openai-native.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/webview-ui/src/components/settings/constants.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/webview-ui/src/utils/validate.ts",
         "https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline"
       ]
     },
@@ -167,22 +173,20 @@
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "config-file",
+          "vscode-settings",
           "in-extension-ui"
         ],
-        "configFileHints": [
-          {
-            "path": "KILO_CONFIG or KILO_CONFIG_DIR candidate",
-            "format": "jsonc",
-            "fields": [
-              "provider.<providerId>.options.baseURL",
-              "provider.<providerId>.models"
-            ]
-          }
+        "settingKeyHints": [
+          "kilocode.apiProvider",
+          "kilocode.openaiApiKey",
+          "kilocode.openaiBaseUrl",
+          "kilocode.openaiModel",
+          "kilocode.useOpenRouter",
+          "kilocode.customProviderEndpoint"
         ],
         "notes": [
-          "Kilo Code stores custom providers in a JSONC provider map and stores credentials through its auth API.",
-          "Provider candidates and auth ownership remain dedicated adapter policy; never serialize a profile secret into the config file."
+          "Kilo Code supports OpenAI Base URL config.",
+          "Treat settings keys as hints; confirm via contributes.configuration in the installed extension."
         ]
       },
       "tlsVerification": {
@@ -222,8 +226,8 @@
         ],
         "configFileHints": [
           {
-            "path": "<CONTINUE_GLOBAL_DIR>/config.yaml or config.json",
-            "format": "yaml",
+            "path": "~/.continue/config.json",
+            "format": "json",
             "fields": [
               "models[].provider",
               "models[].apiBase",
@@ -234,8 +238,9 @@
           }
         ],
         "notes": [
-          "Continue uses config.yaml when present and retains config.json as a legacy target; OpenAI-compatible models use models[].apiBase.",
-          "The adapter backs up existing files and uses YAML/JSONC-aware rendering while preserving unrelated model fields."
+          "Continue uses a JSON config file (~/.continue/config.json) where OpenAI's base can be set via apiBase.",
+          "Your extension should back up the file and edit via JSON-aware tooling.",
+          "Continue.dev also supports config.yaml but the adapter currently targets config.json for backward compatibility."
         ]
       },
       "tlsVerification": {
@@ -347,18 +352,20 @@
             "format": "toml",
             "fields": [
               "model_provider",
-              "model_providers.<name>.base_url",
-              "model_providers.<name>.env_key",
-              "model_providers.<name>.wire_api"
+              "model",
+              "providers.<name>.base_url",
+              "providers.<name>.api_key",
+              "providers.<name>.wire_api"
             ]
           }
         ],
         "envVarHints": [
-          "OPENAI_API_KEY"
+          "OPENAI_API_KEY",
+          "OPENAI_BASE_URL"
         ],
         "notes": [
-          "Codex providers are selected with model_provider and defined under model_providers.<name>.",
-          "AIdome uses the Responses wire_api and env_key = OPENAI_API_KEY; the profile credential remains in SecretStorage and process authentication is guided."
+          "Codex supports provider base_url and 'wire_api' (responses vs chat).",
+          "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
         ]
       },
       "tlsVerification": {
@@ -386,7 +393,7 @@
         ]
       },
       "endpointSwitching": {
-        "supported": "partially",
+        "supported": false,
         "tier": "C",
         "configurationModes": [
           "environment-variable",
@@ -419,7 +426,7 @@
       "kind": "vscode-extension",
       "detection": {
         "vscodeExtensionIds": [
-          "DanielSanMedium.dscodegpt"
+          "CodeGPT.codegpt"
         ]
       },
       "dialect": {
@@ -438,11 +445,15 @@
           "in-extension-ui",
           "guided"
         ],
+        "settingKeyHints": [
+          "codegpt.*provider*",
+          "codegpt.*apiUrl*",
+          "codegpt.*baseUrl*"
+        ],
         "notes": [
-          "CodeGPT's current model-management UI supports managed providers, BYOK providers, and local OpenAI-compatible providers.",
-          "Local providers such as Ollama and LM Studio accept an API URL from the Manage my AI Models panel.",
-          "The extension's model-management UI is version-dependent; Switchboard guides users through that panel and does not mutate arbitrary discovered settings.",
-          "The legacy source checkout in pub-refs/codegpt does not represent every setting exposed by current CodeGPT releases."
+          "⚠️ MARKETPLACE STATUS: CodeGPT.codegpt returned HTTP 404 on the VS Code Marketplace as of 2026-05-21. The extension may have been removed or renamed. Verify availability before relying on this adapter.",
+          "CodeGPT supports local providers and entering an API URL for Ollama/other OpenAI-compatible local servers.",
+          "Automation should either deep-link users into CodeGPT model panel steps, or set settings if keys exist and are discoverable."
         ]
       },
       "tlsVerification": {
@@ -478,7 +489,7 @@
         ],
         "notes": [
           "AnythingLLM supports a 'Generic OpenAI' provider pattern for OpenAI-compatible gateways via Base URL.",
-          "Switchboard provides setup guidance and separates application detection from endpoint verification."
+          "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
         ]
       },
       "tlsVerification": {
@@ -504,7 +515,7 @@
         "alsoPossible": []
       },
       "endpointSwitching": {
-        "supported": false,
+        "supported": "enterprise-server-only",
         "tier": "C",
         "configurationModes": [
           "in-extension-ui",

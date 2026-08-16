@@ -63,7 +63,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 |-----------|------|------|-----------------|---------|
 | Continue.dev | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | Cline | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
-| Roo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
+| Roo Code | VS Code Extension | C — Guided | ℹ️ Manual in Roo Code | OpenAI Chat / Responses |
 | Kilo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | OpenAI Codex CLI | CLI | A — Full | ✅ Yes | OpenAI Responses |
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
@@ -72,6 +72,8 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
+
+Roo Code is a special compatibility case: its final 3.54.0 release was archived on May 15, 2026. Roo stores provider profiles in its own SecretStorage rather than writable VS Code endpoint settings, so the Switchboard detects it and provides guided setup without claiming automatic endpoint switching or verification. The supported Roo paths are its OpenAI Compatible chat-completions provider and its separate OpenAI Responses provider.
 
 Claude Code gateway routing:
 
@@ -84,7 +86,7 @@ Claude Code gateway routing:
 
 - **Tier A — Full Automation**: Extension automatically writes all configuration. One click.
 - **Tier B — Partial / Guided**: Extension auto-discovers settings where possible, provides step-by-step guidance otherwise.
-- **Tier C — Informational**: Extension detects the assistant, explains routing limitations, and suggests alternatives.
+- **Tier C — Guided / Informational**: Extension detects the assistant, explains routing limitations, and provides manual setup steps where applicable.
 
 ---
 
@@ -92,7 +94,7 @@ Claude Code gateway routing:
 
 Different AI providers use different API protocols. The Switchboard understands these and maps them correctly:
 
-- **`openai.chat_completions`** — Most common, `/v1/chat/completions` (Continue, Cline, Roo Code, Kilo Code, CodeGPT, AnythingLLM)
+- **`openai.chat_completions`** — Most common, `/v1/chat/completions` (Continue, Cline, Kilo Code, CodeGPT, AnythingLLM; Roo Code supports this through guided in-extension setup)
 - **`openai.responses`** — Newer OpenAI format, `/v1/responses` (OpenAI Codex CLI)
 - **`anthropic.messages`** — Anthropic's `/v1/messages` (Claude Code)
 - **`google.gemini.generate_content`** — Google Gemini (Gemini CLI)
@@ -237,7 +239,7 @@ When you apply a profile, the extension only changes configuration surfaces for 
 
 | Surface | Examples | Safety behavior |
 |---------|----------|-----------------|
-| VS Code settings | Cline, Roo Code, Kilo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
+| VS Code settings | Cline, Kilo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
 | User config files | Continue `config.json`, Codex CLI `config.toml`, Claude Code `settings.json` | A timestamped backup is created before modification |
 | Environment hints | Assistant-specific TLS or gateway variables documented in guided output | Secrets are redacted in logs and diagnostics |
 
@@ -287,7 +289,8 @@ Each AI assistant handles TLS verification differently. The table below summaris
 | **Env Var** | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` (TLS only; gateway routing uses `ANTHROPIC_BASE_URL`) |
 | **Env Var** | Codex CLI | `CODEX_CA_CERTIFICATE` / `SSL_CERT_FILE` (custom CA only) |
 | **Env Var** | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
-| **VS Code Global** | GitHub Copilot, Cline, Roo Code, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` in VS Code settings |
+| **VS Code Global** | GitHub Copilot, Cline, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` in VS Code settings |
+| **None** | Roo Code | No provider-endpoint TLS override is exposed; use a trusted system CA and verify manually |
 | **None** | Gemini CLI | No documented TLS control |
 
 ---
