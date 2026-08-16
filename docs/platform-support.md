@@ -8,12 +8,12 @@ Configure every AI coding assistant in your organization to route through your e
 
 ## ✅ Supported AI Assistants
 
-The Switchboard ships with built-in adapters for the following AI coding assistants. Each adapter knows how to locate the assistant's configuration and apply your endpoint profile automatically.
+The Switchboard ships with built-in adapters for the following AI coding assistants. Each adapter knows how to locate the assistant's configuration and either apply your endpoint profile automatically or provide accurate guided setup.
 
 | Assistant | Configuration Tier | Configuration Method | VS Code | JetBrains | CLI |
 |---|---|---|---|---|---|
 | **Cline** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | ✅ | — |
-| **Roo Code** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | — | — |
+| **Roo Code** | 🔵 Tier C — Guided Setup | Roo Code settings UI | ✅ | — | — |
 | **Continue** | 🟢 Tier A — Fully Automated | `config.json` file edit | ✅ | ✅ | — |
 | **Kilo Code** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | ✅ | ✅ |
 | **Codex CLI** | 🟢 Tier A — Fully Automated | `config.yaml` file edit | ✅ | — | ✅ |
@@ -23,6 +23,8 @@ The Switchboard ships with built-in adapters for the following AI coding assista
 | **AnythingLLM** | 🟡 Tier B — Guided Setup | Guided steps | ⚠️ | — | — |
 | **Tabnine** | 🔵 Tier C — Guided Setup | Guided steps | ✅ | ✅ | — |
 | **Gemini CLI** | 🔵 Tier C — Guided Setup | Guided steps | ✅ | ✅ | ✅ |
+
+Roo Code is archived at its final 3.54.0 release (May 15, 2026). Its provider profiles are JSON stored in Roo Code's own SecretStorage, and the final extension manifest has no endpoint setting that the Switchboard can write. The adapter therefore detects Roo Code and guides users through its OpenAI Compatible or OpenAI provider UI; it does not claim automatic endpoint switching or automatic verification. The community ZooCode fork uses a different extension ID and is not silently treated as Roo Code.
 
 ### Configuration Tiers Explained
 
@@ -178,7 +180,7 @@ This matrix shows each assistant's native platform availability — independent 
 │ (Adapter)     │ Mktpl  │      │       │      │      │       │sload │        │
 ├───────────────┼────────┼───────┼───────┼──────┼──────┼───────┼──────┼────────┤
 │ Cline         │  ✅    │  ✅  │  ✅   │  ❌  │  ❌  │  ❌   │  ✅  │ A      │
-│ Roo Code      │  ✅    │  ✅  │  ❌   │  ❌  │  ❌  │  ❌   │  ✅  │ A      │
+│ Roo Code      │  ✅    │  ✅  │  ❌   │  ❌  │  ❌  │  ❌   │  ✅  │ C      │
 │ Continue      │  ✅    │  ✅  │  ✅   │  ❌  │  ❌  │  ❌   │  ✅  │ A      │
 │ Kilo Code     │  ✅    │  ✅  │  ✅   │  ❌  │  ❌  │  ✅   │  ✅  │ A      │
 │ Codex CLI/IDE │  ✅ᵃ   │  ❌  │  ❌   │  ❌  │  ❌  │  ✅   │  ✅  │ A      │

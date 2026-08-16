@@ -7,21 +7,21 @@ import { RooCodeAdapter } from '../../src/adapters/roocode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 
 const mockExtension = {
-  packageJSON: {}
+  packageJSON: { version: '3.54.0' },
 };
 
-const mockConfig = {
-  get: vi.fn(),
-  update: vi.fn()
-};
+const { getExtension, getConfiguration } = vi.hoisted(() => ({
+  getExtension: vi.fn(),
+  getConfiguration: vi.fn(),
+}));
 
 vi.mock('vscode', () => ({
   extensions: {
-    getExtension: vi.fn()
+    getExtension,
   },
   workspace: {
-    getConfiguration: vi.fn(() => mockConfig)
-  }
+    getConfiguration,
+  },
 }));
 
 vi.mock('../../src/util/log', () => ({
@@ -30,8 +30,8 @@ vi.mock('../../src/util/log', () => ({
       error: vi.fn(),
       warning: vi.fn(),
       info: vi.fn(),
-    })
-  }
+    }),
+  },
 }));
 
 describe('RooCodeAdapter', () => {
@@ -47,36 +47,31 @@ describe('RooCodeAdapter', () => {
       baseUrl: 'https://aidome.example.com/v1',
       dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     vi.clearAllMocks();
-    mockConfig.get.mockReturnValue(undefined);
+    getExtension.mockReturnValue(undefined);
   });
 
   describe('detect', () => {
-    it('should return true when Roo Code is installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
+    it('returns true when the final Roo Code extension is installed', async () => {
+      getExtension.mockReturnValue(mockExtension);
 
       const result = await adapter.detect();
 
       expect(result).toBe(true);
-      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('RooVeterinaryInc.roo-cline');
+      expect(getExtension).toHaveBeenCalledWith('RooVeterinaryInc.roo-cline');
     });
 
-    it('should return false when Roo Code is not installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-
+    it('returns false when Roo Code is not installed', async () => {
       const result = await adapter.detect();
 
       expect(result).toBe(false);
     });
 
-    it('should return false when extension lookup throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
+    it('returns false when extension lookup throws', async () => {
+      getExtension.mockImplementation(() => {
         throw new Error('extension lookup failed');
       });
 
@@ -87,64 +82,116 @@ describe('RooCodeAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('should configure Roo Code to use the OpenAI-compatible gateway settings', async () => {
+    it('provides OpenAI-compatible in-extension guidance without writing VS Code settings', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.assistantKeys).toContain('roo-code');
-      expect(plan.steps).toHaveLength(2);
+      expect(plan.assistantKeys).toEqual(['roo-code']);
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0]).toMatchObject({
+        action: 'show-guided-steps',
+        assistantKey: 'roo-code',
+        reversible: false,
+      });
+      expect(plan.steps[0].targetPath).toBeUndefined();
+      expect(plan.steps[0].data).toMatchObject({
+        baseUrl: mockProfile.baseUrl,
+        configurationType: 'in-extension-ui',
+        limitation: 'roo-code-provider-profiles-use-private-secret-storage',
+        tier: 'C',
+      });
+      expect(plan.steps[0].data.steps).toEqual(expect.arrayContaining([
+        expect.stringContaining('OpenAI Compatible'),
+        expect.stringContaining(mockProfile.baseUrl),
+      ]));
+      expect(getConfiguration).not.toHaveBeenCalled();
+    });
 
-      const baseUrlStep = plan.steps.find(step => step.targetPath === 'roo-cline.openAiBaseUrl');
-      expect(baseUrlStep).toBeDefined();
-      expect(baseUrlStep?.newValue).toBe(mockProfile.baseUrl);
-      expect(baseUrlStep?.data.settingKey).toBe('roo-cline.openAiBaseUrl');
+    it('guides the native Responses provider with the base URL shape Roo Code uses', async () => {
+      const plan = await adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'https://aidome.example.com/api/v1',
+        dialect: 'openai.responses',
+      });
 
-      const providerStep = plan.steps.find(step => step.targetPath === 'roo-cline.apiProvider');
-      expect(providerStep).toBeDefined();
-      expect(providerStep?.newValue).toBe('openai');
-      expect(providerStep?.data.value).toBe('openai');
+      const data = plan.steps[0].data;
+      expect(data.baseUrl).toBe('https://aidome.example.com/api');
+      expect(data.steps).toEqual(expect.arrayContaining([
+        expect.stringContaining('Choose "OpenAI"'),
+        expect.stringContaining('custom Base URL'),
+      ]));
+      expect(data.steps).not.toEqual(expect.arrayContaining([
+        expect.stringContaining('/api/v1'),
+      ]));
+    });
+
+    it('removes a root /v1 suffix for the native Responses provider', async () => {
+      const plan = await adapter.buildPlan({
+        ...mockProfile,
+        dialect: 'openai.responses',
+      });
+
+      expect(plan.steps[0].data.baseUrl).toBe('https://aidome.example.com');
+    });
+
+    it('returns an accurate guided fallback for unsupported dialects', async () => {
+      const plan = await adapter.buildPlan({
+        ...mockProfile,
+        dialect: 'anthropic.messages',
+      });
+
+      expect(plan.steps[0].action).toBe('show-guided-steps');
+      expect(plan.steps[0].data).toMatchObject({
+        limitation: 'unsupported-roo-code-dialect',
+        requestedDialect: 'anthropic.messages',
+        tier: 'C',
+      });
+      expect(plan.steps[0].data.baseUrl).toBeUndefined();
+    });
+
+    it('rejects a missing endpoint URL', async () => {
+      await expect(adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: '',
+      })).rejects.toThrow('endpoint URL is invalid');
+    });
+
+    it('rejects unsafe endpoint URL schemes', async () => {
+      await expect(adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)',
+      })).rejects.toThrow('endpoint URL is invalid');
     });
   });
 
   describe('verify', () => {
-    it('should succeed when openAiBaseUrl is configured', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'roo-cline.openAiBaseUrl') {
-          return 'https://aidome.example.com/v1';
-        }
-        if (key === 'roo-cline.apiProvider') {
-          return 'openai';
-        }
-        return undefined;
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('verified');
-      expect(result.details?.baseUrl).toBe('https://aidome.example.com/v1');
-      expect(result.details?.apiProvider).toBe('openai');
-      expect(result.details?.configured).toBe(true);
-    });
-
-    it('should fail when openAiBaseUrl is missing', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'roo-cline.apiProvider') {
-          return 'openai';
-        }
-        return undefined;
-      });
+    it('reports that an installed Roo Code endpoint needs manual verification', async () => {
+      getExtension.mockReturnValue(mockExtension);
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('openAiBaseUrl');
-      expect(result.details?.apiProvider).toBe('openai');
+      expect(result.message).toContain('verified manually');
+      expect(result.details).toMatchObject({
+        extension: true,
+        tier: 'C',
+        automated: false,
+        configured: 'unknown',
+        verification: 'manual-request-required',
+      });
+      expect(getConfiguration).not.toHaveBeenCalled();
     });
 
-    it('should fail gracefully when configuration access throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.workspace, 'getConfiguration').mockImplementationOnce(() => {
+    it('reports a missing Roo Code installation', async () => {
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('Roo Code is not installed');
+      expect(result.details).toEqual({ extension: false, tier: 'C' });
+    });
+
+    it('wraps verification lookup failures', async () => {
+      getExtension.mockImplementation(() => {
         throw new Error('configuration unavailable');
       });
 
@@ -155,23 +202,19 @@ describe('RooCodeAdapter', () => {
     });
   });
 
-  describe('apply', () => {
-    it('should resolve without mutating the plan', async () => {
+  describe('apply and metadata', () => {
+    it('does not mutate the guided plan during apply', async () => {
       const plan = await adapter.buildPlan(mockProfile);
+      const originalStep = { ...plan.steps[0] };
 
       await expect(adapter.apply(plan)).resolves.toBeUndefined();
-    });
-  });
 
-  describe('getDisplayName', () => {
-    it('should return the Roo Code display name', () => {
+      expect(plan.steps[0]).toEqual(originalStep);
+    });
+
+    it('reports Tier C because endpoint switching is not automatable', () => {
       expect(adapter.getDisplayName()).toBe('Roo Code');
-    });
-  });
-
-  describe('getTier', () => {
-    it('should return tier A', () => {
-      expect(adapter.getTier()).toBe('A');
+      expect(adapter.getTier()).toBe('C');
     });
   });
 });

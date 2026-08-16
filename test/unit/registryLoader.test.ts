@@ -29,6 +29,16 @@ describe('Registry Loader', () => {
     expect(cline?.endpointSwitching.tier).toBe('A');
   });
 
+  it('should describe Roo Code as archived guided-only support', async () => {
+    const registry = await loadRegistry();
+    const roo = findAssistant(registry, 'roo-code');
+
+    expect(roo?.endpointSwitching.supported).toBe(false);
+    expect(roo?.endpointSwitching.tier).toBe('C');
+    expect(roo?.endpointSwitching.configurationModes).toEqual(['in-extension-ui', 'guided-only']);
+    expect(roo?.tlsVerification.support).toBe('none');
+  });
+
   it('should get assistants by tier', async () => {
     const registry = await loadRegistry();
     const tierA = getAssistantsByTier(registry, 'A');
@@ -105,7 +115,7 @@ describe('Registry Loader', () => {
 
     it('should map VS Code extensions without native TLS as vscode-global', async () => {
       const registry = await loadRegistry();
-      const vsCodeGlobal = ['github-copilot', 'cline', 'roo-code', 'kilo-code', 'codegpt', 'tabnine'];
+      const vsCodeGlobal = ['github-copilot', 'cline', 'kilo-code', 'codegpt', 'tabnine'];
 
       for (const key of vsCodeGlobal) {
         const assistant = findAssistant(registry, key);
