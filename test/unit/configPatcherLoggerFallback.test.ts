@@ -68,11 +68,11 @@ describe('Config patchers — logger unavailable', () => {
     expect(mockWriteFileAtomic).toHaveBeenCalled();
   });
 
-  it('Codex patcher falls back to empty config on malformed TOML', async () => {
+  it('Codex patcher refuses to overwrite malformed TOML', async () => {
     mockReadFileSafe.mockResolvedValue('this is not valid TOML {{[');
 
-    await expect(patchCodexConfig(profile, '/path/config.toml')).resolves.not.toThrow();
-    expect(mockWriteFileAtomic).toHaveBeenCalled();
+    await expect(patchCodexConfig(profile, '/path/config.toml')).rejects.toThrow('not valid TOML');
+    expect(mockWriteFileAtomic).not.toHaveBeenCalled();
   });
 
   it('Claude Code patcher falls back to empty settings on malformed JSONC', async () => {

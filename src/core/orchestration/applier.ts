@@ -290,7 +290,11 @@ export class PlanApplier {
 
     if (step.assistantKey === 'openai-codex') {
       const { buildCodexConfigContent } = await import('../../adapters/codex/codexConfigPatcher');
-      return buildCodexConfigContent(step.newValue as string, existingContent);
+      const codexData = step.data as Record<string, unknown> | undefined;
+      const authEnvVar = typeof codexData?.authEnvVar === 'string'
+        ? codexData.authEnvVar
+        : undefined;
+      return buildCodexConfigContent(step.newValue as string, existingContent, authEnvVar);
     }
 
     if (step.assistantKey === 'kilo-code') {

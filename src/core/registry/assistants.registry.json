@@ -350,19 +350,20 @@
             "fields": [
               "model_provider",
               "model",
-              "providers.<name>.base_url",
-              "providers.<name>.api_key",
-              "providers.<name>.wire_api"
+              "model_providers.<name>.name",
+              "model_providers.<name>.base_url",
+              "model_providers.<name>.env_key",
+              "model_providers.<name>.wire_api"
             ]
           }
         ],
         "envVarHints": [
-          "OPENAI_API_KEY",
-          "OPENAI_BASE_URL"
+          "OPENAI_API_KEY"
         ],
         "notes": [
-          "Codex supports provider base_url and 'wire_api' (responses vs chat).",
-          "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
+          "Codex custom providers use model_providers.<name>; built-in provider IDs cannot be overridden.",
+          "The adapter selects a custom aidome provider with a Responses API base_url and preserves the existing model and provider entries.",
+          "Codex reads custom-provider credentials from the configured env_key; Switchboard never writes profile secrets to config.toml."
         ]
       },
       "tlsVerification": {
