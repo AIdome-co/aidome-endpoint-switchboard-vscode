@@ -3,7 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { patchContinueConfig } from '../../src/adapters/continue/continueConfigPatcher';
+import {
+  buildContinueConfigContent,
+  patchContinueConfig
+} from '../../src/adapters/continue/continueConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
 import { Logger } from '../../src/util/log';
@@ -53,5 +56,57 @@ describe('Continue Config Patcher', () => {
       provider: 'openai',
       apiBase: mockProfile.baseUrl
     }));
+  });
+
+  it('should preserve unrelated configuration while updating the existing OpenAI model', () => {
+    const existingContent = JSON.stringify({
+      customSetting: true,
+      models: [
+        {
+          title: 'Anthropic model',
+          provider: 'anthropic',
+          model: 'claude-sonnet'
+        },
+        {
+          title: 'Existing OpenAI model',
+          provider: 'openai',
+          model: 'gpt-4o',
+          apiBase: 'https://api.openai.com/v1',
+          apiKey: '${OPENAI_API_KEY}'
+        }
+      ]
+    });
+
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl, existingContent));
+
+    expect(result.customSetting).toBe(true);
+    expect(result.models).toHaveLength(2);
+    expect(result.models[0]).toEqual({
+      title: 'Anthropic model',
+      provider: 'anthropic',
+      model: 'claude-sonnet'
+    });
+    expect(result.models[1]).toEqual({
+      title: 'Existing OpenAI model',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiBase: mockProfile.baseUrl,
+      apiKey: '${OPENAI_API_KEY}'
+    });
+  });
+
+  it('should add one OpenAI model when no existing OpenAI model is present', () => {
+    const existingContent = JSON.stringify({
+      models: [{ provider: 'anthropic', model: 'claude-sonnet' }],
+      tabAutocompleteModel: { title: 'Autocomplete' }
+    });
+
+    const result = JSON.parse(buildContinueConfigContent(mockProfile.baseUrl, existingContent));
+
+    expect(result.tabAutocompleteModel).toEqual({ title: 'Autocomplete' });
+    expect(result.models).toEqual([
+      { provider: 'anthropic', model: 'claude-sonnet' },
+      { provider: 'openai', apiBase: mockProfile.baseUrl, model: 'gpt-4' }
+    ]);
   });
 });
