@@ -95,8 +95,10 @@ describe('TabnineAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('tabnine');
       expect(mainGuidance.data.limitation).toBe('proprietary-protocol');
       expect(mainGuidance.data.tier).toBe('C');
+      expect(mainGuidance.data.configurationType).toBe('in-extension-ui');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Set server URL');
     });
   });
 
