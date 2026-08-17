@@ -73,7 +73,7 @@
       "key": "codegpt",
       "displayName": "CodeGPT",
       "url": "https://github.com/timkmecl/codegpt.git",
-      "branch": "master",
+      "branch": "main",
       "path": "codegpt",
       "status": "legacy-reference",
       "notes": "Public source repository associated with the CodeGPT VS Code extension; verify ownership and activity before relying on behavior."

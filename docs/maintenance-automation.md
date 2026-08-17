@@ -28,6 +28,10 @@ The synchronizer stores runtime commit state in
 `/home/aidome-dev/pub-refs/switchboard-provider-manifest.json`, which is not
 product code and should not be committed to this repository.
 
+Unattended changes run from the dedicated worktree
+`/home/aidome-dev/pub-refs/switchboard-worktree`; the user checkout is never a
+cron workspace.
+
 ## Schedule
 
 Hermes is configured for `Asia/Jerusalem` and runs one maintenance job at
@@ -47,6 +51,12 @@ Install or reconcile the live schedule idempotently with:
 ```bash
 python3 maintenance/install_hermes_schedule.py
 ```
+
+The installer creates or refreshes the dedicated worktree, configures
+`Asia/Jerusalem`, and fails closed if Hermes' persisted next run is not 19:00
+Israel time. If the gateway was already running when its timezone changed,
+restart or reload Hermes and rerun the installer; do not accept a UTC schedule
+as equivalent because Israel observes daylight-saving changes.
 
 Run the complete read-only orchestration simulation with:
 
@@ -96,11 +106,26 @@ GitHub, Git, or Telegram writes.
    `<!-- switchboard-maintenance-report -->` and include the completion
    percentage, evidence, exact commands, and remaining work.
 
+After every push, repeat a bounded review/fix/test/push loop, up to three
+cycles per run. Before every provider-related fix or new provider-related
+comment, refresh the matching official repository in `~/pub-refs/`. Address all
+unresolved review threads, including Codex comments, and run the deterministic
+gate:
+
+```bash
+python3 maintenance/review_pr.py --pr <PR Number> --json
+```
+
+The loop stops successfully only when the gate reports `eligible100: true`. If
+it cannot converge after three cycles, leave the PR below 100%, record the
+blocker, and notify Telegram.
+
 ## 100% gate and notifications
 
 A PR is 100% only if every required check passes, no unresolved review comment
 remains, no security or quality blocker remains, documentation is aligned, and
-the report has no remaining work. At 100%, send Hermes:
+the report has no remaining work, the report names the current PR head commit,
+and the deterministic gate passes. At 100%, send Hermes:
 
 ```text
 hermes send --to telegram:1205688131 "Switchboard maintenance PR is 100% complete: <PR link> ..."

@@ -59,6 +59,14 @@ repositories, refuses URL mismatches and dirty reference worktrees, fetches
 full history, and records synchronized commits. A synchronization failure is
 an alert; do not silently continue as if the provider reference were current.
 
+Before addressing any newly discovered provider-related gap, synchronize the
+matching official repository again. If the provider is not in
+`maintenance/provider-repositories.json`, verify its official GitHub owner and
+repository with `gh` first, add the mapping and its default branch to the
+manifest, then run the synchronizer. Never clone an unverified or guessed
+repository. Record the provider repository and synchronized commit in the PR
+report.
+
 ## Daily maintenance
 
 1. Inspect the registry and all 11 adapters. Include Tier C and archived or
@@ -102,6 +110,33 @@ an alert; do not silently continue as if the provider reference were current.
    fail, confidence is low, the finding is ambiguous, or the change is broad.
    Never merge a PR.
 
+## Review/fix convergence loop
+
+Pushing a branch is not the end of maintenance. For every newly created or
+changed maintenance PR, run at most three bounded convergence cycles in the
+same scheduled run:
+
+1. Wait for visible GitHub checks with a bounded timeout; never treat pending,
+   missing, or inaccessible checks as passing.
+2. Read all unresolved review threads through the GitHub GraphQL API. Address
+   every actionable comment, including comments authored by Codex or another
+   automated reviewer, on the same PR branch.
+3. Synchronize any provider reference implicated by a new comment before
+   changing Switchboard code.
+4. Reproduce the requested change, implement the smallest fix, add or update a
+   regression test, run all applicable checks, and push the fix.
+5. Update exactly one canonical report comment and run:
+
+   ```bash
+   python3 maintenance/review_pr.py --pr <PR Number> --json
+   ```
+
+Repeat from step 1 until the deterministic gate reports `eligible100: true`.
+If the third cycle does not converge, leave the PR unverified, record the
+remaining comments and failed gates, and send an actionable Telegram alert.
+Never claim 100% because a report was written or because GitHub showed only a
+green badge before the latest push.
+
 ## PR review and report
 
 Review every open maintenance PR, including PRs from previous runs. Inspect
@@ -119,6 +154,10 @@ Use `gh` to verify all of the following before calling a PR 100%:
 - no security or quality blocker remains;
 - documentation and changelog are aligned;
 - the report has no remaining work.
+
+The machine-readable gate must also confirm that the report refers to the
+current PR head commit, contains the exact review request below, and that only
+one canonical report comment exists.
 
 Add or update exactly one canonical report comment using this marker:
 `<!-- switchboard-maintenance-report -->`

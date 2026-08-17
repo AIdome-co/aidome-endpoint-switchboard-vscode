@@ -99,6 +99,12 @@ def main() -> int:
         "The canonical report comment would be upserted with the required completion gates.",
         {"marker": "<!-- switchboard-maintenance-report -->", "wording": REQUESTED_REVIEW_WORDING},
     )
+    phase(
+        "review-convergence-loop",
+        "planned",
+        "After every push, the scheduled agent would address unresolved review threads, including Codex comments, refresh provider references for new provider gaps, rerun tests, update the canonical report, and repeat up to three times.",
+        {"gate": "python3 maintenance/review_pr.py --pr <PR Number> --json", "maxCycles": 3},
+    )
 
     telegram_code, telegram_output = run("/home/aidome-dev/.local/bin/hermes", "send", "--list", "telegram")
     phase("hermes-notification", "passed" if telegram_code == 0 else "blocked", "Telegram target inspected read-only; no message sent by the dry-run.", telegram_output)

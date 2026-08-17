@@ -5,13 +5,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 def command_ok(*command: str) -> bool:
-    return subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    try:
+        return subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def command_output(*command: str) -> str:
+    try:
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return ""
+    return (result.stdout or "").strip()
 
 
 def main() -> int:
@@ -36,11 +50,14 @@ def main() -> int:
     add("registry-manifest-parity", registry_keys == provider_keys, f"registry={len(registry_keys)} manifest={len(provider_keys)}")
     add("maintenance-prompt", (repo / "maintenance/agent-prompt.md").is_file(), "agent prompt exists")
     add("maintenance-documentation", (repo / "docs/maintenance-automation.md").is_file(), "runbook exists")
+    add("deterministic-pr-gate", (repo / "maintenance/review_pr.py").is_file(), "PR gate script exists")
     add("sync-dry-run", command_ok("python3", str(repo / "maintenance/sync_provider_refs.py"), "--dry-run", "--pub-refs", str(pub_refs)), "read-only synchronizer validation")
 
     missing: list[str] = []
     dirty: list[str] = []
     missing_branches: list[str] = []
+    remote_mismatches: list[str] = []
+    branch_mismatches: list[str] = []
     for provider in providers:
         destination = pub_refs / provider["path"]
         if not (destination / ".git").exists():
@@ -50,15 +67,46 @@ def main() -> int:
             dirty.append(provider["key"])
         if not command_ok("git", "-C", str(destination), "show-ref", "--verify", "refs/heads/switchboard-maintenance"):
             missing_branches.append(provider["key"])
+        remote = command_output("git", "-C", str(destination), "remote", "get-url", "upstream")
+        if remote.removesuffix(".git").rstrip("/") != provider["url"].removesuffix(".git").rstrip("/"):
+            remote_mismatches.append(provider["key"])
+        upstream_head = command_output("git", "-C", str(destination), "symbolic-ref", "--short", "refs/remotes/upstream/HEAD")
+        if upstream_head != f"upstream/{provider['branch']}":
+            branch_mismatches.append(provider["key"])
     add("provider-references", not missing, f"missing={missing}")
     add("provider-reference-cleanliness", not dirty, f"dirty={dirty}")
     add("weekly-maintenance-branches", not missing_branches, f"missing={missing_branches}")
+    add("provider-remote-integrity", not remote_mismatches, f"mismatched={remote_mismatches}")
+    add("provider-default-branches", not branch_mismatches, f"mismatched={branch_mismatches}")
 
     if args.runtime:
+        hermes = os.environ.get("HERMES_BIN", "/home/aidome-dev/.local/bin/hermes")
         add("github-auth", command_ok("gh", "auth", "status"), "gh auth status")
-        add("hermes-telegram", command_ok("/home/aidome-dev/.local/bin/hermes", "send", "--list", "telegram"), "Telegram target is configured")
-        cron = subprocess.run(["/home/aidome-dev/.local/bin/hermes", "cron", "list", "--all"], check=False, capture_output=True, text=True)
-        add("hermes-cron", cron.returncode == 0 and "switchboard-maintenance-daily" in cron.stdout and "0 19 * * *" in cron.stdout, "daily 19:00 job is registered")
+        add("hermes-telegram", command_ok(hermes, "send", "--list", "telegram"), "Telegram target is configured")
+        try:
+            cron = subprocess.run([hermes, "cron", "list", "--all"], check=False, capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            cron = None
+        jobs_path = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "cron/jobs.json"
+        expected_worktree = pub_refs / "switchboard-worktree"
+        cron_ok = False
+        cron_detail = "daily 19:00 job is registered"
+        try:
+            jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
+            job = next(item for item in jobs if item.get("name") == "switchboard-maintenance-daily")
+            next_run = datetime.fromisoformat(job["next_run_at"]).astimezone(ZoneInfo("Asia/Jerusalem"))
+            cron_ok = (
+                cron is not None
+                and cron.returncode == 0
+                and job.get("schedule", {}).get("expr") == "0 19 * * *"
+                and job.get("workdir") == str(expected_worktree)
+                and (next_run.hour, next_run.minute) == (19, 0)
+            )
+            if not cron_ok:
+                cron_detail = f"workdir={job.get('workdir')}, next={next_run.isoformat()}"
+        except (OSError, KeyError, StopIteration, json.JSONDecodeError, ValueError) as exc:
+            cron_detail = f"could not verify live schedule: {exc}"
+        add("hermes-cron", cron_ok, cron_detail)
 
     failed = [item for item in checks if not item["ok"]]
     result = {"ok": not failed, "checks": checks, "failed": failed}

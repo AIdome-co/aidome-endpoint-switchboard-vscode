@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from urllib.parse import urlparse
 DEFAULT_CONFIG = Path(__file__).with_name("provider-repositories.json")
 STATE_FILENAME = "switchboard-provider-manifest.json"
 MAINTENANCE_BRANCH = "switchboard-maintenance"
+COMMAND_TIMEOUT_SECONDS = 900
 
 
 class SyncError(RuntimeError):
@@ -32,7 +34,17 @@ def run_git(repo: Path | None, *args: str, check: bool = True) -> str:
     if repo is not None:
         command.extend(["-C", str(repo)])
     command.extend(args)
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SyncError(f"{' '.join(command)} timed out after {COMMAND_TIMEOUT_SECONDS}s") from exc
     if result.returncode != 0 and not check:
         return (result.stdout or "").strip()
     output = (result.stdout or result.stderr).strip()
@@ -42,7 +54,17 @@ def run_git(repo: Path | None, *args: str, check: bool = True) -> str:
 
 
 def run_command(*args: str, check: bool = True) -> str:
-    result = subprocess.run(args, check=False, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SyncError(f"{' '.join(args)} timed out after {COMMAND_TIMEOUT_SECONDS}s") from exc
     output = (result.stdout or result.stderr).strip()
     if check and result.returncode != 0:
         raise SyncError(f"{' '.join(args)} failed: {output}")
@@ -70,7 +92,13 @@ def load_config(path: Path) -> dict[str, Any]:
 def get_branch(repo: Path, configured_branch: str) -> str:
     branch = run_git(repo, "symbolic-ref", "--short", "refs/remotes/upstream/HEAD", check=False)
     if branch.startswith("upstream/"):
-        return branch.removeprefix("upstream/")
+        actual_branch = branch.removeprefix("upstream/")
+        if actual_branch != configured_branch:
+            raise SyncError(
+                f"Manifest branch for {repo.name} is {configured_branch!r}, "
+                f"but upstream HEAD is {actual_branch!r}; update the checked-in manifest."
+            )
+        return actual_branch
     return configured_branch
 
 
@@ -116,8 +144,9 @@ def sync_provider(provider: dict[str, Any], pub_refs: Path, weekly: bool, dry_ru
         dirty = run_git(destination, "status", "--porcelain")
         if dirty:
             raise SyncError(f"Reference repository has local changes; refusing to modify: {destination}")
+        run_git(destination, "fetch", "--prune", "upstream")
+        run_git(destination, "remote", "set-head", "upstream", "--auto")
         actual_branch = get_branch(destination, branch)
-        run_git(destination, "fetch", "--prune", "upstream", actual_branch)
         upstream_ref = f"upstream/{actual_branch}"
         synchronized_commit = run_git(destination, "rev-parse", upstream_ref)
         if weekly:
