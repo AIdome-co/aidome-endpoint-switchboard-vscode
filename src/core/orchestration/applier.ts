@@ -285,7 +285,13 @@ export class PlanApplier {
 
     if (step.assistantKey === 'continue') {
       const { buildContinueConfigContent } = await import('../../adapters/continue/continueConfigPatcher');
-      return buildContinueConfigContent(step.newValue as string, existingContent);
+      const provider = step.data.provider === 'anthropic' ? 'anthropic' : 'openai';
+      return buildContinueConfigContent(
+        step.newValue as string,
+        existingContent,
+        step.targetPath!,
+        { provider }
+      );
     }
 
     if (step.assistantKey === 'openai-codex') {

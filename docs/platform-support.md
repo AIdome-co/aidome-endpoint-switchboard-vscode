@@ -14,7 +14,7 @@ The Switchboard ships with built-in adapters for the following AI coding assista
 |---|---|---|---|---|---|
 | **Cline** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | ✅ | — |
 | **Roo Code** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | — | — |
-| **Continue** | 🟢 Tier A — Fully Automated | `config.json` file edit | ✅ | ✅ | — |
+| **Continue** | 🟢 Tier A — Fully Automated | `config.yaml`/`config.json` file edit | ✅ | ✅ | — |
 | **Kilo Code** | 🟢 Tier A — Fully Automated | VS Code settings | ✅ | ✅ | ✅ |
 | **Codex CLI** | 🟢 Tier A — Fully Automated | `config.yaml` file edit | ✅ | — | ✅ |
 | **Claude Code** | 🟡 Tier B — Automated + Guided Auth | `~/.claude/settings.json` edit | ✅ | ✅ | ✅ |

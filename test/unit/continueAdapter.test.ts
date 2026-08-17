@@ -103,6 +103,16 @@ describe('ContinueAdapter', () => {
       expect(verifyStep).toBeDefined();
       expect(verifyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
     });
+
+    it('records the anthropic provider for anthropic profiles', async () => {
+      const plan = await adapter.buildPlan({
+        ...mockProfile,
+        dialect: 'anthropic.messages'
+      });
+
+      const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+      expect(editStep?.data.provider).toBe('anthropic');
+    });
   });
 
   describe('verify', () => {
@@ -144,6 +154,30 @@ describe('ContinueAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('not valid JSON');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
+    });
+
+    it('should verify a YAML config', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue([
+        'models:',
+        '  - provider: openai',
+        '    apiBase: https://aidome.example.com/v1'
+      ].join('\n'));
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configPath).toBe('/tmp/continue/config.yaml');
+    });
+
+    it('should report malformed YAML with a format-specific message', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('models: [');
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid YAML');
     });
 
     it('should fail when the Continue config omits the models array', async () => {

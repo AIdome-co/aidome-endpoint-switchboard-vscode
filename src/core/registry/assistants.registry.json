@@ -230,21 +230,30 @@
         ],
         "configFileHints": [
           {
+            "path": "~/.continue/config.yaml",
+            "format": "yaml",
+            "fields": [
+              "models[].provider",
+              "models[].apiBase",
+              "embeddings.provider",
+              "embeddings.apiBase"
+            ]
+          },
+          {
             "path": "~/.continue/config.json",
             "format": "json",
             "fields": [
               "models[].provider",
               "models[].apiBase",
-              "models[].apiKey",
               "embeddings.provider",
               "embeddings.apiBase"
             ]
           }
         ],
         "notes": [
-          "Continue uses a JSON config file (~/.continue/config.json) where OpenAI's base can be set via apiBase.",
-          "Your extension should back up the file and edit via JSON-aware tooling.",
-          "Continue.dev also supports config.yaml but the adapter currently targets config.json for backward compatibility."
+          "Continue uses ~/.continue/config.yaml on newer installations and retains ~/.continue/config.json for legacy installations; both expose models[].apiBase.",
+          "Your extension should back up the selected file and use format-aware JSONC or YAML tooling.",
+          "The adapter prefers an existing YAML config, then an existing JSON config, and defaults fresh installations to YAML."
         ]
       },
       "tlsVerification": {

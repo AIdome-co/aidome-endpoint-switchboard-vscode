@@ -28,7 +28,7 @@ Use this checklist before asking developers to run the Setup Wizard:
 
 | Assistant | Recommended Setup | Notes |
 |-----------|-------------------|-------|
-| Continue.dev | Tier A — auto-configure | Patches `~/.continue/config.json` |
+| Continue.dev | Tier A — auto-configure | Patches `~/.continue/config.yaml` or legacy `~/.continue/config.json` |
 | Cline | Tier A — auto-configure | Sets VS Code settings |
 | Roo Code | Tier A — auto-configure | Sets VS Code settings |
 | Kilo Code | Tier A — auto-configure | Sets VS Code settings |
