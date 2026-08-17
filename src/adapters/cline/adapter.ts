@@ -15,7 +15,7 @@ import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder'
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
-import { validateUrl } from '../../core/profiles/profileValidator';
+import { sanitizeUrl, validateUrl } from '../../core/profiles/profileValidator';
 import {
   CLINE_LEGACY_PROVIDER_ID,
   CLINE_PROVIDER_ID,
@@ -79,7 +79,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
 
     plan = addStep(plan, {
       action: 'edit-config-file',
-      description: `Set Cline OpenAI-compatible endpoint to ${profile.baseUrl}`,
+      description: `Set Cline OpenAI-compatible endpoint to ${sanitizeUrl(profile.baseUrl)}`,
       assistantKey: 'cline',
       targetPath: paths.providerSettingsPath,
       newValue: buildProviderSettingsContent(profile.baseUrl, providerSettingsContent, timestamp),
@@ -223,8 +223,8 @@ export class ClineAdapter extends BaseExtensionAdapter {
         details: {
           providerSettingsPath: paths.providerSettingsPath,
           globalStatePath: paths.globalStatePath,
-          providerBaseUrl,
-          globalBaseUrl
+          providerBaseUrl: sanitizeUrl(providerBaseUrl),
+          globalBaseUrl: sanitizeUrl(globalBaseUrl)
         }
       };
     }

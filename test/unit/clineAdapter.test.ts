@@ -232,6 +232,19 @@ describe('ClineAdapter', () => {
         .rejects.toThrow('Invalid Cline endpoint URL');
       expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
+
+    it('redacts URL query secrets from the plan description', async () => {
+      const profileWithSecretQuery = {
+        ...mockProfile,
+        baseUrl: 'https://gateway.example.com/v1?token=do-not-display'
+      };
+
+      const plan = await adapter.buildPlan(profileWithSecretQuery);
+      const endpointStep = plan.steps.find((step) => step.action === 'edit-config-file');
+
+      expect(endpointStep?.description).toContain('https://gateway.example.com/v1');
+      expect(endpointStep?.description).not.toContain('do-not-display');
+    });
   });
 
   describe('verify', () => {
@@ -350,7 +363,10 @@ describe('ClineAdapter', () => {
             modes: {},
             providers: {
               'openai-compatible': {
-                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                settings: {
+                  provider: 'openai-compatible',
+                  baseUrl: 'https://provider.example/v1?token=provider-secret'
+                },
                 updatedAt: '2026-08-01T00:00:00.000Z',
                 tokenSource: 'manual'
               }
@@ -358,7 +374,7 @@ describe('ClineAdapter', () => {
           });
         }
         return JSON.stringify({
-          openAiBaseUrl: 'https://different.example/v1',
+          openAiBaseUrl: 'https://different.example/v1?token=global-secret',
           planModeApiProvider: 'openai',
           actModeApiProvider: 'openai'
         });
@@ -368,6 +384,217 @@ describe('ClineAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('do not match');
+      expect(result.details).toMatchObject({
+        providerBaseUrl: 'https://provider.example/v1',
+        globalBaseUrl: 'https://different.example/v1'
+      });
+      expect(JSON.stringify(result.details)).not.toContain('provider-secret');
+      expect(JSON.stringify(result.details)).not.toContain('global-secret');
+    });
+
+    it('fails when the provider base URL is invalid', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: 'javascript:alert(1)' },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline providers.json has no valid OpenAI-compatible base URL'
+      });
+    });
+
+    it('fails when the native provider entry does not select OpenAI-compatible', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'anthropic', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline providers.json does not select the OpenAI-compatible provider'
+      });
+    });
+
+    it('fails when the global-state base URL is invalid', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: 'javascript:alert(1)',
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline globalState.json has no valid OpenAI-compatible base URL'
+      });
+    });
+
+    it('fails closed for unsupported provider document versions', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 2,
+            providers: {}
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline native provider configuration contains invalid JSON'
+      });
+    });
+
+    it('fails closed when the provider document has no OpenAI-compatible entry', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({ version: 1, providers: {} });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline native provider configuration contains invalid JSON'
+      });
+    });
+
+    it('fails closed when provider metadata is invalid', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: 'not-a-date',
+                tokenSource: 'unknown'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline native provider configuration contains invalid JSON'
+      });
+    });
+
+    it('accepts each supported provider token source', async () => {
+      let tokenSource: 'oauth' | 'migration' = 'oauth';
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 'openai',
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({ success: true });
+      tokenSource = 'migration';
+      await expect(adapter.verify()).resolves.toMatchObject({ success: true });
+    });
+
+    it('fails closed when an active provider mode is not a string', async () => {
+      mockReadFileSafe.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('providers.json')) {
+          return JSON.stringify({
+            version: 1,
+            modes: {},
+            providers: {
+              'openai-compatible': {
+                settings: { provider: 'openai-compatible', baseUrl: mockProfile.baseUrl },
+                updatedAt: '2026-08-01T00:00:00.000Z',
+                tokenSource: 'manual'
+              }
+            }
+          });
+        }
+        return JSON.stringify({
+          openAiBaseUrl: mockProfile.baseUrl,
+          planModeApiProvider: 1,
+          actModeApiProvider: 'openai'
+        });
+      });
+
+      await expect(adapter.verify()).resolves.toMatchObject({
+        success: false,
+        message: 'Cline globalState.json does not select the OpenAI-compatible provider for both modes'
+      });
     });
   });
 
