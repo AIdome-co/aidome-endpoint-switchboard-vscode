@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import path from 'node:path';
 import {
   buildGlobalStateContent,
   buildProviderSettingsContent,
@@ -17,9 +18,9 @@ describe('Cline config patcher', () => {
       process.env.CLINE_DIR = '/tmp/cline-home';
 
       expect(getClineConfigPaths()).toEqual({
-        dataDir: '/tmp/cline-home/data',
-        globalStatePath: '/tmp/cline-home/data/globalState.json',
-        providerSettingsPath: '/tmp/cline-home/data/settings/providers.json'
+        dataDir: path.join('/tmp/cline-home', 'data'),
+        globalStatePath: path.join('/tmp/cline-home', 'data', 'globalState.json'),
+        providerSettingsPath: path.join('/tmp/cline-home', 'data', 'settings', 'providers.json')
       });
     } finally {
       if (originalDataDir === undefined) {
