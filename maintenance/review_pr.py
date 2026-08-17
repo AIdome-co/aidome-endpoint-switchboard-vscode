@@ -77,7 +77,7 @@ def report_percent(report: str) -> int | None:
 
 
 def report_commit(report: str) -> str | None:
-    match = re.search(r"\*\*?Commit\*?\*?\s*:\s*`?([0-9a-f]{7,40})", report, re.IGNORECASE)
+    match = re.search(r"\bCommit\b.*?([0-9a-f]{7,40})", report, re.IGNORECASE)
     return match.group(1) if match else None
 
 
