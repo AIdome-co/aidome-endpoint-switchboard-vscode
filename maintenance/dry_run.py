@@ -75,19 +75,17 @@ def main() -> int:
     )
 
     pr_code, pr_output = run(
-        "gh",
-        "pr",
-        "list",
+        "python3",
+        str(repo / "maintenance/pr_scope.py"),
         "--repo",
         "AIdome-co/aidome-endpoint-switchboard-vscode",
-        "--state",
-        "open",
-        "--limit",
-        "100",
-        "--json",
-        "number,title,headRefName,isDraft",
     )
-    phase("pr-review-inventory", "passed" if pr_code == 0 else "blocked", "Existing PR inventory inspected read-only.", pr_output)
+    phase(
+        "pr-review-inventory",
+        "passed" if pr_code == 0 else "blocked",
+        "All in-scope open PRs inspected read-only; fix/* PRs are full-fix targets and Dependabot PRs are read-only.",
+        pr_output,
+    )
     phase(
         "pr-creation",
         "planned",

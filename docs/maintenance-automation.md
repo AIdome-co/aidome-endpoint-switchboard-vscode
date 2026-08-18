@@ -34,11 +34,11 @@ cron workspace.
 
 ## Schedule
 
-Hermes is configured for `Asia/Jerusalem` and runs one maintenance job at
-19:00:
+Hermes is configured for `Asia/Jerusalem` and runs one maintenance job twice
+daily at 12:00 and 19:00:
 
-- Daily: inspect Switchboard and open maintenance PRs, then review existing
-  maintenance PRs.
+- Daily: inspect Switchboard and all in-scope open PRs, then review and
+  converge existing `maintenance/switchboard-*` and `fix/*` PRs.
 - On Sunday, the same run first synchronizes provider references and rebases
   the local `switchboard-maintenance` branches.
 
@@ -46,17 +46,34 @@ The Hermes gateway owns the scheduler and its cross-process locks. The
 maintenance prompt also acquires a repository lock before changing files, so a
 manual dry-run cannot overlap an unattended run.
 
-Install or reconcile the live schedule idempotently with:
+### Pull request scope
+
+Every daily run builds its target list with
+`python3 maintenance/pr_scope.py`. It processes every open PR returned by that
+command, not only PRs created during the current run:
+
+| Branch pattern | Automation behavior |
+| --- | --- |
+| `maintenance/switchboard-*` | Full review, fix, test, push, report, and convergence loop |
+| `fix/*` | Full review, fix, test, push, report, and convergence loop on the existing branch |
+| `dependabot/*` | Read-only review; fixes use a separate maintenance branch |
+
+Draft `fix/*` PRs are reviewed and fixed, but cannot be reported as 100% until
+they are marked ready and the deterministic gate passes.
+
+Install or reconcile the live schedule and validation dependencies idempotently
+with:
 
 ```bash
 python3 maintenance/install_hermes_schedule.py
 ```
 
-The installer creates or refreshes the dedicated worktree, configures
-`Asia/Jerusalem`, and fails closed if Hermes' persisted next run is not 19:00
-Israel time. If the gateway was already running when its timezone changed,
-restart or reload Hermes and rerun the installer; do not accept a UTC schedule
-as equivalent because Israel observes daylight-saving changes.
+The installer creates or refreshes the dedicated worktree, installs its locked
+Node dependencies when absent, configures `Asia/Jerusalem`, and fails closed if
+Hermes' persisted next run is not 12:00 or 19:00 Israel time. If the gateway
+was already running when its timezone changed, restart or reload Hermes and
+rerun the installer; do not accept a UTC schedule as equivalent because Israel
+observes daylight-saving changes.
 
 Run the complete read-only orchestration simulation with:
 
@@ -77,7 +94,8 @@ GitHub, Git, or Telegram writes.
 3. Search for evidence-backed bugs, regressions, provider API drift, weak error
    handling, missing tests, stale documentation, dependency problems, and
    security issues.
-4. Check existing `maintenance/switchboard-*` branches and PRs before creating
+4. Run `python3 maintenance/pr_scope.py` and process every returned PR. Check
+   existing `maintenance/switchboard-*` and `fix/*` branches before creating
    anything new. Reuse a PR when a finding is already being handled.
 5. For a scoped finding, reproduce it, make the smallest fix, add a regression
    test, update documentation or `CHANGELOG.md` when required, and run the
@@ -98,7 +116,7 @@ GitHub, Git, or Telegram writes.
    it must not be silently treated as passing.
 6. Push a focused branch and open a PR. Use a draft PR when confidence is low,
    tests fail, or the change is broad.
-7. Review generated and previously open maintenance PRs. Check the diff,
+7. Review generated and previously open in-scope PRs. Check the diff,
    changed files, CI status, unresolved review threads, tests, coverage,
    error-handling paths, documentation alignment, maintainability, security,
    dependency impact, and provider references.
@@ -107,10 +125,10 @@ GitHub, Git, or Telegram writes.
    percentage, evidence, exact commands, and remaining work.
 
 After every push, repeat a bounded review/fix/test/push loop, up to three
-cycles per run. Before every provider-related fix or new provider-related
-comment, refresh the matching official repository in `~/pub-refs/`. Address all
-unresolved review threads, including Codex comments, and run the deterministic
-gate:
+cycles per run for `maintenance/switchboard-*` and `fix/*` PRs. Before every
+provider-related fix or new provider-related comment, refresh the matching
+official repository in `~/pub-refs/`. Address all unresolved review threads,
+including Codex comments, and run the deterministic gate:
 
 ```bash
 python3 maintenance/review_pr.py --pr <PR Number> --json

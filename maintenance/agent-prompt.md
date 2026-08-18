@@ -23,9 +23,32 @@ actions that would be taken, and emit the expected report shape. Do not edit
 files, checkout branches, commit, push, create or comment on GitHub PRs, merge,
 or send Telegram. Mark simulated actions as `planned`, never as complete.
 
-The scheduled job runs in `daily` mode every day. On Sunday, it must also run
-the weekly synchronization before the daily scan. A manual run may request
+The scheduled job runs twice daily at 12:00 and 19:00 in `Asia/Jerusalem`.
+Each run is in `daily` mode. On Sunday, the first run must also perform the
+weekly synchronization before the daily scan. A manual run may request
 `weekly` explicitly.
+
+## Pull request scope
+
+At the start of every daily run, enumerate the open PRs with:
+
+```bash
+python3 maintenance/pr_scope.py --repo AIdome-co/aidome-endpoint-switchboard-vscode
+```
+
+Process every PR returned by that command, including existing PRs from earlier
+runs. The scope is explicit:
+
+- `maintenance/switchboard-*` and `fix/*`: run the complete review, fix, test,
+  push, report, and convergence workflow. This includes draft PRs; a draft
+  cannot reach 100%, so mark it ready only after all requested changes and
+  checks are complete, then run the deterministic gate again.
+- `dependabot/*`: perform the complete read-only quality, security, test,
+  documentation, and provider-correlation review. Never push to a Dependabot
+  branch; if a code fix is required, create a separate
+  `maintenance/switchboard-*` branch and PR.
+Do not silently narrow the inventory to only PRs created by the current run.
+Do not modify PRs whose branches are not returned by `pr_scope.py`.
 
 ## Lock and state
 
@@ -69,6 +92,11 @@ report.
 
 ## Daily maintenance
 
+Before using relative paths, confirm the shell is in
+`/home/aidome-dev/pub-refs/switchboard-worktree`. If it is not, use absolute
+paths or explicitly change into that directory. Never read or modify the user
+checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
+
 1. Inspect the registry and all 11 adapters. Include Tier C and archived or
    legacy providers in compatibility/documentation checks, but do not invent
    unsupported configuration behavior.
@@ -102,19 +130,28 @@ report.
 
    If an applicable command cannot run, mark it unavailable and do not count it
    as passing.
-8. Keep one focused branch per finding using the prefix
-   `maintenance/switchboard-`. Do not alter the user's current branch or
-   commit unrelated work. If the current worktree is dirty, inspect it and
-   stop before modifying overlapping files.
+
+   If `node_modules` is absent in the dedicated worktree, install the locked
+   dependencies before running validation:
+
+   ```bash
+   npm ci --ignore-scripts --no-audit --no-fund
+   ```
+8. Keep one focused branch per new finding using the prefix
+   `maintenance/switchboard-`. For an existing `fix/*` PR in scope, update its
+   existing branch rather than opening a duplicate. Do not alter the user's
+   current branch or commit unrelated work. If the current worktree is dirty,
+   inspect it and stop before modifying overlapping files.
 9. Push the branch and create a GitHub PR with `gh`. Use a draft PR when tests
    fail, confidence is low, the finding is ambiguous, or the change is broad.
    Never merge a PR.
 
 ## Review/fix convergence loop
 
-Pushing a branch is not the end of maintenance. For every newly created or
-changed maintenance PR, run at most three bounded convergence cycles in the
-same scheduled run:
+Pushing a branch is not the end of maintenance. For every in-scope
+`maintenance/switchboard-*` or `fix/*` PR, including existing PRs found by the
+inventory, run at most three bounded convergence cycles in the same scheduled
+run:
 
 1. Wait for visible GitHub checks with a bounded timeout; never treat pending,
    missing, or inaccessible checks as passing.
@@ -139,10 +176,15 @@ green badge before the latest push.
 
 ## PR review and report
 
-Review every open maintenance PR, including PRs from previous runs. Inspect
+Review every in-scope open PR, including PRs from previous runs. For
+`maintenance/switchboard-*` and `fix/*` PRs, inspect
 the complete diff, CI checks, changed files, unresolved review threads,
 coverage, error handling, documentation alignment, maintainability, security,
 dependency impact, and all relevant provider references.
+
+For `dependabot/*` PRs, perform the same inspection without changing the
+Dependabot branch; report any required follow-up in the canonical comment or a
+separate maintenance PR.
 
 Use `gh` to verify all of the following before calling a PR 100%:
 

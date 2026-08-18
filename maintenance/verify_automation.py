@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from schedule_config import EXPECTED_RUN_HOURS, SCHEDULE, TELEGRAM_TARGET, TIMEZONE_NAME
+
 
 def command_ok(*command: str) -> bool:
     try:
@@ -51,6 +53,7 @@ def main() -> int:
     add("maintenance-prompt", (repo / "maintenance/agent-prompt.md").is_file(), "agent prompt exists")
     add("maintenance-documentation", (repo / "docs/maintenance-automation.md").is_file(), "runbook exists")
     add("deterministic-pr-gate", (repo / "maintenance/review_pr.py").is_file(), "PR gate script exists")
+    add("pr-scope-policy", (repo / "maintenance/pr_scope.py").is_file(), "open PR scope policy exists")
     add("sync-dry-run", command_ok("python3", str(repo / "maintenance/sync_provider_refs.py"), "--dry-run", "--pub-refs", str(pub_refs)), "read-only synchronizer validation")
 
     missing: list[str] = []
@@ -90,7 +93,7 @@ def main() -> int:
         jobs_path = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "cron/jobs.json"
         expected_worktree = pub_refs / "switchboard-worktree"
         cron_ok = False
-        cron_detail = "daily 19:00 job is registered"
+        cron_detail = f"twice-daily 12:00/19:00 {TIMEZONE_NAME} job is registered"
         try:
             jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
             job = next(item for item in jobs if item.get("name") == "switchboard-maintenance-daily")
@@ -98,12 +101,18 @@ def main() -> int:
             cron_ok = (
                 cron is not None
                 and cron.returncode == 0
-                and job.get("schedule", {}).get("expr") == "0 19 * * *"
+                and job.get("schedule", {}).get("expr") == SCHEDULE
                 and job.get("workdir") == str(expected_worktree)
-                and (next_run.hour, next_run.minute) == (19, 0)
+                and job.get("deliver") == TELEGRAM_TARGET
+                and next_run.hour in EXPECTED_RUN_HOURS
+                and next_run.minute == 0
             )
             if not cron_ok:
-                cron_detail = f"workdir={job.get('workdir')}, next={next_run.isoformat()}"
+                cron_detail = (
+                    f"schedule={job.get('schedule', {}).get('expr')}, "
+                    f"workdir={job.get('workdir')}, deliver={job.get('deliver')}, "
+                    f"next={next_run.isoformat()}"
+                )
         except (OSError, KeyError, StopIteration, json.JSONDecodeError, ValueError) as exc:
             cron_detail = f"could not verify live schedule: {exc}"
         add("hermes-cron", cron_ok, cron_detail)
