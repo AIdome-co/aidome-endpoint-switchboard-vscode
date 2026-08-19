@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any, Callable
@@ -10,6 +11,8 @@ from maintenance.convergence_controller import (
     CommandResult,
     ConvergenceController,
     ControllerError,
+    RunBudgetExceeded,
+    load_state,
     trusted_head_repository,
 )
 from maintenance.review_pr import missing_report_sections
@@ -70,6 +73,58 @@ class FakeController(ConvergenceController):
 
 
 class ConvergenceControllerTests(unittest.TestCase):
+    def test_legacy_list_state_is_migrated_to_keyed_pr_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            state_path.write_text(json.dumps({"prs": [{"pr": "123", "status": "blocked"}]}), encoding="utf-8")
+
+            state = load_state(state_path)
+
+            self.assertEqual(state["prs"]["123"]["status"], "blocked")
+
+    def test_run_budget_stops_before_the_scheduler_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ConvergenceController(root=root, pub_refs=root / "pub", run_budget_seconds=11)
+            controller.start_run_budget()
+            controller._run_deadline = time.monotonic() - 1
+
+            with self.assertRaises(RunBudgetExceeded):
+                controller.run_command("git", "status")
+
+    def test_budget_pause_is_persisted_for_the_next_run(self) -> None:
+        class PausingController(ConvergenceController):
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                return {"ok": True}
+
+            def run_discovery(self) -> dict[str, Any]:
+                raise RunBudgetExceeded("simulated scheduler budget exhaustion")
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                return [pr()]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            controller = PausingController(root=root, pub_refs=root / "pub", state_path=state_path)
+
+            result = controller.run()
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(result["status"], "paused-budget")
+            self.assertEqual(persisted["lastRun"]["status"], "paused-budget")
+            self.assertTrue(persisted["lastRun"]["resumesOnNextRun"])
+
+    def test_inventory_cursor_rotates_after_last_completed_pr(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ConvergenceController(root=root, pub_refs=root / "pub")
+            controller.state["scheduler"] = {"lastProcessedPr": 1}
+
+            rotated = controller.rotate_inventory([pr(1), pr(2), pr(3)])
+
+            self.assertEqual([item["number"] for item in rotated], [2, 3, 1])
+
     def test_success_rechecks_gate_after_agent_cycle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

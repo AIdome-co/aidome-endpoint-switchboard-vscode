@@ -153,7 +153,8 @@ checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
 
 ## Controller-owned review/fix cycle
 
-The controller invokes this instruction once per cycle for every in-scope
+The no-agent Hermes entrypoint invokes the controller, and the controller
+invokes this instruction once per cycle for every in-scope
 `maintenance/switchboard-*` or `fix/*` PR, including existing PRs found by the
 inventory. In one cycle:
 
@@ -175,9 +176,11 @@ inventory. In one cycle:
 The controller independently verifies the worktree, pushed branch head,
 validation results, GitHub state, report, and deterministic gate after this
 cycle. It may invoke another cycle, up to three per scheduled run, and resumes
-unfinished PRs from durable state on the next scheduled run. If the bounded
-run does not converge, leave the PR below 100%; the controller records the
-blocker and sends the idempotent Telegram alert. Never claim 100% because a
+unfinished PRs from durable state on the next scheduled run. The controller
+also stops before the Hermes scheduler deadline and records `paused-budget`
+when the current run cannot safely start another command. If the bounded run
+does not converge, leave the PR below 100%; the controller records the blocker
+and sends the idempotent Telegram alert. Never claim 100% because a
 report was written or because GitHub showed only a green badge before the
 latest push.
 

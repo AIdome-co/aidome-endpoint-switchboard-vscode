@@ -29,9 +29,9 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 try:
-    from .schedule_config import TELEGRAM_TARGET, TIMEZONE_NAME
+    from .schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, TELEGRAM_TARGET, TIMEZONE_NAME
 except ImportError:  # Script execution from the maintenance directory.
-    from schedule_config import TELEGRAM_TARGET, TIMEZONE_NAME
+    from schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, TELEGRAM_TARGET, TIMEZONE_NAME
 
 
 REPOSITORY = "AIdome-co/aidome-endpoint-switchboard-vscode"
@@ -46,6 +46,7 @@ VALIDATION_TIMEOUT = 1800
 NOTIFICATION_RETRIES = 3
 CHECK_WAIT_SECONDS = 300
 CHECK_POLL_SECONDS = 15
+MIN_COMMAND_RESERVE_SECONDS = 10
 VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("npm", "run", "lint"),
     ("npm", "run", "compile"),
@@ -60,6 +61,10 @@ VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
 
 class ControllerError(RuntimeError):
     """Raised when the controller cannot safely continue."""
+
+
+class RunBudgetExceeded(ControllerError):
+    """Raised when the controller must checkpoint before its scheduler budget ends."""
 
 
 @dataclass(frozen=True)
@@ -160,9 +165,25 @@ def load_state(path: Path, repository: str = REPOSITORY) -> dict[str, Any]:
         raise ControllerError(f"Maintenance state is not an object: {path}")
     payload.setdefault("schemaVersion", STATE_SCHEMA_VERSION)
     payload.setdefault("repository", repository)
-    payload.setdefault("prs", {})
+    prs = payload.get("prs", {})
+    if isinstance(prs, list):
+        # Older Hermes runs stored PR state as a list keyed by ``pr``. Migrate
+        # it before any controller mutation so a timeout cannot strand state.
+        migrated: dict[str, Any] = {}
+        for item in prs:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("pr") or item.get("number") or "").strip()
+            if key:
+                migrated[key] = {name: value for name, value in item.items() if name != "pr"}
+        payload["prs"] = migrated
+    elif isinstance(prs, dict):
+        payload["prs"] = prs
+    else:
+        raise ControllerError(f"Maintenance state PR index is invalid: {path}")
     payload.setdefault("notifications", {})
-    payload.setdefault("runs", [])
+    if not isinstance(payload.get("runs"), list):
+        payload["runs"] = []
     return payload
 
 
@@ -304,6 +325,7 @@ class ConvergenceController:
         max_cycles: int = MAX_CYCLES_PER_RUN,
         dry_run: bool = False,
         check_wait_seconds: int = CHECK_WAIT_SECONDS,
+        run_budget_seconds: int = CONTROLLER_RUN_BUDGET_SECONDS,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.repository = repository
@@ -315,10 +337,50 @@ class ConvergenceController:
         self.max_cycles = max_cycles
         self.dry_run = dry_run
         self.check_wait_seconds = check_wait_seconds
+        if run_budget_seconds <= MIN_COMMAND_RESERVE_SECONDS:
+            raise ValueError("run_budget_seconds must leave room for checkpointing")
+        self.run_budget_seconds = run_budget_seconds
         self.sleep_fn = sleep_fn
         self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         self.state = load_state(self.state_path, self.repository)
+        self._run_deadline: float | None = None
+
+    def start_run_budget(self) -> None:
+        self._run_deadline = time.monotonic() + self.run_budget_seconds
+
+    def budget_remaining(self) -> float | None:
+        if self._run_deadline is None:
+            return None
+        return max(0.0, self._run_deadline - time.monotonic())
+
+    def ensure_budget(self, action: str) -> None:
+        remaining = self.budget_remaining()
+        if remaining is not None and remaining <= MIN_COMMAND_RESERVE_SECONDS:
+            raise RunBudgetExceeded(
+                f"run budget exhausted before {action}; checkpointed state will resume on the next scheduled run"
+            )
+
+    def local_date(self) -> str:
+        return datetime.now(ZoneInfo(TIMEZONE_NAME)).date().isoformat()
+
+    def discovery_due(self) -> bool:
+        return self.state.get("lastDiscoveryLocalDate") != self.local_date()
+
+    def recover_interrupted_runs(self) -> None:
+        changed = False
+        for record in self.state.get("runs", []):
+            if isinstance(record, dict) and record.get("status") == "running":
+                record.update(
+                    {
+                        "status": "interrupted",
+                        "finishedAt": utc_now(),
+                        "error": "Previous scheduled run did not reach its checkpoint; work resumes from durable state.",
+                    }
+                )
+                changed = True
+        if changed and not self.dry_run:
+            save_state(self.state_path, self.state)
 
     def node_bin_dir(self) -> Path:
         """Select a Node runtime compatible with the repository toolchain."""
@@ -329,11 +391,21 @@ class ConvergenceController:
         return self._node_bin_dir
 
     def run_command(self, *command: str, cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT) -> CommandResult:
+        self.ensure_budget(f"running {' '.join(command)}")
         effective = command
         if command and command[0] in {"node", "npm", "npx"}:
             node_dir = self.node_bin_dir()
             effective = ("env", f"PATH={node_dir}:{os.environ.get('PATH', '')}", *command)
-        return self.runner(*effective, cwd=cwd, timeout=timeout)
+        remaining = self.budget_remaining()
+        effective_timeout = timeout
+        if remaining is not None:
+            effective_timeout = min(timeout, max(1, int(remaining - MIN_COMMAND_RESERVE_SECONDS)))
+        result = self.runner(*effective, cwd=cwd, timeout=effective_timeout)
+        if result.timed_out and remaining is not None and effective_timeout < timeout:
+            raise RunBudgetExceeded(
+                f"run budget exhausted while {(' '.join(command))}; checkpointed state will resume on the next scheduled run"
+            )
+        return result
 
     def pr_inventory(self) -> list[dict[str, Any]]:
         result = self.run_command(
@@ -688,6 +760,23 @@ class ConvergenceController:
         if not self.dry_run:
             save_state(self.state_path, self.state)
 
+    def rotate_inventory(self, inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Start after the last completed PR so one slow PR cannot starve the queue."""
+
+        cursor = self.state.get("scheduler", {}).get("lastProcessedPr")
+        if cursor is None:
+            return inventory
+        for index, item in enumerate(inventory):
+            if str(item.get("number")) == str(cursor):
+                return inventory[index + 1 :] + inventory[: index + 1]
+        return inventory
+
+    def record_cursor(self, number: int) -> None:
+        self.state.setdefault("scheduler", {})["lastProcessedPr"] = number
+        self.state["scheduler"]["updatedAt"] = utc_now()
+        if not self.dry_run:
+            save_state(self.state_path, self.state)
+
     def process_pr(self, pr: dict[str, Any]) -> dict[str, Any]:
         number = int(pr["number"])
         mode = str(pr.get("mode") or classify_branch(str(pr.get("headRefName", ""))) or "")
@@ -869,6 +958,8 @@ class ConvergenceController:
         only_pr: int | None = None,
         reconcile_only: bool = False,
     ) -> dict[str, Any]:
+        self.start_run_budget()
+        self.recover_interrupted_runs()
         started = utc_now()
         run_record: dict[str, Any] = {"runId": self.run_id, "startedAt": started, "weekly": weekly, "status": "running"}
         self.state.setdefault("runs", []).append(run_record)
@@ -881,8 +972,13 @@ class ConvergenceController:
                 discovery = {"status": "planned"}
             elif only_pr is not None or reconcile_only:
                 discovery = {"status": "skipped-controlled-mode"}
+            elif not self.discovery_due():
+                discovery = {"status": "skipped-already-completed-today", "localDate": self.local_date()}
             else:
                 discovery = self.run_discovery()
+                if discovery.get("status") == "completed":
+                    self.state["lastDiscoveryLocalDate"] = self.local_date()
+                    save_state(self.state_path, self.state)
             inventory = self.pr_inventory()
             if only_pr is not None:
                 inventory = [pr for pr in inventory if int(pr["number"]) == only_pr]
@@ -893,9 +989,13 @@ class ConvergenceController:
             elif reconcile_only:
                 results = [self.reconcile_pr(pr) for pr in inventory]
             else:
-                for pr in inventory:
+                for pr in self.rotate_inventory(inventory):
+                    self.ensure_budget(f"processing PR #{pr['number']}")
                     try:
                         results.append(self.process_pr(pr))
+                        self.record_cursor(int(pr["number"]))
+                    except RunBudgetExceeded:
+                        raise
                     except ControllerError as exc:
                         detail = str(exc)
                         current = pr
@@ -917,6 +1017,7 @@ class ConvergenceController:
                             detail = f"{detail}; notification failed: {notification_error}"
                         self.record_pr(current, status="failed", blocker=detail, notification=notification)
                         results.append({"number": int(pr["number"]), "status": "failed", "error": detail})
+                        self.record_cursor(int(pr["number"]))
             run_record.update(
                 {
                     "status": "completed-with-alert"
@@ -925,6 +1026,16 @@ class ConvergenceController:
                     "finishedAt": utc_now(),
                     "providerSync": {"ok": bool(provider_sync.get("ok", False)), "weekly": weekly},
                     "discovery": discovery,
+                    "results": results,
+                }
+            )
+        except RunBudgetExceeded as exc:
+            run_record.update(
+                {
+                    "status": "paused-budget",
+                    "finishedAt": utc_now(),
+                    "error": str(exc),
+                    "resumesOnNextRun": True,
                     "results": results,
                 }
             )
@@ -951,6 +1062,20 @@ class ConvergenceController:
             raise
         finally:
             run_record["finishedAt"] = run_record.get("finishedAt", utc_now())
+            self.state["lastRun"] = {
+                "runId": run_record.get("runId"),
+                "startedAt": run_record.get("startedAt"),
+                "finishedAt": run_record.get("finishedAt"),
+                "status": run_record.get("status"),
+                "weekly": run_record.get("weekly", False),
+                "resumesOnNextRun": run_record.get("resumesOnNextRun", False),
+                "error": run_record.get("error"),
+                "results": [
+                    {"number": item.get("number"), "status": item.get("status")}
+                    for item in results
+                    if isinstance(item, dict)
+                ],
+            }
             if not self.dry_run:
                 save_state(self.state_path, self.state)
         return {"runId": self.run_id, "status": run_record["status"], "results": results}

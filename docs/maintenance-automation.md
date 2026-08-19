@@ -42,11 +42,16 @@ daily at 12:00 and 19:00:
 - On Sunday, the same run first synchronizes provider references and rebases
   the local `switchboard-maintenance` branches.
 
-The Hermes gateway owns the scheduler. The deterministic controller acquires a
-repository lock before changing files, so a manual live run cannot overlap an
-unattended run. The scheduled Hermes prompt only invokes the controller and
-returns `[SILENT]`; the controller sends deduplicated actionable Telegram
-notifications directly.
+The Hermes gateway owns the scheduler. The job runs in Hermes no-agent/script
+mode through the reviewed `maintenance/hermes_cron_entrypoint.py` entrypoint,
+so it does not spend an LLM session or terminal inactivity budget merely
+launching the deterministic controller. The entrypoint is installed under
+Hermes' trusted scripts directory with a 540-second scheduler timeout; the
+controller has its own 480-second budget and checkpoints before that limit. The
+controller acquires a repository lock before changing files, so a manual live
+run cannot overlap an unattended run. The controller sends deduplicated
+actionable Telegram notifications directly and emits no duplicate stdout
+delivery.
 
 ### Deterministic convergence controller
 
@@ -64,19 +69,22 @@ The controller performs one bounded Hermes fix cycle at a time in an isolated
 worktree for each trusted full-fix PR. After every cycle it independently
 checks cleanliness, dependencies, validation commands, the pushed remote head,
 the refreshed PR metadata, the canonical report, and `review_pr.py`. It allows
-at most three cycles per scheduled run and persists per-PR state under
-`/home/aidome-dev/pub-refs/`; the next run resumes PRs that are still below
-100%. Dependabot PRs receive a read-only review and never enter a fix
-worktree. PRs from untrusted source repositories are blocked before code
-execution.
+at most three cycles per scheduled run, rotates the PR cursor so a slow PR
+cannot starve the queue, and persists per-PR state under
+`/home/aidome-dev/pub-refs/`. If the budget is reached, the run is recorded as
+`paused-budget` and the next run resumes from the last checkpoint. Dependabot
+PRs receive a read-only review and never enter a fix worktree. PRs from
+untrusted source repositories are blocked before code execution. Legacy
+list-shaped PR state is migrated to the durable keyed format at startup.
 
-Before the PR inventory, each normal scheduled run also invokes a separate
-main-based discovery worktree. That cycle scans the product and provider
-references for reproduced bugs or drift, deduplicates against existing PRs and
-issues, and may create one focused `maintenance/switchboard-*` PR. Its branch,
-cleanliness, and pushed remote head are verified before the new inventory is
-processed. Controlled `--pr` and `--reconcile-only` runs intentionally skip
-discovery.
+Before the PR inventory, the first normal scheduled run for each Israel local
+date invokes a separate main-based discovery worktree. That cycle scans the
+product and provider references for reproduced bugs or drift, deduplicates
+against existing PRs and issues, and may create one focused
+`maintenance/switchboard-*` PR. Its branch, cleanliness, and pushed remote head
+are verified before the new inventory is processed. The second daily run skips
+discovery and focuses on convergence. Controlled `--pr` and `--reconcile-only`
+runs intentionally skip discovery.
 
 Validation selects a Node.js runtime at version 22 or newer (or the executable
 specified by `SWITCHBOARD_NODE_BIN`) and prepends its `bin` directory to the
