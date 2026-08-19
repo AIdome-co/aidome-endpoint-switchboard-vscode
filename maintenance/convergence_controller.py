@@ -259,11 +259,49 @@ class ConvergenceController:
         self.dry_run = dry_run
         self.check_wait_seconds = check_wait_seconds
         self.sleep_fn = sleep_fn
+        self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         self.state = load_state(self.state_path, self.repository)
 
+    def node_bin_dir(self) -> Path:
+        """Select a Node runtime compatible with the repository toolchain."""
+
+        if self._node_bin_dir is not None:
+            return self._node_bin_dir
+        candidates: list[Path] = []
+        configured = os.environ.get("SWITCHBOARD_NODE_BIN")
+        if configured:
+            candidates.append(Path(configured).expanduser())
+        nvm_root = Path("/home/aidome-dev/.nvm/versions/node")
+        if nvm_root.is_dir():
+            candidates.extend(sorted(nvm_root.glob("v*/bin/node"), reverse=True))
+        discovered = shutil.which("node")
+        if discovered:
+            candidates.append(Path(discovered))
+        for candidate in candidates:
+            node = candidate / "node" if candidate.is_dir() else candidate
+            npm = node.with_name("npm")
+            if not node.is_file() or not npm.is_file():
+                continue
+            try:
+                result = subprocess.run([str(node), "--version"], check=False, capture_output=True, text=True, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            match = re.match(r"v(\d+)", result.stdout.strip())
+            if result.returncode == 0 and match and int(match.group(1)) >= 22:
+                self._node_bin_dir = node.parent
+                return self._node_bin_dir
+        raise ControllerError(
+            "A supported Node.js runtime (>=22 with npm) is unavailable; "
+            "set SWITCHBOARD_NODE_BIN to the approved Node executable."
+        )
+
     def run_command(self, *command: str, cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT) -> CommandResult:
-        return self.runner(*command, cwd=cwd, timeout=timeout)
+        effective = command
+        if command and command[0] in {"node", "npm", "npx"}:
+            node_dir = self.node_bin_dir()
+            effective = ("env", f"PATH={node_dir}:{os.environ.get('PATH', '')}", *command)
+        return self.runner(*effective, cwd=cwd, timeout=timeout)
 
     def pr_inventory(self) -> list[dict[str, Any]]:
         result = self.run_command(
@@ -396,12 +434,11 @@ class ConvergenceController:
 
     def ensure_dependencies(self, worktree: Path) -> dict[str, Any]:
         if (worktree / "node_modules/.bin/eslint").is_file():
+            self.node_bin_dir()
             return {"status": "present"}
-        npm = shutil.which("npm")
-        if npm is None:
-            raise ControllerError("npm is unavailable; refusing to execute maintenance validation")
+        self.node_bin_dir()
         result = self.run_command(
-            npm,
+            "npm",
             "--prefix",
             str(worktree),
             "ci",

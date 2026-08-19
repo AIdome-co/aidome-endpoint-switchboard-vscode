@@ -70,6 +70,12 @@ at most three cycles per scheduled run and persists per-PR state under
 worktree. PRs from untrusted source repositories are blocked before code
 execution.
 
+Validation selects a Node.js runtime at version 22 or newer (or the executable
+specified by `SWITCHBOARD_NODE_BIN`) and prepends its `bin` directory to the
+validation environment. If no supported runtime is available, the PR is
+blocked and the owner is notified; Node 18 is never treated as an equivalent
+passing environment.
+
 ### Pull request scope
 
 Every daily run builds its target list with
