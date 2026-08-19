@@ -32,7 +32,7 @@ PROMPT = (
     "--auto-weekly. The controller owns provider synchronization, trusted-source checks, isolated "
     "per-PR worktrees, bounded Hermes fix cycles, validation, push/current-head verification, the "
     "100% gate, durable state, and idempotent Telegram notifications. Do not perform maintenance "
-    "actions outside the controller, do not merge, and do not send a second notification. The final "
+    "actions outside the controller, including the daily discovery scan; do not merge, and do not send a second notification. The final "
     "response must be exactly [SILENT] because the controller sends only deduplicated actionable "
     "notifications directly through Hermes."
 )

@@ -263,6 +263,32 @@ def dependency_review_prompt(pr: dict[str, Any], root: Path, pub_refs: Path) -> 
     ).strip()
 
 
+def discovery_prompt(worktree: Path, pub_refs: Path) -> str:
+    return textwrap.dedent(
+        f"""
+        You are the Switchboard daily discovery agent for {REPOSITORY}.
+        Work only in {worktree}; never use the user checkout and never merge anything.
+        Read AGENTS.md, CLAUDE.md, docs/maintenance-automation.md, maintenance/provider-repositories.json,
+        and the current Git state before acting.
+
+        Inspect the adapter registry and all supported providers, matching official repositories under
+        {pub_refs}, source, tests, CI, dependencies, error handling, security, documentation, and changelog.
+        Look for reproduced bugs, provider API drift, deprecations, endpoint/auth changes, and concrete
+        test or documentation gaps. Prefer evidence-backed findings over speculative cleanup. Synchronize
+        the matching official provider reference before acting on a provider-related finding.
+
+        Search existing branches, issues, and PRs before creating anything. For each safe, deduplicated
+        finding, make the smallest fix, add a regression test, update docs/changelog when required, run
+        the applicable checks, and create or update one focused maintenance/switchboard-* PR. Use a draft
+        when confidence is low or checks do not pass. Never modify an unrelated branch, never merge, and
+        never send Telegram. If there is no concrete finding, make no code changes.
+
+        Commit and push any focused change. Finish with a concise summary of findings, branch/PR URLs,
+        tests, and blockers; the controller will verify the worktree and rediscover PRs afterward.
+        """
+    ).strip()
+
+
 class ConvergenceController:
     """Orchestrate one bounded, verifiable convergence run."""
 
@@ -437,6 +463,85 @@ class ConvergenceController:
         if switched.returncode:
             raise ControllerError(f"Could not reset PR #{number} worktree: {short_output(switched.output)}")
         return worktree
+
+    def prepare_discovery_worktree(self) -> Path:
+        """Prepare a clean main-based worktree for repository-wide discovery."""
+
+        worktree = self.pub_refs / "switchboard-discovery-worktree"
+        fetched = self.run_command(
+            "git",
+            "-C",
+            str(self.root),
+            "fetch",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            timeout=VALIDATION_TIMEOUT,
+        )
+        if fetched.returncode:
+            raise ControllerError(f"Could not fetch main for discovery: {short_output(fetched.output)}")
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        self.run_command("git", "-C", str(self.root), "worktree", "prune")
+        if not (worktree / ".git").exists():
+            added = self.run_command(
+                "git",
+                "-C",
+                str(self.root),
+                "worktree",
+                "add",
+                "--detach",
+                str(worktree),
+                "refs/remotes/origin/main",
+                timeout=VALIDATION_TIMEOUT,
+            )
+            if added.returncode:
+                raise ControllerError(f"Could not create discovery worktree: {short_output(added.output)}")
+        status = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+        if status.returncode or status.output:
+            raise ControllerError("discovery worktree is dirty; refusing to run discovery")
+        switched = self.run_command(
+            "git",
+            "-C",
+            str(worktree),
+            "switch",
+            "--detach",
+            "refs/remotes/origin/main",
+            timeout=COMMAND_TIMEOUT,
+        )
+        if switched.returncode:
+            raise ControllerError(f"Could not reset discovery worktree: {short_output(switched.output)}")
+        return worktree
+
+    def run_discovery(self) -> dict[str, Any]:
+        if self.dry_run:
+            return {"status": "planned"}
+        worktree = self.prepare_discovery_worktree()
+        result = self.run_command(
+            self.hermes,
+            "-z",
+            discovery_prompt(worktree, self.pub_refs),
+            cwd=worktree,
+            timeout=AGENT_TIMEOUT,
+        )
+        if result.returncode:
+            raise ControllerError(f"daily discovery failed: {short_output(result.output)}")
+        status = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+        if status.returncode or status.output:
+            raise ControllerError("daily discovery left uncommitted changes in its worktree")
+        branch_result = self.run_command("git", "-C", str(worktree), "symbolic-ref", "--short", "-q", "HEAD")
+        branch = branch_result.output if branch_result.returncode == 0 else ""
+        head = self.run_command("git", "-C", str(worktree), "rev-parse", "HEAD")
+        base = self.run_command("git", "-C", str(worktree), "rev-parse", "refs/remotes/origin/main")
+        if head.returncode or base.returncode:
+            raise ControllerError("daily discovery could not verify its final head")
+        changed = head.output != base.output
+        if changed:
+            if not branch.startswith("maintenance/switchboard-"):
+                raise ControllerError(f"daily discovery changed to an unsafe branch: {branch or 'detached'}")
+            remote = self.run_command("git", "-C", str(worktree), "ls-remote", "origin", f"refs/heads/{branch}")
+            remote_head = remote.output.split()[0] if remote.output else ""
+            if remote.returncode or remote_head != head.output:
+                raise ControllerError("daily discovery changed code without a verified pushed branch")
+        return {"status": "completed", "changed": changed, "branch": branch or None, "head": head.output}
 
     def ensure_dependencies(self, worktree: Path) -> dict[str, Any]:
         if (worktree / "node_modules/.bin/eslint").is_file():
@@ -772,6 +877,12 @@ class ConvergenceController:
         results: list[dict[str, Any]] = []
         try:
             provider_sync = self.sync_provider_refs(weekly)
+            if self.dry_run:
+                discovery = {"status": "planned"}
+            elif only_pr is not None or reconcile_only:
+                discovery = {"status": "skipped-controlled-mode"}
+            else:
+                discovery = self.run_discovery()
             inventory = self.pr_inventory()
             if only_pr is not None:
                 inventory = [pr for pr in inventory if int(pr["number"]) == only_pr]
@@ -813,6 +924,7 @@ class ConvergenceController:
                     else "completed",
                     "finishedAt": utc_now(),
                     "providerSync": {"ok": bool(provider_sync.get("ok", False)), "weekly": weekly},
+                    "discovery": discovery,
                     "results": results,
                 }
             )

@@ -284,6 +284,9 @@ class ConvergenceControllerTests(unittest.TestCase):
             def pr_inventory(self) -> list[dict[str, Any]]:
                 return [pr(1), pr(2)]
 
+            def run_discovery(self) -> dict[str, Any]:
+                return {"status": "completed", "changed": False}
+
             def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
                 if item["number"] == 1:
                     raise ControllerError("simulated PR failure")
