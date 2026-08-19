@@ -64,7 +64,7 @@
 |-----------|----------------|--------|:-------------:|
 | Claude Code CLI | `~/.claude/settings.json` on **all** platforms (Win/macOS/Linux). `%APPDATA%\Claude` is for Claude Desktop app only. | [anthropics/claude-code](https://github.com/anthropics/claude-code) — `CLAUDE_CONFIG_DIR` env var; [inventivehq.com guide](https://inventivehq.com/knowledge-base/claude/where-configuration-files-are-stored) | ⚠️ **REGRESSION** — `getConfigDir('Claude')` now resolves to `%APPDATA%\Claude` on Win and `~/Library/Application Support/Claude` on macOS, but CLI uses `~/.claude` universally. Original code (`expandTilde('~/.claude/settings.json')`) was correct. |
 | AnythingLLM Desktop | `%LocalAppData%\AnythingLLM` or `%ProgramFiles%\AnythingLLM` (Win) | [Mintplex-Labs/anything-llm](https://github.com/Mintplex-Labs/anything-llm) | ✅ 100% |
-| GitHub Copilot | `github.copilot.advanced` → `debug.overrideProxyUrl` in VS Code settings | [microsoft/vscode-copilot-release](https://github.com/microsoft/vscode-copilot-release) — undocumented, found in extension package.json | ✅ (undocumented API) |
+| GitHub Copilot | `github.copilot.advanced.debug.overrideProxyUrl` in VS Code settings | [microsoft/vscode-copilot-chat](https://github.com/microsoft/vscode-copilot-chat) (archived; active development moved to [microsoft/vscode](https://github.com/microsoft/vscode)) — undocumented compatibility surface | ✅ (undocumented API; guided fallback when unregistered) |
 | Continue | `~/.continue/config.json` (JSONC) | [continuedev/continue](https://github.com/continuedev/continue) — [Configuration Docs](https://docs.continue.dev/reference) | ✅ |
 | Cline | webview globalState (not settings.json) | [cline/cline](https://github.com/cline/cline) — package.json has `properties: {}` | ✅ |
 | Roo Code | Extension globalState | [RooCodeInc/Roo-Code](https://github.com/RooCodeInc/Roo-Code) | ✅ |
@@ -167,7 +167,7 @@ Sorted from most recommended to least recommended design approach:
 - [Claude Code](https://github.com/anthropics/claude-code) — `CLAUDE_CONFIG_DIR` env var
 - [Codex CLI (Rust)](https://github.com/openai/codex) — `config.toml`
 - [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm)
-- [GitHub Copilot Issues](https://github.com/microsoft/vscode-copilot-release) — `debug.overrideProxyUrl` (undocumented)
+- [GitHub Copilot source](https://github.com/microsoft/vscode-copilot-chat) — `debug.overrideProxyUrl` (undocumented; archived source, verify against [microsoft/vscode](https://github.com/microsoft/vscode))
 
 ### NPM Packages (Alternatives Considered)
 - [env-paths](https://www.npmjs.com/package/env-paths) — Platform-specific config/data/cache dirs
