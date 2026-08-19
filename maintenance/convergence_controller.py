@@ -648,6 +648,7 @@ class ConvergenceController:
             }
             cycles.append(cycle_record)
             cycle_history.append(cycle_record)
+            last_gate = effective_gate
             self.record_pr(
                 current,
                 status=cycle_record["status"],
