@@ -148,4 +148,4 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # Python maintenance tooling cache
-maintenance/__pycache__/
+**/__pycache__/

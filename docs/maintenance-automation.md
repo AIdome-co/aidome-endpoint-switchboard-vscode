@@ -42,9 +42,33 @@ daily at 12:00 and 19:00:
 - On Sunday, the same run first synchronizes provider references and rebases
   the local `switchboard-maintenance` branches.
 
-The Hermes gateway owns the scheduler and its cross-process locks. The
-maintenance prompt also acquires a repository lock before changing files, so a
-manual dry-run cannot overlap an unattended run.
+The Hermes gateway owns the scheduler. The deterministic controller acquires a
+repository lock before changing files, so a manual live run cannot overlap an
+unattended run. The scheduled Hermes prompt only invokes the controller and
+returns `[SILENT]`; the controller sends deduplicated actionable Telegram
+notifications directly.
+
+### Deterministic convergence controller
+
+The live entry point is:
+
+```bash
+python3 maintenance/convergence_controller.py \
+  --root /home/aidome-dev/pub-refs/switchboard-worktree \
+  --pub-refs /home/aidome-dev/pub-refs \
+  --repo AIdome-co/aidome-endpoint-switchboard-vscode \
+  --auto-weekly
+```
+
+The controller performs one bounded Hermes fix cycle at a time in an isolated
+worktree for each trusted full-fix PR. After every cycle it independently
+checks cleanliness, dependencies, validation commands, the pushed remote head,
+the refreshed PR metadata, the canonical report, and `review_pr.py`. It allows
+at most three cycles per scheduled run and persists per-PR state under
+`/home/aidome-dev/pub-refs/`; the next run resumes PRs that are still below
+100%. Dependabot PRs receive a read-only review and never enter a fix
+worktree. PRs from untrusted source repositories are blocked before code
+execution.
 
 ### Pull request scope
 
@@ -124,11 +148,11 @@ GitHub, Git, or Telegram writes.
    `<!-- switchboard-maintenance-report -->` and include the completion
    percentage, evidence, exact commands, and remaining work.
 
-After every push, repeat a bounded review/fix/test/push loop, up to three
-cycles per run for `maintenance/switchboard-*` and `fix/*` PRs. Before every
+The controller repeats a bounded review/fix/test/push loop, up to three cycles
+per run for `maintenance/switchboard-*` and `fix/*` PRs. Before every
 provider-related fix or new provider-related comment, refresh the matching
 official repository in `~/pub-refs/`. Address all unresolved review threads,
-including Codex comments, and run the deterministic gate:
+including Codex comments, and run the deterministic gate after every cycle:
 
 ```bash
 python3 maintenance/review_pr.py --pr <PR Number> --json
@@ -143,13 +167,9 @@ blocker, and notify Telegram.
 A PR is 100% only if every required check passes, no unresolved review comment
 remains, no security or quality blocker remains, documentation is aligned, and
 the report has no remaining work, the report names the current PR head commit,
-and the deterministic gate passes. At 100%, send Hermes:
-
-```text
-hermes send --to telegram:1205688131 "Switchboard maintenance PR is 100% complete: <PR link> ..."
-```
-
-Do not merge. Also notify Hermes when a run fails or is blocked, provider
+and the deterministic gate passes. At 100%, the controller sends Hermes
+exactly once per PR head, including the PR link and commit. Do not merge. It
+also notifies Hermes when a run fails or is blocked, provider
 references cannot be synchronized, credentials or permissions are missing,
 tests are repeatedly flaky, or a PR is stale.
 

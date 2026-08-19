@@ -25,6 +25,16 @@ REQUIRED_REVIEW_REQUEST = (
     "in this PR as a comment in the PR"
 )
 PASSING_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+REQUIRED_REPORT_SECTIONS = (
+    "tests coverage",
+    "error handling",
+    "documentation alignment",
+    "quality",
+    "security",
+    "provider correlation",
+    "evidence",
+    "remaining work",
+)
 
 
 class ReviewError(RuntimeError):
@@ -81,6 +91,13 @@ def report_commit(report: str) -> str | None:
     return match.group(1) if match else None
 
 
+def missing_report_sections(report: str) -> list[str]:
+    """Require the report categories promised by the maintenance contract."""
+
+    normalized = normalize(report)
+    return [section for section in REQUIRED_REPORT_SECTIONS if normalize(section) not in normalized]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pr", type=int, required=True)
@@ -98,7 +115,7 @@ def main() -> int:
                 "--repo",
                 args.repo,
                 "--json",
-                "number,title,url,isDraft,state,mergeStateStatus,mergeable,reviewDecision,headRefOid,statusCheckRollup,comments",
+                "number,title,url,isDraft,state,mergeStateStatus,mergeable,reviewDecision,headRefOid,commits,statusCheckRollup,comments",
             )
         )
         graphql = run(
@@ -128,6 +145,7 @@ def main() -> int:
         checks = pr.get("statusCheckRollup") or []
         report, report_count = latest_report(pr.get("comments") or [])
         head = str(pr.get("headRefOid", ""))
+        commits = pr.get("commits") or []
         reasons: list[str] = []
         if pr.get("state") != "OPEN":
             reasons.append("PR is not open")
@@ -139,6 +157,8 @@ def main() -> int:
             reasons.append(f"GitHub mergeStateStatus={pr.get('mergeStateStatus')}")
         if pr.get("reviewDecision") == "CHANGES_REQUESTED":
             reasons.append("GitHub has requested changes")
+        if not commits or str(commits[-1].get("oid", "")) != head:
+            reasons.append("PR metadata does not identify the current head commit consistently")
         if not checks:
             reasons.append("no GitHub checks were returned")
         elif not all(check_is_passing(check) for check in checks):
@@ -161,6 +181,9 @@ def main() -> int:
                 reasons.append("report does not contain the required review request")
             if not re.search(r"remaining\s+work\s*:\s*(none|nothing|0|no remaining work)", report, re.IGNORECASE):
                 reasons.append("report still lists remaining work")
+            missing_sections = missing_report_sections(report)
+            if missing_sections:
+                reasons.append(f"report is missing sections: {', '.join(missing_sections)}")
 
         payload = {
             "eligible100": not reasons,
@@ -174,9 +197,19 @@ def main() -> int:
                 "mergeStateStatus": pr.get("mergeStateStatus"),
                 "reviewDecision": pr.get("reviewDecision"),
             },
-            "checks": {"count": len(checks), "allPassing": bool(checks) and all(check_is_passing(check) for check in checks)},
+            "checks": {
+                "count": len(checks),
+                "allCompleted": bool(checks)
+                and all(str(check.get("status", "")).upper() == "COMPLETED" for check in checks),
+                "allPassing": bool(checks) and all(check_is_passing(check) for check in checks),
+            },
             "reviewThreads": {"unresolved": len(unresolved), "codex": len(codex_comments)},
-            "report": {"count": report_count, "percent": report_percent(report or ""), "hasRequiredRequest": bool(report and normalize(REQUIRED_REVIEW_REQUEST) in normalize(report))},
+            "report": {
+                "count": report_count,
+                "percent": report_percent(report or ""),
+                "hasRequiredRequest": bool(report and normalize(REQUIRED_REVIEW_REQUEST) in normalize(report)),
+                "missingSections": missing_report_sections(report or ""),
+            },
             "reasons": reasons,
         }
         print(json.dumps(payload, indent=2))

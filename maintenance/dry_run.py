@@ -104,6 +104,25 @@ def main() -> int:
         {"gate": "python3 maintenance/review_pr.py --pr <PR Number> --json", "maxCycles": 3},
     )
 
+    controller_code, controller_output = run(
+        "python3",
+        str(repo / "maintenance/convergence_controller.py"),
+        "--root",
+        str(repo),
+        "--pub-refs",
+        str(pub_refs),
+        "--repo",
+        "AIdome-co/aidome-endpoint-switchboard-vscode",
+        "--auto-weekly",
+        "--dry-run",
+    )
+    phase(
+        "deterministic-controller",
+        "passed" if controller_code == 0 else "blocked",
+        "The real controller was exercised in read-only mode; no worktrees, branches, comments, pushes, or notifications were created.",
+        controller_output,
+    )
+
     telegram_code, telegram_output = run("/home/aidome-dev/.local/bin/hermes", "send", "--list", "telegram")
     phase("hermes-notification", "passed" if telegram_code == 0 else "blocked", "Telegram target inspected read-only; no message sent by the dry-run.", telegram_output)
 

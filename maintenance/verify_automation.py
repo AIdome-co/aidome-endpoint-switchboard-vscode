@@ -52,6 +52,7 @@ def main() -> int:
     add("registry-manifest-parity", registry_keys == provider_keys, f"registry={len(registry_keys)} manifest={len(provider_keys)}")
     add("maintenance-prompt", (repo / "maintenance/agent-prompt.md").is_file(), "agent prompt exists")
     add("maintenance-documentation", (repo / "docs/maintenance-automation.md").is_file(), "runbook exists")
+    add("deterministic-controller", (repo / "maintenance/convergence_controller.py").is_file(), "convergence controller exists")
     add("deterministic-pr-gate", (repo / "maintenance/review_pr.py").is_file(), "PR gate script exists")
     add("pr-scope-policy", (repo / "maintenance/pr_scope.py").is_file(), "open PR scope policy exists")
     add("sync-dry-run", command_ok("python3", str(repo / "maintenance/sync_provider_refs.py"), "--dry-run", "--pub-refs", str(pub_refs)), "read-only synchronizer validation")
@@ -98,12 +99,15 @@ def main() -> int:
             jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
             job = next(item for item in jobs if item.get("name") == "switchboard-maintenance-daily")
             next_run = datetime.fromisoformat(job["next_run_at"]).astimezone(ZoneInfo("Asia/Jerusalem"))
+            prompt = str(job.get("prompt", ""))
             cron_ok = (
                 cron is not None
                 and cron.returncode == 0
                 and job.get("schedule", {}).get("expr") == SCHEDULE
                 and job.get("workdir") == str(expected_worktree)
                 and job.get("deliver") == TELEGRAM_TARGET
+                and "convergence_controller.py" in prompt
+                and "--auto-weekly" in prompt
                 and next_run.hour in EXPECTED_RUN_HOURS
                 and next_run.minute == 0
             )
