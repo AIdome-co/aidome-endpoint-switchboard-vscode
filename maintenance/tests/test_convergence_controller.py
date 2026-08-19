@@ -111,6 +111,7 @@ class ConvergenceControllerTests(unittest.TestCase):
             self.assertEqual(len(result["cycles"]), 3)
             self.assertEqual(controller.agent_calls, 3)
             self.assertEqual(controller.notifications, ["blocked"])
+            self.assertEqual(controller.state["prs"]["123"]["lastHead"], "a" * 40)
 
     def test_cycle_history_survives_the_next_scheduled_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -635,6 +635,7 @@ class ConvergenceController:
                     self.record_pr(
                         refreshed,
                         status="eligible100",
+                        lastHead=head_before,
                         notification=notification,
                         validation=final_validation,
                         dependencies=final_dependencies,
@@ -687,8 +688,9 @@ class ConvergenceController:
             cycle_history.append(cycle_record)
             last_gate = effective_gate
             self.record_pr(
-                current,
+                refreshed,
                 status=cycle_record["status"],
+                lastHead=str(refreshed.get("headRefOid", "")),
                 cycles=cycles,
                 cycleHistory=cycle_history[-30:],
                 lastGate=effective_gate,
@@ -707,6 +709,7 @@ class ConvergenceController:
                 self.record_pr(
                     refreshed,
                     status="eligible100",
+                    lastHead=str(refreshed.get("headRefOid", "")),
                     notification=notification,
                     cycles=cycles,
                     cycleHistory=cycle_history[-30:],
@@ -726,6 +729,7 @@ class ConvergenceController:
         self.record_pr(
             current,
             status="blocked",
+            lastHead=str(current.get("headRefOid", "")),
             blocker=blocker,
             notification=notification,
             cycles=cycles,
