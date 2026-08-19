@@ -189,6 +189,22 @@ class ConvergenceControllerTests(unittest.TestCase):
 
             self.assertEqual(controller.agent_calls, 0)
 
+    def test_non_100_gate_exit_one_is_a_normal_gate_result(self) -> None:
+        payload = {"eligible100": False, "reasons": ["draft"], "checks": {"allCompleted": True}}
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            if "review_pr.py" in " ".join(command):
+                return CommandResult(1, json.dumps(payload))
+            raise AssertionError(f"unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ConvergenceController(root=root, pub_refs=root / "pub", runner=runner)
+            result = controller.gate(123)
+
+        self.assertFalse(result["eligible100"])
+        self.assertEqual(result["reasons"], ["draft"])
+
     def test_notification_is_idempotent(self) -> None:
         sends = 0
 

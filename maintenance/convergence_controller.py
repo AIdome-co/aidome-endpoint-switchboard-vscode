@@ -323,7 +323,12 @@ class ConvergenceController:
         )
         if result.returncode not in {0, 1}:
             raise ControllerError(f"PR #{number} gate could not be evaluated: {short_output(result.output)}")
-        payload = parse_json_output(result, f"PR #{number} deterministic gate")
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise ControllerError(
+                f"PR #{number} gate returned invalid JSON: {short_output(result.output)}"
+            ) from exc
         if not isinstance(payload, dict) or "eligible100" not in payload:
             raise ControllerError(f"PR #{number} gate returned an invalid payload")
         return payload
