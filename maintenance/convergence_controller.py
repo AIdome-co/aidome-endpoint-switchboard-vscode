@@ -737,7 +737,27 @@ class ConvergenceController:
         )
         return {"number": number, "status": "blocked", "gate": last_gate, "cycles": cycles}
 
-    def run(self, *, weekly: bool = False, only_pr: int | None = None) -> dict[str, Any]:
+    def reconcile_pr(self, pr: dict[str, Any]) -> dict[str, Any]:
+        """Refresh durable state from GitHub without invoking an agent or mutating a branch."""
+
+        current = self.current_pr(int(pr["number"]))
+        gate = self.wait_for_gate(int(pr["number"]))
+        self.record_pr(
+            current,
+            status="reconciled",
+            lastHead=str(current.get("headRefOid", "")),
+            lastGate=gate,
+            reconcileOnly=True,
+        )
+        return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
+
+    def run(
+        self,
+        *,
+        weekly: bool = False,
+        only_pr: int | None = None,
+        reconcile_only: bool = False,
+    ) -> dict[str, Any]:
         started = utc_now()
         run_record: dict[str, Any] = {"runId": self.run_id, "startedAt": started, "weekly": weekly, "status": "running"}
         self.state.setdefault("runs", []).append(run_record)
@@ -753,6 +773,8 @@ class ConvergenceController:
                     raise ControllerError(f"PR #{only_pr} was not returned by the in-scope PR inventory")
             if self.dry_run:
                 results = [{"number": int(pr["number"]), "status": "planned", "mode": pr.get("mode")} for pr in inventory]
+            elif reconcile_only:
+                results = [self.reconcile_pr(pr) for pr in inventory]
             else:
                 for pr in inventory:
                     try:
@@ -851,6 +873,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-cycles", type=int, default=MAX_CYCLES_PER_RUN)
     parser.add_argument("--pr", type=int, default=None, help="Process one in-scope PR; intended for controlled validation.")
+    parser.add_argument("--reconcile-only", action="store_true", help="Refresh state from GitHub without invoking an agent.")
     args = parser.parse_args()
     if not 1 <= args.max_cycles <= MAX_CYCLES_PER_RUN:
         parser.error(f"--max-cycles must be between 1 and {MAX_CYCLES_PER_RUN}")
@@ -869,10 +892,10 @@ def main() -> int:
             dry_run=args.dry_run,
         )
         if args.dry_run:
-            result = controller.run(weekly=weekly, only_pr=args.pr)
+            result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         else:
             with MaintenanceLock(lock):
-                result = controller.run(weekly=weekly, only_pr=args.pr)
+                result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         print(json.dumps(result, indent=2))
         return 0
     except ControllerError as exc:

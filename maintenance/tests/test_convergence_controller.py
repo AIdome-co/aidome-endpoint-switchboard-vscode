@@ -307,6 +307,17 @@ class ConvergenceControllerTests(unittest.TestCase):
             self.assertEqual(controller.state["prs"]["1"]["status"], "failed")
             self.assertEqual(controller.state["prs"]["2"]["status"], "eligible100")
 
+    def test_reconcile_only_refreshes_head_without_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = FakeController(root=root, pub_refs=root / "pub", state_path=root / "state.json", gate_values=[False])
+
+            result = controller.reconcile_pr(pr())
+
+            self.assertEqual(result["status"], "reconciled")
+            self.assertEqual(controller.state["prs"]["123"]["lastHead"], "a" * 40)
+            self.assertEqual(controller.agent_calls, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
