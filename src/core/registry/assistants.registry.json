@@ -80,17 +80,19 @@
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "in-extension-ui",
-          "vscode-settings-scan"
+          "provider-settings-file",
+          "global-state-file"
         ],
         "settingKeyHints": [
-          "cline.*baseUrl*",
-          "cline.*openai*base*",
-          "cline.*openaiCompatible*"
+          "providers.openai-compatible.settings.baseUrl",
+          "globalState.openAiBaseUrl",
+          "globalState.planModeApiProvider",
+          "globalState.actModeApiProvider"
         ],
         "notes": [
-          "Cline supports 'OpenAI Compatible' and also supports a Base URL for OpenAI provider.",
-          "Implementation should treat exact setting keys as discoverable by scanning contributes.configuration at runtime.",
+          "Current Cline releases store the OpenAI-compatible provider in <CLINE_DATA_DIR>/settings/providers.json (default ~/.cline/data/settings/providers.json), using provider ID openai-compatible and settings.baseUrl.",
+          "The VS Code package contributes an empty Cline configuration schema; endpoint switching must not write cline.* VS Code settings.",
+          "The active provider and legacy endpoint field are stored in <CLINE_DATA_DIR>/globalState.json as openai, openAiBaseUrl, planModeApiProvider, and actModeApiProvider.",
           "Cline is now multi-IDE: supports VS Code, Cursor, Windsurf, JetBrains (IntelliJ, PyCharm, WebStorm), Antigravity, Zed, and Neovim (via ACP mode)."
         ]
       },
@@ -101,7 +103,12 @@
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev",
-        "https://docs.cline.bot"
+        "https://docs.cline.bot/provider-config/openai-compatible",
+        "https://github.com/cline/cline/blob/main/apps/vscode/package.json",
+        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/provider-migration.ts",
+        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/model-catalog/store.ts",
+        "https://github.com/cline/cline/blob/main/apps/vscode/src/sdk/cline-session-factory.ts",
+        "https://github.com/cline/cline/blob/main/apps/cli/DEVELOPMENT.md"
       ]
     },
     {

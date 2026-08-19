@@ -146,3 +146,6 @@ out-test/
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Python maintenance tooling cache
+**/__pycache__/
