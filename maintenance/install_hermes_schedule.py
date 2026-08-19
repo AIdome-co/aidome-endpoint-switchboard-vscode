@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from convergence_controller import discover_supported_node_bin_dir
 from schedule_config import EXPECTED_RUN_HOURS, SCHEDULE, TELEGRAM_TARGET, TIMEZONE_NAME
 
 
@@ -72,11 +72,15 @@ def ensure_dependencies() -> None:
 
     if (WORKTREE / "node_modules/.bin/eslint").is_file():
         return
-    npm = shutil.which("npm")
-    if npm is None:
-        raise RuntimeError("npm is unavailable; refusing to install a schedule that cannot run validation")
+    try:
+        node_bin_dir = discover_supported_node_bin_dir()
+    except RuntimeError as exc:
+        raise RuntimeError(str(exc)) from exc
+    npm = node_bin_dir / "npm"
     run(
-        npm,
+        "env",
+        f"PATH={node_bin_dir}:{os.environ.get('PATH', '')}",
+        str(npm),
         "--prefix",
         str(WORKTREE),
         "ci",

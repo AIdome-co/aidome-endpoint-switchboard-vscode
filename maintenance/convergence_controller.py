@@ -105,6 +105,37 @@ def short_output(value: str, limit: int = 1200) -> str:
     return value[-limit:]
 
 
+def discover_supported_node_bin_dir() -> Path:
+    """Find an approved Node.js >=22 runtime and its npm executable."""
+
+    candidates: list[Path] = []
+    configured = os.environ.get("SWITCHBOARD_NODE_BIN")
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    nvm_root = Path("/home/aidome-dev/.nvm/versions/node")
+    if nvm_root.is_dir():
+        candidates.extend(sorted(nvm_root.glob("v*/bin/node"), reverse=True))
+    discovered = shutil.which("node")
+    if discovered:
+        candidates.append(Path(discovered))
+    for candidate in candidates:
+        node = candidate / "node" if candidate.is_dir() else candidate
+        npm = node.with_name("npm")
+        if not node.is_file() or not npm.is_file():
+            continue
+        try:
+            result = subprocess.run([str(node), "--version"], check=False, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        match = re.match(r"v(\d+)", result.stdout.strip())
+        if result.returncode == 0 and match and int(match.group(1)) >= 22:
+            return node.parent
+    raise ControllerError(
+        "A supported Node.js runtime (>=22 with npm) is unavailable; "
+        "set SWITCHBOARD_NODE_BIN to the approved Node executable."
+    )
+
+
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -268,33 +299,8 @@ class ConvergenceController:
 
         if self._node_bin_dir is not None:
             return self._node_bin_dir
-        candidates: list[Path] = []
-        configured = os.environ.get("SWITCHBOARD_NODE_BIN")
-        if configured:
-            candidates.append(Path(configured).expanduser())
-        nvm_root = Path("/home/aidome-dev/.nvm/versions/node")
-        if nvm_root.is_dir():
-            candidates.extend(sorted(nvm_root.glob("v*/bin/node"), reverse=True))
-        discovered = shutil.which("node")
-        if discovered:
-            candidates.append(Path(discovered))
-        for candidate in candidates:
-            node = candidate / "node" if candidate.is_dir() else candidate
-            npm = node.with_name("npm")
-            if not node.is_file() or not npm.is_file():
-                continue
-            try:
-                result = subprocess.run([str(node), "--version"], check=False, capture_output=True, text=True, timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-            match = re.match(r"v(\d+)", result.stdout.strip())
-            if result.returncode == 0 and match and int(match.group(1)) >= 22:
-                self._node_bin_dir = node.parent
-                return self._node_bin_dir
-        raise ControllerError(
-            "A supported Node.js runtime (>=22 with npm) is unavailable; "
-            "set SWITCHBOARD_NODE_BIN to the approved Node executable."
-        )
+        self._node_bin_dir = discover_supported_node_bin_dir()
+        return self._node_bin_dir
 
     def run_command(self, *command: str, cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT) -> CommandResult:
         effective = command
