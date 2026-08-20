@@ -299,10 +299,13 @@ def discovery_prompt(worktree: Path, pub_refs: Path) -> str:
         the matching official provider reference before acting on a provider-related finding.
 
         Search existing branches, issues, and PRs before creating anything. For each safe, deduplicated
-        finding, make the smallest fix, add a regression test, update docs/changelog when required, run
-        the applicable checks, and create or update one focused maintenance/switchboard-* PR. Use a draft
-        when confidence is low or checks do not pass. Never modify an unrelated branch, never merge, and
-        never send Telegram. If there is no concrete finding, make no code changes.
+        finding, create or reuse one GitHub issue before changing code. The issue must contain the observed
+        behavior, reproduction/evidence, affected provider or files, proposed acceptance criteria, and the
+        relevant provider-reference commit when applicable. Then make the smallest fix, add a regression
+        test, update docs/changelog when required, run the applicable checks, and create or update one
+        focused maintenance/switchboard-* PR linked to that issue with `Fixes #<issue>`. Use a draft when
+        confidence is low or checks do not pass. Never modify an unrelated branch, never merge, and never
+        send Telegram. If there is no concrete finding, make no code changes.
 
         Commit and push any focused change. Finish with a concise summary of findings, branch/PR URLs,
         tests, and blockers; the controller will verify the worktree and rediscover PRs afterward.

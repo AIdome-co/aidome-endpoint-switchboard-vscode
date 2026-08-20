@@ -113,14 +113,26 @@ checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
    concrete bugs or drift. Prefer a reproduced failure or a source-backed
    compatibility issue over speculative cleanup.
 4. Before creating a branch, search existing maintenance branches, issues, and
-   pull requests. Deduplicate by normalized finding title and affected paths.
-5. For each safe, scoped finding, reproduce it first, then make the smallest
-   fix. Add a regression test that fails before the fix whenever practical.
-   Preserve SecretStorage, redaction, URL validation, backup-before-modify,
-   adapter-only configuration writes, and no-console rules.
-6. Update documentation and `CHANGELOG.md` when behavior, provider support, or
+   pull requests. Deduplicate by normalized finding title, affected paths, and
+   provider. Reuse an existing open issue when it describes the same finding.
+5. For each new, validated finding, create a GitHub issue before editing code:
+
+   ```bash
+   gh issue create --repo AIdome-co/aidome-endpoint-switchboard-vscode \
+     --title "bug: <concise finding>" \
+     --body-file <evidence-and-acceptance-criteria-file>
+   ```
+
+   The issue must record the observed behavior, reproduction/evidence, affected
+   files or provider, provider-reference commit when relevant, risk, and
+   acceptance criteria. Record the issue number and URL in the PR description.
+6. Reproduce the finding, then make the smallest fix. Add a regression test
+   that fails before the fix whenever practical. Preserve SecretStorage,
+   redaction, URL validation, backup-before-modify, adapter-only configuration
+   writes, and no-console rules.
+7. Update documentation and `CHANGELOG.md` when behavior, provider support, or
    user-facing guidance changes. Do not change release version headings.
-7. Run every applicable check and record the exact command and exit status:
+8. Run every applicable check and record the exact command and exit status:
 
    ```bash
    npm run lint
@@ -142,12 +154,13 @@ checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
    ```bash
    npm ci --ignore-scripts --no-audit --no-fund
    ```
-8. Keep one focused branch per new finding using the prefix
+9. Keep one focused branch per new finding using the prefix
    `maintenance/switchboard-`. For an existing `fix/*` PR in scope, update its
    existing branch rather than opening a duplicate. Do not alter the user's
    current branch or commit unrelated work. If the current worktree is dirty,
    inspect it and stop before modifying overlapping files.
-9. Push the branch and create a GitHub PR with `gh`. Use a draft PR when tests
+10. Push the branch and create a GitHub PR with `gh`. Link it to the issue using
+   `Fixes #<issue-number>` in the PR body. Use a draft PR when tests
    fail, confidence is low, the finding is ambiguous, or the change is broad.
    Never merge a PR.
 

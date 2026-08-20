@@ -85,12 +85,15 @@ global default model. Operators can override it for a controlled run with
 
 Before the PR inventory, the first normal scheduled run for each Israel local
 date invokes a separate main-based discovery worktree. That cycle scans the
-product and provider references for reproduced bugs or drift, deduplicates
-against existing PRs and issues, and may create one focused
-`maintenance/switchboard-*` PR. Its branch, cleanliness, and pushed remote head
-are verified before the new inventory is processed. The second daily run skips
-discovery and focuses on convergence. Controlled `--pr` and `--reconcile-only`
-runs intentionally skip discovery.
+product and provider references for reproduced bugs or drift and deduplicates
+against existing PRs and issues. For a new validated finding it creates or
+reuses a GitHub Issue containing evidence and acceptance criteria, then creates
+one focused `maintenance/switchboard-*` PR linked with `Fixes #<issue-number>`.
+The issue URL and provider-reference commit are recorded in the PR description
+and maintenance report. Its branch, cleanliness, and pushed remote head are
+verified before the new inventory is processed. The second
+daily run skips discovery and focuses on convergence. Controlled `--pr` and
+`--reconcile-only` runs intentionally skip discovery.
 
 Validation selects a Node.js runtime at version 22 or newer (or the executable
 specified by `SWITCHBOARD_NODE_BIN`) and prepends its `bin` directory to the
@@ -106,7 +109,7 @@ command, not only PRs created during the current run:
 
 | Branch pattern | Automation behavior |
 | --- | --- |
-| `maintenance/switchboard-*` | Full review, fix, test, push, report, and convergence loop |
+| `maintenance/switchboard-*` | Full review, fix, test, push, report, and convergence loop; newly discovered work is linked to an Issue |
 | `fix/*` | Full review, fix, test, push, report, and convergence loop on the existing branch |
 | `dependabot/*` | Read-only review; fixes use a separate maintenance branch |
 
