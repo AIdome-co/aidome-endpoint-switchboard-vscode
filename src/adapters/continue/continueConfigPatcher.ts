@@ -1,16 +1,18 @@
 /**
  * Configuration file patcher for Continue.dev.
- * Handles JSON config file modification with backup.
+ * Handles JSONC and YAML config file modification with backup.
  */
 
-import { readFileSafe, writeFileAtomic, createBackup } from '../../util/fsSafe';
+import * as path from 'path';
+import { parse, stringify } from 'yaml';
+import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { getContinueConfigPath } from './paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 
 interface ContinueModel {
   provider?: string;
   apiBase?: string;
-  apiKey?: string;
   model?: string;
   [key: string]: unknown;
 }
@@ -20,14 +22,46 @@ interface ContinueConfig {
   [key: string]: unknown;
 }
 
+export interface ContinueConfigOptions {
+  provider?: 'openai' | 'anthropic';
+}
+
+type ContinueConfigFormat = 'json' | 'yaml';
+
 /**
  * Gets the Continue.dev config path.
  * @returns Config file path
  */
 export { getContinueConfigPath };
 
+function getContinueConfigFormat(configPath: string): ContinueConfigFormat {
+  return configPath.endsWith('.yaml') || configPath.endsWith('.yml') ? 'yaml' : 'json';
+}
+
 /**
- * Patches Continue.dev config file with new endpoint.
+ * Parses a Continue config according to its file extension.
+ * @param content File contents
+ * @param configPath Path used to select JSONC or YAML parsing
+ * @returns Parsed config object
+ */
+export function parseContinueConfigContent(content: string, configPath: string): ContinueConfig {
+  const parsed = getContinueConfigFormat(configPath) === 'yaml'
+    ? parse(content)
+    : parseJsonc<unknown>(content);
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${path.basename(configPath)} is not a valid object`);
+  }
+
+  return parsed as ContinueConfig;
+}
+
+function getDefaultModel(provider: 'openai' | 'anthropic'): string {
+  return provider === 'anthropic' ? 'claude-3-5-sonnet-latest' : 'gpt-4';
+}
+
+/**
+ * Patches Continue.dev config file with a new endpoint.
  * @param profile Endpoint profile to configure
  * @param configPath Path to config file
  * @returns Promise resolving when complete
@@ -37,51 +71,72 @@ export async function patchContinueConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
-  const updated = buildContinueConfigContent(profile.baseUrl, content);
+  const provider = profile.dialect === 'anthropic.messages' ? 'anthropic' : 'openai';
+  const updated = buildContinueConfigContent(
+    profile.baseUrl,
+    content,
+    configPath,
+    { provider }
+  );
   await writeFileAtomic(configPath, updated);
 }
 
 /**
- * Builds Continue.dev config content.
+ * Builds Continue.dev config content while preserving unrelated fields.
  * @param baseUrl Base URL to set
  * @param existingContent Existing config content
+ * @param configPath Path used to select JSONC or YAML serialization
+ * @param options Provider-specific configuration options
  * @returns Patched config content
  */
 export function buildContinueConfigContent(
   baseUrl: string,
-  existingContent?: string
+  existingContent?: string,
+  configPath = getContinueConfigPath(),
+  options: ContinueConfigOptions = {}
 ): string {
-  let config: ContinueConfig;
+  let config: ContinueConfig = {};
 
   if (existingContent) {
     try {
-      config = JSON.parse(existingContent);
+      config = parseContinueConfigContent(existingContent, configPath);
     } catch {
       config = {};
     }
-  } else {
-    config = {};
   }
 
-  if (!config.models) {
+  if (!Array.isArray(config.models)) {
     config.models = [];
   }
 
-  let modelEntry = config.models.find((m) => m.apiBase === baseUrl);
+  const provider = options.provider ?? 'openai';
+  let modelEntry = config.models.find(
+    model => model.apiBase === baseUrl && (!model.provider || model.provider === provider)
+  );
   if (!modelEntry) {
-    modelEntry = config.models.find((m) => m.provider === 'openai');
+    modelEntry = config.models.find(model => model.provider === provider);
+  }
+  if (!modelEntry && config.models.length === 1) {
+    modelEntry = config.models[0];
   }
 
   if (modelEntry) {
     modelEntry.apiBase = baseUrl;
-    modelEntry.provider = 'openai';
+    modelEntry.provider = provider;
+    if (!modelEntry.model) {
+      modelEntry.model = getDefaultModel(provider);
+    }
   } else {
     config.models.push({
-      provider: 'openai',
+      provider,
       apiBase: baseUrl,
-      model: 'gpt-4'
+      model: getDefaultModel(provider)
     });
   }
 
-  return JSON.stringify(config, null, 2);
+  const updated = getContinueConfigFormat(configPath) === 'yaml'
+    ? stringify(config)
+    : stringifyJsonc(config, 2);
+
+  return updated.endsWith('\n') ? updated : `${updated}\n`;
 }

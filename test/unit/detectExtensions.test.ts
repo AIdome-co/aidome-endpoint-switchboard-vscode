@@ -3,7 +3,17 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
+
+vi.mock('os', () => ({
+  homedir: () => '/home/testuser'
+}));
+
+vi.mock('fs', () => ({
+  readdirSync: vi.fn(() => []),
+  readFileSync: vi.fn()
+}));
 
 vi.mock('vscode', () => {
   const extensionsList = [
@@ -94,6 +104,43 @@ describe('detectExtensions', () => {
 
     const results = detectExtensions(registry);
     expect(results).toHaveLength(0);
+  });
+
+  it('falls back to installed extension directories when the VS Code API misses an extension', () => {
+    vi.mocked(fs.readdirSync).mockImplementation((root) => {
+      if (String(root).endsWith('/.vscode-server/extensions')) {
+        return [{
+          name: 'unknown.publisher-1.2.3-linux-x64',
+          isDirectory: () => true
+        }] as unknown as ReturnType<typeof fs.readdirSync>;
+      }
+      return [] as unknown as ReturnType<typeof fs.readdirSync>;
+    });
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ version: '1.2.3' }));
+
+    const registry: AssistantRegistry = {
+      version: '1.0',
+      assistants: [
+        {
+          key: 'unknown-ext',
+          displayName: 'Unknown',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['unknown.publisher'] },
+          endpointSwitching: { tier: 'C', dialect: 'unknown' },
+        } as any,
+      ],
+    };
+
+    const results = detectExtensions(registry);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        assistantKey: 'unknown-ext',
+        extensionId: 'unknown.publisher',
+        version: '1.2.3',
+        isActive: false
+      })
+    ]);
   });
 
   it('detects only the first matching extension ID per assistant', () => {

@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { patchContinueConfig } from '../../src/adapters/continue/continueConfigPatcher';
+import {
+  buildContinueConfigContent,
+  parseContinueConfigContent,
+  patchContinueConfig
+} from '../../src/adapters/continue/continueConfigPatcher';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
 import { Logger } from '../../src/util/log';
@@ -53,5 +57,46 @@ describe('Continue Config Patcher', () => {
       provider: 'openai',
       apiBase: mockProfile.baseUrl
     }));
+  });
+
+  it('updates a YAML config while preserving unrelated fields', () => {
+    const updated = buildContinueConfigContent(
+      mockProfile.baseUrl,
+      [
+        'name: Existing config',
+        'models:',
+        '  - provider: openai',
+        '    model: gpt-4o-mini',
+        'requestOptions:',
+        '  timeout: 30000'
+      ].join('\n'),
+      '/home/user/.continue/config.yaml'
+    );
+
+    const parsed = parseContinueConfigContent(updated, '/home/user/.continue/config.yaml');
+    expect(parsed).toMatchObject({
+      name: 'Existing config',
+      requestOptions: { timeout: 30000 },
+      models: [{ provider: 'openai', model: 'gpt-4o-mini', apiBase: mockProfile.baseUrl }]
+    });
+  });
+
+  it('writes an anthropic provider for an anthropic profile', async () => {
+    const anthropicProfile = {
+      ...mockProfile,
+      dialect: 'anthropic.messages' as const
+    };
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('models:\n  - model: claude-sonnet-4\n');
+    vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+
+    await patchContinueConfig(anthropicProfile, '/home/user/.continue/config.yaml');
+
+    const written = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
+    const parsed = parseContinueConfigContent(written, '/home/user/.continue/config.yaml');
+    expect(parsed.models?.[0]).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4',
+      apiBase: anthropicProfile.baseUrl
+    });
   });
 });

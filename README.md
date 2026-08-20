@@ -238,7 +238,7 @@ When you apply a profile, the extension only changes configuration surfaces for 
 | Surface | Examples | Safety behavior |
 |---------|----------|-----------------|
 | VS Code settings | Cline, Roo Code, Kilo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
-| User config files | Continue `config.json`, Codex CLI `config.toml`, Claude Code `settings.json` | A timestamped backup is created before modification |
+| User config files | Continue `config.yaml`/`config.json`, Codex CLI `config.toml`, Claude Code `settings.json` | A timestamped backup is created before modification |
 | Environment hints | Assistant-specific TLS or gateway variables documented in guided output | Secrets are redacted in logs and diagnostics |
 
 The extension does **not** modify source code, workspace files, prompts, or assistant conversation history.

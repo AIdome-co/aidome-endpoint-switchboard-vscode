@@ -2,6 +2,9 @@
  * Extension detection using VS Code's extension API.
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from '../../util/log';
 import { AssistantRegistry, AssistantEntry } from '../registry/registryTypes';
@@ -23,6 +26,7 @@ export interface DetectedAssistant {
  * Cache for vscode.extensions.all to avoid repeated lookups.
  */
 let extensionsCache: readonly vscode.Extension<any>[] | null = null;
+let installedExtensionDirCache: string[] | null = null;
 
 /**
  * Invalidates the extensions cache.
@@ -30,6 +34,56 @@ let extensionsCache: readonly vscode.Extension<any>[] | null = null;
  */
 export function invalidateExtensionsCache(): void {
   extensionsCache = null;
+  installedExtensionDirCache = null;
+}
+
+function getInstalledExtensionDirs(): string[] {
+  if (installedExtensionDirCache) {
+    return installedExtensionDirCache;
+  }
+
+  const roots = [
+    path.join(os.homedir(), '.vscode', 'extensions'),
+    path.join(os.homedir(), '.vscode-insiders', 'extensions'),
+    path.join(os.homedir(), '.vscode-server', 'extensions'),
+    path.join(os.homedir(), '.vscode-server-insiders', 'extensions')
+  ];
+  const discovered = new Set<string>();
+
+  for (const root of roots) {
+    try {
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          discovered.add(path.join(root, entry.name));
+        }
+      }
+    } catch {
+      // Missing or unreadable extension roots are expected on some hosts.
+    }
+  }
+
+  installedExtensionDirCache = [...discovered];
+  return installedExtensionDirCache;
+}
+
+function findExtensionOnDisk(normalizedId: string): { version: string } | undefined {
+  const candidates = getInstalledExtensionDirs().filter(directory => {
+    const folderName = path.basename(directory).toLowerCase();
+    return folderName === normalizedId || folderName.startsWith(`${normalizedId}-`);
+  });
+
+  for (const candidate of candidates) {
+    try {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(candidate, 'package.json'), 'utf8')
+      ) as { version?: string };
+      return { version: manifest.version || 'unknown' };
+    } catch {
+      return { version: 'unknown' };
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -89,6 +143,21 @@ export function detectExtensions(registry: AssistantRegistry): DetectedAssistant
           kind: entry.kind
         });
         // Only detect once per assistant (use first matching extension ID)
+        break;
+      }
+
+      const installedOnDisk = findExtensionOnDisk(normalizedId);
+      if (installedOnDisk) {
+        logger.info(`Found ${entry.key}: extension ${extensionId} on disk fallback v${installedOnDisk.version}`);
+        detected.push({
+          assistantKey: entry.key,
+          displayName: entry.displayName,
+          extensionId,
+          version: installedOnDisk.version,
+          isActive: false,
+          tier: entry.endpointSwitching.tier,
+          kind: entry.kind
+        });
         break;
       }
     }

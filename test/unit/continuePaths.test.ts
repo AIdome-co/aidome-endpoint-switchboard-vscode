@@ -2,14 +2,32 @@
  * Unit tests for src/adapters/continue/paths.ts
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
+
+const { mockExistsSync } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn(() => false)
+}));
+
+vi.mock('fs', () => ({
+  existsSync: mockExistsSync
+}));
 
 vi.mock('os', () => ({
   homedir: () => '/home/testuser'
 }));
 
-import { getContinueConfigDir, getContinueConfigPath, getContinueBackupDir } from '../../src/adapters/continue/paths';
+import {
+  getContinueConfigDir,
+  getContinueConfigJsonPath,
+  getContinueConfigPath,
+  getContinueConfigYamlPath,
+  getContinueBackupDir
+} from '../../src/adapters/continue/paths';
+
+beforeEach(() => {
+  mockExistsSync.mockReturnValue(false);
+});
 
 describe('continue/paths', () => {
   describe('getContinueConfigDir', () => {
@@ -20,9 +38,21 @@ describe('continue/paths', () => {
   });
 
   describe('getContinueConfigPath', () => {
-    it('returns config.json inside config dir', () => {
+    it('prefers an existing YAML config', () => {
+      mockExistsSync.mockImplementation(filePath => filePath.endsWith('config.yaml'));
+
+      expect(getContinueConfigPath()).toBe(getContinueConfigYamlPath());
+    });
+
+    it('uses an existing JSON config when YAML is absent', () => {
+      mockExistsSync.mockImplementation(filePath => filePath.endsWith('config.json'));
+
+      expect(getContinueConfigPath()).toBe(getContinueConfigJsonPath());
+    });
+
+    it('defaults new installations to YAML', () => {
       const configPath = getContinueConfigPath();
-      expect(configPath).toBe(path.join('/home/testuser', '.continue', 'config.json'));
+      expect(configPath).toBe(path.join('/home/testuser', '.continue', 'config.yaml'));
     });
   });
 

@@ -7,6 +7,7 @@ import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder'
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getContinueConfigPath } from './paths';
+import { parseContinueConfigContent } from './continueConfigPatcher';
 import { readFileSafe } from '../../util/fsSafe';
 
 /**
@@ -37,7 +38,8 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       data: { 
         configPath, 
         profileId: profile.id,
-        baseUrl: profile.baseUrl 
+        baseUrl: profile.baseUrl,
+        provider: profile.dialect === 'anthropic.messages' ? 'anthropic' : 'openai'
       },
       reversible: true
     });
@@ -67,11 +69,11 @@ export class ContinueAdapter extends BaseExtensionAdapter {
 
     let config;
     try {
-      config = JSON.parse(content);
+      config = parseContinueConfigContent(content, configPath);
     } catch {
       return {
         success: false,
-        message: 'Continue.dev config file is not valid JSON',
+        message: `Continue.dev config file is not valid ${configPath.endsWith('.yaml') ? 'YAML' : 'JSON'}`,
         details: { configPath }
       };
     }
