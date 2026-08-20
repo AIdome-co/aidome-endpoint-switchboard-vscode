@@ -124,7 +124,7 @@ def main() -> int:
                 and script_path.is_file()
                 and "convergence_controller.py" in script_text
                 and "--auto-weekly" in script_text
-                and HERMES_MAINTENANCE_MODEL in (expected_worktree / "maintenance/convergence_controller.py").read_text(encoding="utf-8")
+                and HERMES_MAINTENANCE_MODEL in (expected_worktree / "maintenance/schedule_config.py").read_text(encoding="utf-8")
                 and timeout_match is not None
                 and int(timeout_match.group(1)) >= HERMES_SCRIPT_TIMEOUT_SECONDS
                 and next_run.hour in EXPECTED_RUN_HOURS
