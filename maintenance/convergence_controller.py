@@ -29,9 +29,9 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 try:
-    from .schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, TELEGRAM_TARGET, TIMEZONE_NAME
+    from .schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, HERMES_MAINTENANCE_MODEL, TELEGRAM_TARGET, TIMEZONE_NAME
 except ImportError:  # Script execution from the maintenance directory.
-    from schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, TELEGRAM_TARGET, TIMEZONE_NAME
+    from schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, HERMES_MAINTENANCE_MODEL, TELEGRAM_TARGET, TIMEZONE_NAME
 
 
 REPOSITORY = "AIdome-co/aidome-endpoint-switchboard-vscode"
@@ -321,6 +321,7 @@ class ConvergenceController:
         pub_refs: Path,
         state_path: Path | None = None,
         hermes: str = "/home/aidome-dev/.local/bin/hermes",
+        hermes_model: str = HERMES_MAINTENANCE_MODEL,
         runner: Runner = command_runner,
         max_cycles: int = MAX_CYCLES_PER_RUN,
         dry_run: bool = False,
@@ -333,6 +334,7 @@ class ConvergenceController:
         self.pub_refs = pub_refs.resolve()
         self.state_path = (state_path or self.pub_refs / "switchboard-maintenance-state.json").resolve()
         self.hermes = hermes
+        self.hermes_model = hermes_model
         self.runner = runner
         self.max_cycles = max_cycles
         self.dry_run = dry_run
@@ -589,6 +591,8 @@ class ConvergenceController:
         worktree = self.prepare_discovery_worktree()
         result = self.run_command(
             self.hermes,
+            "-m",
+            self.hermes_model,
             "-z",
             discovery_prompt(worktree, self.pub_refs),
             cwd=worktree,
@@ -680,6 +684,8 @@ class ConvergenceController:
             return {"status": "planned"}
         result = self.run_command(
             self.hermes,
+            "-m",
+            self.hermes_model,
             "-z",
             cycle_prompt(pr, cycle, worktree, self.pub_refs),
             cwd=worktree,
@@ -697,6 +703,8 @@ class ConvergenceController:
             raise ControllerError("base maintenance worktree is dirty; read-only Dependabot review refused")
         result = self.run_command(
             self.hermes,
+            "-m",
+            self.hermes_model,
             "-z",
             dependency_review_prompt(pr, self.root, self.pub_refs),
             cwd=self.root,
@@ -1111,6 +1119,7 @@ def main() -> int:
     parser.add_argument("--pub-refs", type=Path, default=Path("/home/aidome-dev/pub-refs"))
     parser.add_argument("--state", type=Path, default=None)
     parser.add_argument("--hermes", default=os.environ.get("HERMES_BIN", "/home/aidome-dev/.local/bin/hermes"))
+    parser.add_argument("--hermes-model", default=os.environ.get("SWITCHBOARD_HERMES_MODEL", HERMES_MAINTENANCE_MODEL))
     parser.add_argument("--weekly", action="store_true")
     parser.add_argument("--auto-weekly", action="store_true", help="Use Sunday in Asia/Jerusalem for weekly synchronization.")
     parser.add_argument("--dry-run", action="store_true")
@@ -1131,6 +1140,7 @@ def main() -> int:
             pub_refs=pub_refs,
             state_path=state,
             hermes=args.hermes,
+            hermes_model=args.hermes_model,
             max_cycles=args.max_cycles,
             dry_run=args.dry_run,
         )

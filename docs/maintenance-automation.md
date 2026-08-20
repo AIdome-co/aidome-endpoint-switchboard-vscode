@@ -77,6 +77,12 @@ PRs receive a read-only review and never enter a fix worktree. PRs from
 untrusted source repositories are blocked before code execution. Legacy
 list-shaped PR state is migrated to the durable keyed format at startup.
 
+All discovery, fix-cycle, and dependency-review agent calls pass the explicit
+OpenRouter model `deepseek/deepseek-v4-flash-0731`; they do not inherit Hermes'
+global default model. Operators can override it for a controlled run with
+`SWITCHBOARD_HERMES_MODEL` or `--hermes-model`. Telegram delivery uses Hermes'
+`send` and does not invoke a model.
+
 Before the PR inventory, the first normal scheduled run for each Israel local
 date invokes a separate main-based discovery worktree. That cycle scans the
 product and provider references for reproduced bugs or drift, deduplicates

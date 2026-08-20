@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from schedule_config import (
     EXPECTED_RUN_HOURS,
     HERMES_ENTRYPOINT_NAME,
+    HERMES_MAINTENANCE_MODEL,
     HERMES_SCRIPT_TIMEOUT_SECONDS,
     SCHEDULE,
     TELEGRAM_TARGET,
@@ -123,6 +124,7 @@ def main() -> int:
                 and script_path.is_file()
                 and "convergence_controller.py" in script_text
                 and "--auto-weekly" in script_text
+                and HERMES_MAINTENANCE_MODEL in (expected_worktree / "maintenance/convergence_controller.py").read_text(encoding="utf-8")
                 and timeout_match is not None
                 and int(timeout_match.group(1)) >= HERMES_SCRIPT_TIMEOUT_SECONDS
                 and next_run.hour in EXPECTED_RUN_HOURS
@@ -132,7 +134,8 @@ def main() -> int:
                 cron_detail = (
                     f"schedule={job.get('schedule', {}).get('expr')}, "
                     f"workdir={job.get('workdir')}, deliver={job.get('deliver')}, "
-                    f"no_agent={job.get('no_agent')}, script={job.get('script')}, "
+                f"no_agent={job.get('no_agent')}, script={job.get('script')}, "
+                    f"model={HERMES_MAINTENANCE_MODEL}, "
                     f"next={next_run.isoformat()}"
                 )
         except (OSError, KeyError, StopIteration, json.JSONDecodeError, ValueError) as exc:

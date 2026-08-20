@@ -40,6 +40,7 @@ class FakeController(ConvergenceController):
         self.agent_calls = 0
         self.notifications: list[str] = []
 
+
     def current_pr(self, number: int) -> dict[str, Any]:
         return pr(number)
 
@@ -375,6 +376,26 @@ class ConvergenceControllerTests(unittest.TestCase):
             self.assertEqual(result["status"], "reconciled")
             self.assertEqual(controller.state["prs"]["123"]["lastHead"], "a" * 40)
             self.assertEqual(controller.agent_calls, 0)
+
+class MaintenanceModelTests(unittest.TestCase):
+    def test_agent_calls_pin_the_configured_model(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(*command: str, **_: Any) -> CommandResult:
+            calls.append(command)
+            return CommandResult(0, "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ConvergenceController(
+                root=root,
+                pub_refs=root / "pub",
+                hermes_model="deepseek/deepseek-v4-flash-0731",
+                runner=runner,
+            )
+            controller.run_agent(pr(), 1, root)
+
+        self.assertEqual(calls[0][0:4], ("/home/aidome-dev/.local/bin/hermes", "-m", "deepseek/deepseek-v4-flash-0731", "-z"))
 
 
 if __name__ == "__main__":
