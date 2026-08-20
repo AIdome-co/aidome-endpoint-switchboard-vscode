@@ -46,8 +46,8 @@ The Hermes gateway owns the scheduler. The job runs in Hermes no-agent/script
 mode through the reviewed `maintenance/hermes_cron_entrypoint.py` entrypoint,
 so it does not spend an LLM session or terminal inactivity budget merely
 launching the deterministic controller. The entrypoint is installed under
-Hermes' trusted scripts directory with a 540-second scheduler timeout; the
-controller has its own 480-second budget and checkpoints before that limit. The
+Hermes' trusted scripts directory with a 1620-second scheduler timeout; the
+controller has its own 1500-second budget and checkpoints before that limit. The
 controller acquires a repository lock before changing files, so a manual live
 run cannot overlap an unattended run. The controller sends deduplicated
 actionable Telegram notifications directly and emits no duplicate stdout

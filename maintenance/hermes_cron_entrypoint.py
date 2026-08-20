@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("SWITCHBOARD_MAINTENANCE_WORKTREE", "/home/aidome-dev/pub-refs/switchboard-worktree")).resolve()
 PUB_REFS = Path(os.environ.get("SWITCHBOARD_PUB_REFS", "/home/aidome-dev/pub-refs")).resolve()
 REPOSITORY = os.environ.get("SWITCHBOARD_REPOSITORY", "AIdome-co/aidome-endpoint-switchboard-vscode")
-CONTROLLER_TIMEOUT_SECONDS = int(os.environ.get("SWITCHBOARD_ENTRYPOINT_TIMEOUT_SECONDS", "510"))
+CONTROLLER_TIMEOUT_SECONDS = int(os.environ.get("SWITCHBOARD_ENTRYPOINT_TIMEOUT_SECONDS", "1590"))
 
 
 def main() -> int:
@@ -30,7 +30,7 @@ def main() -> int:
     if os.environ.get("SWITCHBOARD_CRON_DRY_RUN") == "1":
         command.append("--dry-run")
     environment = os.environ.copy()
-    environment.setdefault("SWITCHBOARD_RUN_BUDGET_SECONDS", "480")
+    environment.setdefault("SWITCHBOARD_RUN_BUDGET_SECONDS", "1500")
     try:
         result = subprocess.run(
             command,

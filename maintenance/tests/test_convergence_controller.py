@@ -395,7 +395,10 @@ class MaintenanceModelTests(unittest.TestCase):
             )
             controller.run_agent(pr(), 1, root)
 
-        self.assertEqual(calls[0][0:4], ("/home/aidome-dev/.local/bin/hermes", "-m", "deepseek/deepseek-v4-flash-0731", "-z"))
+        self.assertEqual(
+            calls[0][0:6],
+            ("/home/aidome-dev/.local/bin/hermes", "-m", "deepseek/deepseek-v4-flash-0731", "--accept-hooks", "-z", calls[0][5]),
+        )
 
 
 if __name__ == "__main__":
