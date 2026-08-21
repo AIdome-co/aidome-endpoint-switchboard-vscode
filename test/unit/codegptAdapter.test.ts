@@ -160,6 +160,37 @@ describe('CodeGptAdapter', () => {
       expect(providerStep?.newValue).toBe('openai-compatible');
     });
 
+    it('should write the schema-specific provider enum value when available', async () => {
+      const vscode = await import('vscode');
+      const customOnlyExtension = {
+        packageJSON: {
+          contributes: {
+            configuration: {
+              properties: {
+                'codegpt.provider': { enum: ['custom'] }
+              }
+            }
+          }
+        }
+      };
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(customOnlyExtension as any);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
+        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
+        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const providerStep = plan.steps.find(s =>
+        s.action === 'set-vscode-setting' && s.targetPath?.includes('provider')
+      );
+      expect(providerStep).toBeDefined();
+      expect(providerStep?.newValue).toBe('custom');
+    });
+
     it('should retain guided completion when only a provider setting is discoverable', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
@@ -191,6 +222,35 @@ describe('CodeGptAdapter', () => {
         }
       };
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(unsupportedProviderExtension as any);
+      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
+      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
+        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
+      ]);
+      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const providerStep = plan.steps.find(s =>
+        s.action === 'set-vscode-setting' && s.targetPath?.includes('provider')
+      );
+      expect(providerStep).toBeUndefined();
+      expect(plan.steps.some(step => step.action === 'show-guided-steps')).toBe(true);
+    });
+
+    it('does not auto-set a provider whose schema has no enum array', async () => {
+      const vscode = await import('vscode');
+      const noEnumExtension = {
+        packageJSON: {
+          contributes: {
+            configuration: {
+              properties: {
+                'codegpt.provider': { type: 'string' }
+              }
+            }
+          }
+        }
+      };
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(noEnumExtension as any);
       vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
       vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
         { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
