@@ -409,5 +409,13 @@ describe('Kilo Config Patcher', () => {
         hasAuthReference: false
       });
     });
+
+    it('treats a malformed (non-record) native provider entry as absent', () => {
+      expect(inspectKiloConfigContent('{ "provider": { "aidome-gateway": "not-an-object" } }')).toEqual({
+        hasProvider: false,
+        modelCount: 0,
+        hasAuthReference: false
+      });
+    });
   });
 });
