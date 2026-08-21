@@ -7,6 +7,7 @@ import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestra
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 /**
  * Gemini CLI adapter.
@@ -24,21 +25,27 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('Gemini CLI endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     let plan = createPlan(profile.id, ['gemini-cli']);
 
     const guidanceData = {
-      message: 'Gemini CLI does not support custom base URL configuration',
+      message: 'Gemini CLI supports gateway base URLs through environment variables',
       steps: [
-        'The official Gemini CLI connects directly to Google\'s Gemini API',
-        'It does not expose a base_url override option',
-        'To route Gemini requests through AIdome:',
-        '  - Use an OpenAI-compatible assistant (like Cline or Continue) to connect to AIdome',
-        '  - Configure AIdome to route to Gemini upstream',
-        '  - This way AIdome handles the Gemini API calls on your behalf',
-        'Alternative: Use environment-based HTTP proxy (advanced, may not work reliably)'
+        'Choose the environment variable that matches your Gemini CLI authentication mode:',
+        '  - Gemini API key authentication: GOOGLE_GEMINI_BASE_URL',
+        '  - Vertex AI authentication: GOOGLE_VERTEX_BASE_URL',
+        `Set the selected variable to: ${profile.baseUrl}`,
+        'For macOS/Linux: export VARIABLE_NAME="<your AIdome endpoint>"',
+        'For Windows PowerShell: $env:VARIABLE_NAME="<your AIdome endpoint>"',
+        'Persist the variable in your shell profile or a Gemini CLI .env file, then restart Gemini CLI',
+        'Keep the existing Gemini API key or Vertex AI authentication configuration unchanged'
       ],
       baseUrl: profile.baseUrl,
-      limitation: 'no-base-url-override',
+      envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+      limitation: 'environment-variable-configuration-required',
       tier: 'C'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
@@ -63,13 +70,27 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       };
     }
 
+    const configuredEnvironmentVariables = [
+      ...(process.env['GOOGLE_GEMINI_BASE_URL'] ? ['GOOGLE_GEMINI_BASE_URL'] : []),
+      ...(process.env['GOOGLE_VERTEX_BASE_URL'] ? ['GOOGLE_VERTEX_BASE_URL'] : [])
+    ];
+    const configured = configuredEnvironmentVariables.length > 0;
+
     return {
-      success: true,
-      message: 'Gemini CLI is installed. Note: Gemini CLI does not support custom endpoint configuration (Tier C).',
+      success: configured,
+      message: configured
+        ? 'Gemini CLI is installed and a supported gateway base-URL environment variable is configured.'
+        : 'Gemini CLI is installed, but a supported gateway base-URL environment variable is not configured.',
       details: { 
         cli: true,
         tier: 'C',
-        limitation: 'Gemini CLI does not support base URL override'
+        configurationStatus: configured ? 'environment-variable-configured' : 'manual-configuration-required',
+        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+        supportedEnvironmentVariables: [
+          'GOOGLE_GEMINI_BASE_URL',
+          'GOOGLE_VERTEX_BASE_URL'
+        ],
+        configuredEnvironmentVariables
       }
     };
   }

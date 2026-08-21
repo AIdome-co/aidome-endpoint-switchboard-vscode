@@ -377,7 +377,7 @@ This document tracks everything completed to date and everything remaining befor
 | OpenAI Codex CLI | Yes | Done (Tier A) | TOML config providers.NAME.base_url |
 | CodeGPT | Yes | Done (Tier B) | VS Code settings with guided fallback |
 | AnythingLLM | Yes | Done (Tier B) | Guided Generic OpenAI provider setup |
-| Gemini CLI | No | Done (Tier C) | No base URL override — info only |
+| Gemini CLI | Partial | Done (Tier C) | GOOGLE_GEMINI_BASE_URL / GOOGLE_VERTEX_BASE_URL env vars (guided) |
 | Tabnine | No | Done (Tier C) | Proprietary protocol — info only |
 | Windsurf/Codeium | Partial | Not started | YAML config — not yet implemented |
 | Amazon Q | No | Not started | AWS IAM only |
