@@ -231,6 +231,54 @@ base_url = "file:///tmp/secret"
       expect(result.success).toBe(false);
       expect(result.message).toContain('invalid base_url');
     });
+
+    it('fails when the config root is not a TOML table', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('["not", "a", "table"]');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid TOML');
+    });
+
+    it('fails when model_providers is not a table', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+model_providers = "not a table"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not have a model_providers table');
+    });
+
+    it('fails when the AIdome provider entry is missing', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.other]
+name = "Other provider"
+base_url = "https://other.example.com/v1"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not have an AIdome provider entry');
+    });
+
+    it('fails when the AIdome provider is missing its name', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.aidome]
+base_url = "https://aidome.example.com/v1"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('missing its required name');
+    });
   });
 
   it('reports the Codex display name and Tier A support', () => {

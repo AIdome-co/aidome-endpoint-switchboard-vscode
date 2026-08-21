@@ -158,5 +158,27 @@ base_url = "https://old.example.com/v1"
         'model_providers = "not a table"'
       )).toThrow('model_providers');
     });
+
+    it('rejects a non-table provider entry', () => {
+      expect(() => buildCodexConfigContent(
+        mockProfile.baseUrl,
+        '[model_providers]\nbroken = "not a table"'
+      )).toThrow('must be a TOML table');
+    });
+
+    it('rejects a config root that is not a TOML table', () => {
+      expect(() => buildCodexConfigContent(
+        mockProfile.baseUrl,
+        '["not", "a", "table"]'
+      )).toThrow('not valid TOML');
+    });
+
+    it('rejects an invalid API key environment variable name', () => {
+      expect(() => buildCodexConfigContent(
+        mockProfile.baseUrl,
+        undefined,
+        '1INVALID-NAME'
+      )).toThrow('environment variable name is invalid');
+    });
   });
 });
