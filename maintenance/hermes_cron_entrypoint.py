@@ -44,7 +44,9 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         print("Switchboard controller exceeded its entrypoint timeout", file=sys.stderr)
         return 124
-    if result.returncode:
+    if result.returncode == 2:
+        print("Switchboard maintenance paused before completion; it will resume on the next scheduled run", file=sys.stderr)
+    elif result.returncode:
         # The controller owns detailed, deduplicated Telegram alerts. Keep the
         # Hermes script failure concise and avoid duplicating or leaking output.
         print(f"Switchboard controller exited with code {result.returncode}", file=sys.stderr)

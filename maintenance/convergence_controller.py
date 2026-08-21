@@ -1156,6 +1156,11 @@ def main() -> int:
             with MaintenanceLock(lock):
                 result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         print(json.dumps(result, indent=2))
+        # A paused run is durable and resumable, but it is not a successful
+        # maintenance completion. Return a distinct non-zero status so Hermes
+        # records the scheduled job as incomplete instead of `ok`.
+        if result.get("status") == "paused-budget":
+            return 2
         return 0
     except ControllerError as exc:
         print(str(exc), file=sys.stderr)

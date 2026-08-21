@@ -76,6 +76,8 @@ cannot starve the queue, and persists per-PR state under
 PRs receive a read-only review and never enter a fix worktree. PRs from
 untrusted source repositories are blocked before code execution. Legacy
 list-shaped PR state is migrated to the durable keyed format at startup.
+The controller exits with a distinct non-zero status for `paused-budget`, so
+Hermes records an incomplete scheduled run rather than reporting `ok`.
 
 All discovery, fix-cycle, and dependency-review agent calls pass the explicit
 OpenRouter model `deepseek/deepseek-v4-flash-0731`; they do not inherit Hermes'
