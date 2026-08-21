@@ -48,6 +48,7 @@ describe('ContinueAdapter', () => {
 
     vi.clearAllMocks();
     vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.json');
+    vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
   });
 
   describe('detect', () => {
@@ -83,6 +84,13 @@ describe('ContinueAdapter', () => {
   });
 
   describe('buildPlan', () => {
+    it('rejects unsafe endpoint URLs', async () => {
+      await expect(adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)'
+      })).rejects.toThrow('endpoint URL is invalid');
+    });
+
     it('should create config-file steps that set the Continue apiBase', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
@@ -98,10 +106,22 @@ describe('ContinueAdapter', () => {
       expect(editStep).toBeDefined();
       expect(editStep?.newValue).toBe(mockProfile.baseUrl);
       expect(editStep?.data.baseUrl).toBe(mockProfile.baseUrl);
+      expect(editStep?.data.format).toBe('jsonc');
 
       const verifyStep = plan.steps.find(step => step.action === 'verify-endpoint');
       expect(verifyStep).toBeDefined();
       expect(verifyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
+    });
+
+    it('does not require a backup before creating a missing config file', async () => {
+      vi.mocked(fsSafe.fileExists).mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.map((step) => step.action)).toEqual([
+        'edit-config-file',
+        'verify-endpoint'
+      ]);
     });
   });
 
@@ -123,7 +143,8 @@ describe('ContinueAdapter', () => {
             title: 'AIdome Gateway',
             provider: 'openai',
             model: 'gpt-4o-mini',
-            apiBase: 'https://aidome.example.com/v1'
+            apiBase: 'https://aidome.example.com/v1',
+            apiKey: 'do-not-return'
           }
         ]
       }));
@@ -134,16 +155,44 @@ describe('ContinueAdapter', () => {
       expect(result.message).toContain('verified');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
       expect(result.details?.models).toHaveLength(1);
+      expect(result.details?.models).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ apiKey: 'do-not-return' })
+      ]));
     });
 
-    it('should fail when the Continue config is invalid JSON', async () => {
+    it('should accept Continue JSONC comments', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`{
+        // Continue's legacy loader accepts JSONC comments.
+        "models": [{
+          "title": "AIdome Gateway",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "apiBase": "https://aidome.example.com/v1"
+        }]
+      }`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should fail when the Continue config is invalid JSONC', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{not-valid-json');
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('not valid JSON');
+      expect(result.message).toContain('not valid JSON/JSONC');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
+    });
+
+    it('should fail when the Continue config root is not an object', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('[]');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('must be a JSON object');
     });
 
     it('should fail when the Continue config omits the models array', async () => {
@@ -152,7 +201,7 @@ describe('ContinueAdapter', () => {
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('apiBase');
+      expect(result.message).toContain('valid models array');
       expect(result.details?.models).toEqual([]);
     });
 
@@ -172,6 +221,38 @@ describe('ContinueAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('apiBase');
       expect(result.details?.models).toHaveLength(1);
+    });
+
+    it('should fail when a model is missing Continue validation fields', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        models: [
+          { title: 'Invalid model' },
+          { provider: 'openai', model: 'gpt-4o-mini', apiBase: mockProfile.baseUrl }
+        ]
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('invalid model definition');
+    });
+
+    it('should not pass when only a non-OpenAI model has apiBase', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        models: [
+          {
+            title: 'Anthropic model',
+            provider: 'anthropic',
+            model: 'claude-sonnet',
+            apiBase: 'https://anthropic.example.com/v1'
+          }
+        ]
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('OpenAI model');
     });
 
     it('should fail gracefully when reading the Continue config throws', async () => {
