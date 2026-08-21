@@ -301,6 +301,88 @@ describe('Kilo Config Patcher', () => {
       const parsed = JSON.parse(result);
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe('https://gateway.example.com/v1');
     });
+
+    it('replaces non-record existing provider options with a fresh options object', () => {
+      const existing = JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: 'not-an-object',
+            models: { 'existing-model': { name: 'Existing model' } }
+          }
+        }
+      });
+
+      const result = buildKiloConfigContent(
+        'https://gateway.example.com/v1',
+        existing,
+        undefined,
+        buildModelEntries(['discovered-model'])
+      );
+      const provider = JSON.parse(result).provider['aidome-gateway'];
+
+      expect(provider.options).toEqual({ baseURL: 'https://gateway.example.com/v1' });
+      expect(provider.models['existing-model']).toEqual({ name: 'Existing model' });
+      expect(provider.models['discovered-model']).toEqual({ name: 'discovered-model' });
+    });
+
+    it('merges a discovered model over an existing duplicate and drops non-record existing model entries', () => {
+      const existing = JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: { baseURL: 'https://old-gateway.example.com/v1' },
+            models: {
+              'shared-model': { name: 'Manual shared model', reasoning: true },
+              'bad-model': 'not-an-object',
+              'null-model': null
+            }
+          }
+        }
+      });
+
+      const result = buildKiloConfigContent(
+        'https://new-gateway.example.com/v1',
+        existing,
+        undefined,
+        buildModelEntries(['shared-model', 'fresh-model'])
+      );
+      const provider = JSON.parse(result).provider['aidome-gateway'];
+
+      // Discovered entries are merged but an existing duplicate's richer metadata wins.
+      expect(provider.models['shared-model']).toEqual({ name: 'Manual shared model', reasoning: true });
+      expect(provider.models['fresh-model']).toEqual({ name: 'fresh-model' });
+      expect(provider.models['bad-model']).toBeUndefined();
+      expect(provider.models['null-model']).toBeUndefined();
+    });
+
+    it('adds discovered models when an existing provider has no models section', () => {
+      const existing = JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            options: { baseURL: 'https://old-gateway.example.com/v1' }
+          }
+        }
+      });
+
+      const result = buildKiloConfigContent(
+        'https://new-gateway.example.com/v1',
+        existing,
+        undefined,
+        buildModelEntries(['fresh-model'])
+      );
+      const provider = JSON.parse(result).provider['aidome-gateway'];
+
+      expect(provider.models).toEqual({ 'fresh-model': { name: 'fresh-model' } });
+      expect(provider.options.baseURL).toBe('https://new-gateway.example.com/v1');
+    });
+  });
+
+  describe('buildModelEntries', () => {
+    it('skips blank slugs and trims whitespace around model ids', () => {
+      expect(buildModelEntries(['gpt-4', '   ', ' llama-3 ', ''])).toEqual({
+        'gpt-4': { name: 'gpt-4' },
+        'llama-3': { name: 'llama-3' }
+      });
+    });
   });
 
   describe('patchKiloConfig', () => {
@@ -380,6 +462,26 @@ describe('Kilo Config Patcher', () => {
       await expect(discoverModels('https://gateway.example.com/v1', 'secret-token')).resolves.toEqual([]);
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
+
+    it('drops entries whose id is blank after trimming and avoids duplicate trailing slashes on the base URL', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'keep-me' },
+            { id: '   ' },
+            { id: '' }
+          ]
+        })
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(discoverModels('https://gateway.example.com/v1/', 'token')).resolves.toEqual(['keep-me']);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://gateway.example.com/v1/models',
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
   });
 
   describe('inspectKiloConfigContent', () => {
@@ -415,6 +517,46 @@ describe('Kilo Config Patcher', () => {
         hasProvider: false,
         modelCount: 0,
         hasAuthReference: false
+      });
+    });
+
+    it('treats a non-record provider.models and non-record model values as zero selectable models', () => {
+      expect(inspectKiloConfigContent(JSON.stringify({
+        provider: { 'aidome-gateway': { options: { baseURL: 'https://gateway.example.com/v1' } } }
+      }))).toMatchObject({
+        hasProvider: true,
+        baseUrl: 'https://gateway.example.com/v1',
+        modelCount: 0,
+        hasAuthReference: false
+      });
+
+      // models present but entries are non-record (e.g. scalar) -> filtered to zero.
+      expect(inspectKiloConfigContent(JSON.stringify({
+        provider: { 'aidome-gateway': { options: { baseURL: 'https://gateway.example.com/v1' }, models: { 'a': 1, 'b': 'text', 'c': null } } }
+      }))).toMatchObject({ hasProvider: true, baseUrl: 'https://gateway.example.com/v1', modelCount: 0 });
+    });
+
+    it('reports a missing/non-string baseURL and absent auth reference instead of a usable config', () => {
+      const result = inspectKiloConfigContent(JSON.stringify({
+        provider: { 'aidome-gateway': { options: { apiKey: '   ' }, env: [''], models: { 'm': { name: 'M' } } } }
+      }));
+      expect(result).toEqual({
+        hasProvider: true,
+        baseUrl: undefined,
+        modelCount: 1,
+        hasAuthReference: false
+      });
+    });
+
+    it('treats a non-record provider.options as absent configuration but still counts models', () => {
+      const result = inspectKiloConfigContent(JSON.stringify({
+        provider: { 'aidome-gateway': { options: 'not-an-object', env: ['OPENAI_API_KEY'], models: { 'm': { name: 'M' } } } }
+      }));
+      expect(result).toEqual({
+        hasProvider: true,
+        baseUrl: undefined,
+        modelCount: 1,
+        hasAuthReference: true
       });
     });
   });
