@@ -374,7 +374,7 @@ This document tracks everything completed to date and everything remaining befor
 | Cline | Yes | Done (Tier A) | VS Code settings apiUrl |
 | Roo Code | Yes | Done (Tier A) | VS Code settings openAiBaseUrl |
 | Kilo Code | Yes | Done (Tier A) | VS Code settings openaiBaseUrl |
-| OpenAI Codex CLI | Yes | Done (Tier A) | TOML config providers.NAME.base_url |
+| OpenAI Codex CLI | Yes | Done (Tier A) | TOML config model_providers.NAME.base_url |
 | CodeGPT | Yes | Done (Tier B) | VS Code settings with guided fallback |
 | AnythingLLM | Yes | Done (Tier B) | Guided Generic OpenAI provider setup |
 | Gemini CLI | No | Done (Tier C) | No base URL override — info only |
