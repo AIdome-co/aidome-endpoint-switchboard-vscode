@@ -117,6 +117,25 @@ describe('GeminiCliAdapter', () => {
       const guidedStep = plan.steps[0];
       expect(guidedStep.data.baseUrl).toBe(mockProfile.baseUrl);
     });
+
+    it('should reject a base URL using a dangerous or unsupported scheme', async () => {
+      const unsafeSchemes = [
+        'javascript:alert(1)',
+        'data:text/plain;base64,SGVsbG8=',
+        'file:///etc/passwd',
+        'ftp://example.com'
+      ];
+
+      for (const url of unsafeSchemes) {
+        const unsafeProfile = { ...mockProfile, baseUrl: url };
+        await expect(adapter.buildPlan(unsafeProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+      }
+    });
+
+    it('should reject a plain http endpoint that is not localhost', async () => {
+      const httpProfile = { ...mockProfile, baseUrl: 'http://gateway.example.com/v1' };
+      await expect(adapter.buildPlan(httpProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
   });
 
   describe('verify', () => {
