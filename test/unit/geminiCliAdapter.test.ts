@@ -176,6 +176,33 @@ describe('GeminiCliAdapter', () => {
       expect(JSON.stringify(result.details)).not.toContain('gateway.example.com');
     });
 
+    it('should verify a Vertex AI gateway environment variable without exposing its value', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_VERTEX_BASE_URL'] = 'https://vertex.example.com/v1';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('environment-variable-configured');
+      expect(result.details?.configuredEnvironmentVariables).toEqual(['GOOGLE_VERTEX_BASE_URL']);
+      expect(JSON.stringify(result.details)).not.toContain('vertex.example.com');
+    });
+
+    it('should report both supported environment variables when both are configured', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_GEMINI_BASE_URL'] = 'https://gemini.example.com/v1beta';
+      process.env['GOOGLE_VERTEX_BASE_URL'] = 'https://vertex.example.com/v1';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('environment-variable-configured');
+      expect(result.details?.configuredEnvironmentVariables).toEqual([
+        'GOOGLE_GEMINI_BASE_URL',
+        'GOOGLE_VERTEX_BASE_URL'
+      ]);
+    });
+
     it('should handle errors gracefully', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockRejectedValue(new Error('Test error'));
 
