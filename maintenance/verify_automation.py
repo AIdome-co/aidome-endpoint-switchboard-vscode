@@ -62,6 +62,19 @@ def main() -> int:
     add("maintenance-prompt", (repo / "maintenance/agent-prompt.md").is_file(), "agent prompt exists")
     add("maintenance-documentation", (repo / "docs/maintenance-automation.md").is_file(), "runbook exists")
     add("deterministic-controller", (repo / "maintenance/convergence_controller.py").is_file(), "convergence controller exists")
+    controller_text = (repo / "maintenance/convergence_controller.py").read_text(encoding="utf-8")
+    add(
+        "pr-priority-over-discovery",
+        "_converge_inventory" in controller_text and "decide_discovery" in controller_text,
+        "existing PRs converge before repository-wide discovery",
+    )
+    add(
+        "discovery-budget-gating",
+        "DISCOVERY_AGENT_TIMEOUT" in controller_text
+        and "discovery-deferred" in controller_text
+        and "unfinished_pr_work" in controller_text,
+        "discovery is budgeted independently and deferred safely",
+    )
     add("deterministic-pr-gate", (repo / "maintenance/review_pr.py").is_file(), "PR gate script exists")
     add("pr-scope-policy", (repo / "maintenance/pr_scope.py").is_file(), "open PR scope policy exists")
     add("sync-dry-run", command_ok("python3", str(repo / "maintenance/sync_provider_refs.py"), "--dry-run", "--pub-refs", str(pub_refs)), "read-only synchronizer validation")

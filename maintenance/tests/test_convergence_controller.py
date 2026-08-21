@@ -12,6 +12,7 @@ from maintenance.convergence_controller import (
     ConvergenceController,
     ControllerError,
     RunBudgetExceeded,
+    exit_code_for_run_status,
     load_state,
     trusted_head_repository,
 )
@@ -98,11 +99,11 @@ class ConvergenceControllerTests(unittest.TestCase):
             def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
                 return {"ok": True}
 
-            def run_discovery(self) -> dict[str, Any]:
-                raise RunBudgetExceeded("simulated scheduler budget exhaustion")
-
             def pr_inventory(self) -> list[dict[str, Any]]:
                 return [pr()]
+
+            def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
+                raise RunBudgetExceeded("simulated scheduler budget exhaustion")
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -332,8 +333,12 @@ class ConvergenceControllerTests(unittest.TestCase):
         self.assertIn("provider correlation", missing)
         self.assertNotIn("tests coverage", missing)
 
-    def test_run_continues_after_one_pr_fails(self) -> None:
+    def test_run_continues_after_one_pr_fails_and_defers_discovery(self) -> None:
         class RunController(ConvergenceController):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.discovery_calls = 0
+
             def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
                 return {"ok": True}
 
@@ -341,6 +346,7 @@ class ConvergenceControllerTests(unittest.TestCase):
                 return [pr(1), pr(2)]
 
             def run_discovery(self) -> dict[str, Any]:
+                self.discovery_calls += 1
                 return {"status": "completed", "changed": False}
 
             def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -357,14 +363,20 @@ class ConvergenceControllerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            controller = RunController(root=root, pub_refs=root / "pub", state_path=root / "state.json")
+            state_path = root / "state.json"
+            controller = RunController(root=root, pub_refs=root / "pub", state_path=state_path)
 
             result = controller.run()
 
-            self.assertEqual(result["status"], "completed-with-alert")
+            self.assertEqual(result["status"], "discovery-deferred")
             self.assertEqual([item["number"] for item in result["results"]], [1, 2])
             self.assertEqual(controller.state["prs"]["1"]["status"], "failed")
             self.assertEqual(controller.state["prs"]["2"]["status"], "eligible100")
+            # Unfinished PR work defers discovery instead of letting it starve the PR.
+            self.assertEqual(controller.discovery_calls, 0)
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["lastRun"]["discovery"]["status"], "discovery-deferred")
+            self.assertEqual(persisted["runs"][-1]["discovery"]["reason"], "unfinished-pr-work-waiting")
 
     def test_reconcile_only_refreshes_head_without_agent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -376,6 +388,171 @@ class ConvergenceControllerTests(unittest.TestCase):
             self.assertEqual(result["status"], "reconciled")
             self.assertEqual(controller.state["prs"]["123"]["lastHead"], "a" * 40)
             self.assertEqual(controller.agent_calls, 0)
+
+class DiscoveryPriorityTests(unittest.TestCase):
+    def test_existing_pr_converges_before_discovery(self) -> None:
+        class OrderedController(ConvergenceController):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.order: list[str] = []
+
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                self.order.append("sync")
+                return {"ok": True}
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                self.order.append("inventory")
+                return [pr()]
+
+            def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
+                self.order.append(f"process:{item['number']}")
+                self.record_pr(item, status="eligible100")
+                return {"number": item["number"], "status": "eligible100"}
+
+            def run_discovery(self) -> dict[str, Any]:
+                self.order.append("discovery")
+                return {"status": "completed", "changed": False}
+
+            def current_pr(self, number: int) -> dict[str, Any]:
+                return pr(number)
+
+            def notify_once(self, kind: str, current: dict[str, Any], head: str, message: str, detail: str) -> dict[str, Any]:
+                return {"sent": True, "key": kind}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            controller = OrderedController(root=root, pub_refs=root / "pub", state_path=state_path)
+
+            result = controller.run()
+
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(controller.order, ["sync", "inventory", "process:123", "discovery"])
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["lastDiscoveryLocalDate"], controller.local_date())
+
+    def test_discovery_skipped_when_budget_insufficient(self) -> None:
+        class LowBudgetController(ConvergenceController):
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                return {"ok": True}
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                return [pr()]
+
+            def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
+                self.record_pr(item, status="eligible100")
+                return {"number": item["number"], "status": "eligible100"}
+
+            def run_discovery(self) -> dict[str, Any]:
+                raise AssertionError("discovery must not run when the budget is insufficient")
+
+            def current_pr(self, number: int) -> dict[str, Any]:
+                return pr(number)
+
+            def notify_once(self, kind: str, current: dict[str, Any], head: str, message: str, detail: str) -> dict[str, Any]:
+                return {"sent": True, "key": kind}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            controller = LowBudgetController(
+                root=root,
+                pub_refs=root / "pub",
+                state_path=state_path,
+                discovery_min_budget_seconds=10_000_000,
+            )
+
+            result = controller.run()
+
+            self.assertEqual(result["status"], "discovery-deferred")
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["lastRun"]["discovery"]["status"], "discovery-deferred")
+            self.assertEqual(persisted["runs"][-1]["discovery"]["reason"], "insufficient-budget")
+
+    def test_discovery_cannot_starve_an_existing_pr(self) -> None:
+        class BlockedPrController(ConvergenceController):
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                return {"ok": True}
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                return [pr()]
+
+            def process_pr(self, item: dict[str, Any]) -> dict[str, Any]:
+                return {"number": item["number"], "status": "blocked"}
+
+            def run_discovery(self) -> dict[str, Any]:
+                raise AssertionError("discovery must not run when unfinished PR work is waiting")
+
+            def current_pr(self, number: int) -> dict[str, Any]:
+                return pr(number)
+
+            def notify_once(self, kind: str, current: dict[str, Any], head: str, message: str, detail: str) -> dict[str, Any]:
+                return {"sent": True, "key": kind}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            controller = BlockedPrController(root=root, pub_refs=root / "pub", state_path=state_path)
+
+            result = controller.run()
+
+            self.assertEqual(result["status"], "discovery-deferred")
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["lastRun"]["discovery"]["status"], "discovery-deferred")
+            self.assertEqual(persisted["runs"][-1]["discovery"]["reason"], "unfinished-pr-work-waiting")
+
+    def test_paused_and_deferred_runs_return_nonzero_exit_codes(self) -> None:
+        self.assertEqual(exit_code_for_run_status("completed"), 0)
+        self.assertEqual(exit_code_for_run_status("completed-with-alert"), 0)
+        self.assertEqual(exit_code_for_run_status("paused-budget"), 2)
+        self.assertEqual(exit_code_for_run_status("discovery-deferred"), 3)
+
+    def test_discovery_pins_the_configured_model(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            calls.append(command)
+            text = " ".join(command)
+            if command and Path(command[0]).name == "hermes":
+                return CommandResult(0, "")
+            if "status --porcelain" in text:
+                return CommandResult(0, "")
+            if "symbolic-ref" in text:
+                return CommandResult(1, "")
+            if "rev-parse" in text:
+                return CommandResult(0, "abc123")
+            return CommandResult(0, "")
+
+        class DiscoveryRunnerController(ConvergenceController):
+            def prepare_discovery_worktree(self) -> Path:
+                worktree = self.pub_refs / "discovery-wt"
+                worktree.mkdir(parents=True, exist_ok=True)
+                return worktree
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = DiscoveryRunnerController(
+                root=root,
+                pub_refs=root / "pub",
+                hermes_model="deepseek/deepseek-v4-flash-0731",
+                runner=runner,
+            )
+            controller.run_discovery()
+
+        hermes_calls = [call for call in calls if call and Path(call[0]).name == "hermes"]
+        self.assertEqual(len(hermes_calls), 1)
+        self.assertEqual(
+            hermes_calls[0][0:6],
+            (
+                "/home/aidome-dev/.local/bin/hermes",
+                "-m",
+                "deepseek/deepseek-v4-flash-0731",
+                "--accept-hooks",
+                "-z",
+                hermes_calls[0][5],
+            ),
+        )
+
 
 class MaintenanceModelTests(unittest.TestCase):
     def test_agent_calls_pin_the_configured_model(self) -> None:

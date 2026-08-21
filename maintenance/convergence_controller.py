@@ -47,6 +47,12 @@ NOTIFICATION_RETRIES = 3
 CHECK_WAIT_SECONDS = 300
 CHECK_POLL_SECONDS = 15
 MIN_COMMAND_RESERVE_SECONDS = 10
+# Discovery gets its own bounded session timeout so it can never consume the
+# whole run budget. We additionally reserve headroom for at least one PR
+# convergence cycle so repository-wide discovery cannot starve existing PRs.
+DISCOVERY_AGENT_TIMEOUT = 300
+DISCOVERY_BUDGET_RESERVE_SECONDS = 300
+UNFINISHED_STATUSES: frozenset[str] = frozenset({"blocked", "blocked-untrusted-source", "failed"})
 VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("npm", "run", "lint"),
     ("npm", "run", "compile"),
@@ -298,14 +304,17 @@ def discovery_prompt(worktree: Path, pub_refs: Path) -> str:
         test or documentation gaps. Prefer evidence-backed findings over speculative cleanup. Synchronize
         the matching official provider reference before acting on a provider-related finding.
 
-        Search existing branches, issues, and PRs before creating anything. For each safe, deduplicated
-        finding, create or reuse one GitHub issue before changing code. The issue must contain the observed
-        behavior, reproduction/evidence, affected provider or files, proposed acceptance criteria, and the
-        relevant provider-reference commit when applicable. Then make the smallest fix, add a regression
-        test, update docs/changelog when required, run the applicable checks, and create or update one
-        focused maintenance/switchboard-* PR linked to that issue with `Fixes #<issue>`. Use a draft when
-        confidence is low or checks do not pass. Never modify an unrelated branch, never merge, and never
-        send Telegram. If there is no concrete finding, make no code changes.
+        Search existing branches, issues, and PRs before creating anything. Limit this
+        discovery session to at most ONE new GitHub issue and at most ONE new PR. For a safe,
+        deduplicated finding, create or reuse one GitHub issue before changing any code. The
+        issue must contain the observed behavior, reproduction/evidence, affected provider or
+        files, proposed acceptance criteria, and the relevant provider-reference commit when
+        applicable. Then make the smallest fix, add a regression test, update docs/changelog
+        when required, run the applicable checks, and create or update one focused
+        maintenance/switchboard-* PR linked to that issue; the PR body MUST include
+        `Fixes #<issue-number>`. Use a draft when confidence is low or checks do not pass.
+        Never modify an unrelated branch, never merge, and never send Telegram. If there is no
+        concrete finding, make no code changes.
 
         Commit and push any focused change. Finish with a concise summary of findings, branch/PR URLs,
         tests, and blockers; the controller will verify the worktree and rediscover PRs afterward.
@@ -330,6 +339,7 @@ class ConvergenceController:
         dry_run: bool = False,
         check_wait_seconds: int = CHECK_WAIT_SECONDS,
         run_budget_seconds: int = CONTROLLER_RUN_BUDGET_SECONDS,
+        discovery_min_budget_seconds: int | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.repository = repository
@@ -345,6 +355,7 @@ class ConvergenceController:
         if run_budget_seconds <= MIN_COMMAND_RESERVE_SECONDS:
             raise ValueError("run_budget_seconds must leave room for checkpointing")
         self.run_budget_seconds = run_budget_seconds
+        self.discovery_min_budget_seconds = discovery_min_budget_seconds
         self.sleep_fn = sleep_fn
         self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
@@ -371,6 +382,61 @@ class ConvergenceController:
 
     def discovery_due(self) -> bool:
         return self.state.get("lastDiscoveryLocalDate") != self.local_date()
+
+    def discovery_min_budget(self) -> int:
+        """Minimum remaining budget required to run discovery.
+
+        Discovery has its own bounded session timeout plus a safety cushion that
+        reserves headroom for at least one PR convergence cycle, so repository-wide
+        discovery can never starve an existing PR.
+        """
+        if self.discovery_min_budget_seconds is not None:
+            return self.discovery_min_budget_seconds
+        return DISCOVERY_AGENT_TIMEOUT + DISCOVERY_BUDGET_RESERVE_SECONDS + MIN_COMMAND_RESERVE_SECONDS
+
+    def discovery_affordable(self) -> bool:
+        """True only when the remaining run budget exceeds the safe discovery threshold."""
+        remaining = self.budget_remaining()
+        if remaining is None:
+            return True
+        return remaining > self.discovery_min_budget()
+
+    def unfinished_pr_work(self, results: list[dict[str, Any]]) -> bool:
+        """True when any in-scope PR still needs convergence work on a future run."""
+        return any(
+            isinstance(item, dict) and item.get("status") in UNFINISHED_STATUSES
+            for item in results
+        )
+
+    def decide_discovery(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Decide discovery only AFTER existing PRs were converged.
+
+        Discovery is deferred (never treated as a successful completion) when the
+        discovery has already run today, when unfinished PR work is waiting, or when
+        the remaining budget cannot safely fit discovery plus a command reserve.
+        """
+        if self.dry_run:
+            return {"status": "planned"}
+        if not self.discovery_due():
+            return {"status": "skipped-already-completed-today", "localDate": self.local_date()}
+        if self.unfinished_pr_work(results):
+            return {
+                "status": "discovery-deferred",
+                "reason": "unfinished-pr-work-waiting",
+            }
+        if not self.discovery_affordable():
+            remaining = self.budget_remaining() or 0
+            return {
+                "status": "discovery-deferred",
+                "reason": "insufficient-budget",
+                "budgetRemainingSeconds": int(remaining),
+                "requiredSeconds": self.discovery_min_budget(),
+            }
+        discovery = self.run_discovery()
+        if discovery.get("status") == "completed":
+            self.state["lastDiscoveryLocalDate"] = self.local_date()
+            save_state(self.state_path, self.state)
+        return discovery
 
     def recover_interrupted_runs(self) -> None:
         changed = False
@@ -600,7 +666,7 @@ class ConvergenceController:
             "-z",
             discovery_prompt(worktree, self.pub_refs),
             cwd=worktree,
-            timeout=AGENT_TIMEOUT,
+            timeout=DISCOVERY_AGENT_TIMEOUT,
         )
         if result.returncode:
             raise ControllerError(f"daily discovery failed: {short_output(result.output)}")
@@ -965,6 +1031,58 @@ class ConvergenceController:
         )
         return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
 
+    def _run_status(self, results: list[dict[str, Any]], discovery: dict[str, Any]) -> str:
+        """Classify the run, giving a deferred discovery priority over completion.
+
+        A deferred discovery is never a successful completion: it must be surfaced
+        as its own status so Hermes reports the run as incomplete rather than `ok`.
+        """
+        if discovery.get("status") == "discovery-deferred":
+            return "discovery-deferred"
+        if any(
+            isinstance(item, dict) and item.get("status") in {"blocked", "blocked-untrusted-source", "failed"}
+            for item in results
+        ):
+            return "completed-with-alert"
+        return "completed"
+
+    def _converge_inventory(self, inventory: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
+        """Converge existing in-scope PRs, one bounded cycle at a time.
+
+        Existing maintenance/fix PRs always run before repository-wide discovery;
+        a slow or failing PR is preserved in ``results`` so a paused budget still
+        persists partial progress.
+        """
+        for pr in self.rotate_inventory(inventory):
+            self.ensure_budget(f"processing PR #{pr['number']}")
+            try:
+                results.append(self.process_pr(pr))
+                self.record_cursor(int(pr["number"]))
+            except RunBudgetExceeded:
+                raise
+            except ControllerError as exc:
+                detail = str(exc)
+                current = pr
+                try:
+                    current = self.current_pr(int(pr["number"]))
+                except ControllerError:
+                    pass
+                notification: dict[str, Any] | None = None
+                try:
+                    notification = self.notify_once(
+                        "pr-failure",
+                        current,
+                        str(current.get("headRefOid", pr.get("headRefOid", "unknown"))),
+                        f"Switchboard maintenance PR #{pr['number']} failed and requires attention.\n"
+                        f"{current.get('url', pr.get('url', ''))}\n{detail}",
+                        detail,
+                    )
+                except ControllerError as notification_error:
+                    detail = f"{detail}; notification failed: {notification_error}"
+                self.record_pr(current, status="failed", blocker=detail, notification=notification)
+                results.append({"number": int(pr["number"]), "status": "failed", "error": detail})
+                self.record_cursor(int(pr["number"]))
+
     def run(
         self,
         *,
@@ -980,63 +1098,33 @@ class ConvergenceController:
         if not self.dry_run:
             save_state(self.state_path, self.state)
         results: list[dict[str, Any]] = []
+        discovery: dict[str, Any] | None = None
         try:
             provider_sync = self.sync_provider_refs(weekly)
-            if self.dry_run:
-                discovery = {"status": "planned"}
-            elif only_pr is not None or reconcile_only:
-                discovery = {"status": "skipped-controlled-mode"}
-            elif not self.discovery_due():
-                discovery = {"status": "skipped-already-completed-today", "localDate": self.local_date()}
-            else:
-                discovery = self.run_discovery()
-                if discovery.get("status") == "completed":
-                    self.state["lastDiscoveryLocalDate"] = self.local_date()
-                    save_state(self.state_path, self.state)
             inventory = self.pr_inventory()
             if only_pr is not None:
                 inventory = [pr for pr in inventory if int(pr["number"]) == only_pr]
                 if not inventory:
                     raise ControllerError(f"PR #{only_pr} was not returned by the in-scope PR inventory")
             if self.dry_run:
-                results = [{"number": int(pr["number"]), "status": "planned", "mode": pr.get("mode")} for pr in inventory]
+                discovery = {"status": "planned"}
+                results = [
+                    {"number": int(pr["number"]), "status": "planned", "mode": pr.get("mode")} for pr in inventory
+                ]
             elif reconcile_only:
+                discovery = {"status": "skipped-controlled-mode"}
                 results = [self.reconcile_pr(pr) for pr in inventory]
+            elif only_pr is not None:
+                # Controlled single-PR run: converge it, never run discovery.
+                discovery = {"status": "skipped-controlled-mode"}
+                self._converge_inventory(inventory, results)
             else:
-                for pr in self.rotate_inventory(inventory):
-                    self.ensure_budget(f"processing PR #{pr['number']}")
-                    try:
-                        results.append(self.process_pr(pr))
-                        self.record_cursor(int(pr["number"]))
-                    except RunBudgetExceeded:
-                        raise
-                    except ControllerError as exc:
-                        detail = str(exc)
-                        current = pr
-                        try:
-                            current = self.current_pr(int(pr["number"]))
-                        except ControllerError:
-                            pass
-                        notification: dict[str, Any] | None = None
-                        try:
-                            notification = self.notify_once(
-                                "pr-failure",
-                                current,
-                                str(current.get("headRefOid", pr.get("headRefOid", "unknown"))),
-                                f"Switchboard maintenance PR #{pr['number']} failed and requires attention.\n"
-                                f"{current.get('url', pr.get('url', ''))}\n{detail}",
-                                detail,
-                            )
-                        except ControllerError as notification_error:
-                            detail = f"{detail}; notification failed: {notification_error}"
-                        self.record_pr(current, status="failed", blocker=detail, notification=notification)
-                        results.append({"number": int(pr["number"]), "status": "failed", "error": detail})
-                        self.record_cursor(int(pr["number"]))
+                # Normal scheduled run: converge existing PRs BEFORE discovery.
+                self._converge_inventory(inventory, results)
+                discovery = self.decide_discovery(results)
             run_record.update(
                 {
-                    "status": "completed-with-alert"
-                    if any(item.get("status") in {"blocked", "blocked-untrusted-source", "failed"} for item in results)
-                    else "completed",
+                    "status": self._run_status(results, discovery),
                     "finishedAt": utc_now(),
                     "providerSync": {"ok": bool(provider_sync.get("ok", False)), "weekly": weekly},
                     "discovery": discovery,
@@ -1084,6 +1172,7 @@ class ConvergenceController:
                 "weekly": run_record.get("weekly", False),
                 "resumesOnNextRun": run_record.get("resumesOnNextRun", False),
                 "error": run_record.get("error"),
+                "discovery": {"status": discovery.get("status")} if discovery is not None else None,
                 "results": [
                     {"number": item.get("number"), "status": item.get("status")}
                     for item in results
@@ -1116,6 +1205,20 @@ class MaintenanceLock:
         if self.handle is not None:
             fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
             self.handle.close()
+
+
+def exit_code_for_run_status(status: str) -> int:
+    """Map a run status to a process exit code.
+
+    A successful run returns 0. Paused and deferred runs are durable but NOT
+    successful completions, so they return distinct non-zero codes that make the
+    Hermes scheduled job record an incomplete run instead of `ok`.
+    """
+    if status == "paused-budget":
+        return 2
+    if status == "discovery-deferred":
+        return 3
+    return 0
 
 
 def main() -> int:
@@ -1156,12 +1259,10 @@ def main() -> int:
             with MaintenanceLock(lock):
                 result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         print(json.dumps(result, indent=2))
-        # A paused run is durable and resumable, but it is not a successful
-        # maintenance completion. Return a distinct non-zero status so Hermes
-        # records the scheduled job as incomplete instead of `ok`.
-        if result.get("status") == "paused-budget":
-            return 2
-        return 0
+        # A paused or discovery-deferred run is durable and resumable, but it is
+        # not a successful maintenance completion. Return a distinct non-zero
+        # status so Hermes records the scheduled job as incomplete instead of `ok`.
+        return exit_code_for_run_status(result.get("status", ""))
     except ControllerError as exc:
         print(str(exc), file=sys.stderr)
         return 1

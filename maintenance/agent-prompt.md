@@ -97,6 +97,20 @@ report.
 
 ## Daily maintenance
 
+Existing in-scope PRs always converge before any new repository-wide discovery.
+Each run first synchronizes provider references, inventories all in-scope PRs,
+and processes (`maintenance/switchboard-*`, `fix/*`) or read-only reviews
+(`dependabot/*`) them. Discovery is budgeted independently: it runs only after
+that convergence step, only when no unfinished PR work is waiting, and only when
+the remaining run budget exceeds a safe threshold (discovery has its own bounded
+300-second session timeout plus a reserve for a PR convergence cycle). If
+discovery cannot run for budget or priority reasons, the controller records
+`discovery-deferred` and never reports it as a successful completion.
+
+Limit each discovery session to at most one new GitHub Issue and at most one new
+PR. Create or reuse the GitHub Issue before editing any code, and link the PR
+body with `Fixes #<issue-number>`.
+
 Before using relative paths, confirm the shell is in
 `/home/aidome-dev/pub-refs/switchboard-worktree`. If it is not, use absolute
 paths or explicitly change into that directory. Never read or modify the user

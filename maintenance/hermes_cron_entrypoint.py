@@ -46,6 +46,12 @@ def main() -> int:
         return 124
     if result.returncode == 2:
         print("Switchboard maintenance paused before completion; it will resume on the next scheduled run", file=sys.stderr)
+    elif result.returncode == 3:
+        print(
+            "Switchboard maintenance deferred discovery (existing PR work or budget priority); "
+            "the run resumed on the next scheduled run is reported as incomplete",
+            file=sys.stderr,
+        )
     elif result.returncode:
         # The controller owns detailed, deduplicated Telegram alerts. Keep the
         # Hermes script failure concise and avoid duplicating or leaking output.
