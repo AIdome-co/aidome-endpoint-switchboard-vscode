@@ -371,6 +371,7 @@ class ConvergenceController:
         self.discovery_min_budget_seconds = discovery_min_budget_seconds
         self.auto_un_draft = auto_un_draft
         self.sleep_fn = sleep_fn
+        self.bypass_budget = False
         self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         self.state = load_state(self.state_path, self.repository)
@@ -859,15 +860,14 @@ class ConvergenceController:
                 temporary_path = Path(message_file.name)
             result: CommandResult | None = None
             for _attempt in range(NOTIFICATION_RETRIES):
-                result = self.run_command(
-                    self.hermes,
-                    "send",
-                    "--to",
-                    TELEGRAM_TARGET,
-                    "--file",
-                    str(temporary_path),
-                    timeout=COMMAND_TIMEOUT,
-                )
+                command = (self.hermes, "send", "--to", TELEGRAM_TARGET, "--file", str(temporary_path))
+                # Notifications must stay reachable right after a budget pause, so
+                # the digest (and only it) can bypass the budget gate via a per-call
+                # flag. Other notifications keep the normal budget-guarded path.
+                if getattr(self, "bypass_budget", False):
+                    result = self.runner(*command, cwd=self.root, timeout=COMMAND_TIMEOUT)
+                else:
+                    result = self.run_command(*command, timeout=COMMAND_TIMEOUT)
                 if result.returncode == 0:
                     break
             if result is None or result.returncode:
@@ -921,7 +921,11 @@ class ConvergenceController:
         )
         synthetic = {"number": 0, "headRefOid": self.run_id, "url": f"https://github.com/{self.repository}/pulls"}
         try:
-            self.notify_once("digest", synthetic, self.run_id, message, "scheduled-run-digest")
+            self.bypass_budget = True
+            try:
+                self.notify_once("digest", synthetic, self.run_id, message, "scheduled-run-digest")
+            finally:
+                self.bypass_budget = False
         except ControllerError:
             # A digest is best-effort; a broken digest must never fail the run.
             pass
