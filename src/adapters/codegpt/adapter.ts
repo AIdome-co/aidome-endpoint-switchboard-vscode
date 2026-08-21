@@ -47,17 +47,18 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
 
       if (settingKeys.providerKey) {
         const oldValue = getSettingValue(settingKeys.providerKey);
+        const providerValue = this.resolveOpenAiCompatibleProviderValue(settingKeys.providerKey) ?? 'openai-compatible';
         plan = addStep(plan, {
           action: 'set-vscode-setting',
-          description: `Set ${settingKeys.providerKey} to custom provider`,
+          description: `Set ${settingKeys.providerKey} to ${providerValue}`,
           assistantKey: 'codegpt',
           targetPath: settingKeys.providerKey,
           oldValue: oldValue,
-          newValue: 'openai-compatible',
+          newValue: providerValue,
           requiresConfirmation: true,
           data: { 
             settingKey: settingKeys.providerKey, 
-            value: 'openai-compatible',
+            value: providerValue,
             oldValue: oldValue,
             note: 'May need to be set to "custom" or "openai-compatible" depending on CodeGPT version'
           },
@@ -139,12 +140,18 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
   }
 
   private supportsOpenAiCompatibleProviderValue(settingKey: string): boolean {
+    return this.resolveOpenAiCompatibleProviderValue(settingKey) !== undefined;
+  }
+
+  private resolveOpenAiCompatibleProviderValue(settingKey: string): string | undefined {
     const extension = vscode.extensions.getExtension(this.extensionId);
     const properties = extension?.packageJSON?.contributes?.configuration?.properties;
     const property = properties?.[settingKey] as { enum?: unknown[] } | undefined;
-    return Array.isArray(property?.enum) && property.enum.some((value) =>
-      value === 'openai-compatible' || value === 'custom' || value === 'openai'
-    );
+    if (!Array.isArray(property?.enum)) {
+      return undefined;
+    }
+    const supported = ['openai-compatible', 'custom', 'openai'];
+    return property.enum.find((value) => supported.includes(String(value))) as string | undefined;
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
