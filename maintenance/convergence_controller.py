@@ -712,10 +712,17 @@ class ConvergenceController:
     def validate(self, worktree: Path) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         for command in VALIDATION_COMMANDS:
-            result = self.run_command(*command, cwd=worktree, timeout=VALIDATION_TIMEOUT)
+            effective = command
+            # The Extension Development Host E2E suite (`test:e2e`) launches a real
+            # VS Code window, which requires a display server. On headless hosts
+            # (no DISPLAY), run it under a virtual framebuffer so the controller can
+            # actually verify a PR; otherwise it crashes with "Missing X server".
+            if command[:2] == ("npm", "run") and any("e2e" in part for part in command) and not os.environ.get("DISPLAY"):
+                effective = ("xvfb-run", "-a") + command
+            result = self.run_command(*effective, cwd=worktree, timeout=VALIDATION_TIMEOUT)
             results.append(
                 {
-                    "command": " ".join(command),
+                    "command": " ".join(effective),
                     "returncode": result.returncode,
                     "passed": result.returncode == 0,
                     "timedOut": result.timed_out,

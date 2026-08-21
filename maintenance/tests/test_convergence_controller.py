@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -12,6 +13,7 @@ from maintenance.convergence_controller import (
     ConvergenceController,
     ControllerError,
     RunBudgetExceeded,
+    VALIDATION_COMMANDS,
     exit_code_for_run_status,
     load_state,
     trusted_head_repository,
@@ -588,6 +590,54 @@ class DiscoveryPriorityTests(unittest.TestCase):
                 hermes_calls[0][5],
             ),
         )
+
+
+class ValidationCommandTests(unittest.TestCase):
+    def test_e2e_is_wrapped_in_xvfb_on_headless_host(self) -> None:
+        # On a headless host (no DISPLAY), the E2E validation step launches a real
+        # VS Code window and must run under a virtual framebuffer, otherwise it
+        # SIGSEGVs with "Missing X server" and the controller can never certify 100%.
+        seen: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            seen.append(command)
+            return CommandResult(0, "")
+
+        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner)
+        old_display = os.environ.get("DISPLAY")
+        os.environ.pop("DISPLAY", None)
+        try:
+            controller.validate(Path("/tmp/wt"))
+        finally:
+            if old_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = old_display
+
+        e2e = next(c for c in seen if "test:e2e" in " ".join(c))
+        self.assertTrue(e2e[:2] == ("xvfb-run", "-a"), f"expected xvfb wrapper, got {e2e}")
+
+    def test_e2e_does_not_xvfb_when_display_present(self) -> None:
+        seen: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            seen.append(command)
+            return CommandResult(0, "")
+
+        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner)
+        old_display = os.environ.get("DISPLAY")
+        os.environ["DISPLAY"] = ":99"
+        try:
+            controller.validate(Path("/tmp/wt"))
+        finally:
+            if old_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = old_display
+
+        e2e = next(c for c in seen if "test:e2e" in " ".join(c))
+        self.assertNotIn("xvfb-run", e2e, f"expected plain npm run test:e2e, got {e2e}")
+        self.assertEqual(e2e[-1], "test:e2e")
 
 
 class MaintenanceModelTests(unittest.TestCase):
