@@ -786,6 +786,47 @@ class AutoUnDraftTests(unittest.TestCase):
         self.assertTrue(gh_calls, f"gh pr ready SHOULD run when enabled for a CLEAN draft, got {executed}")
 
 
+class DigestTests(unittest.TestCase):
+    def test_digest_fires_on_budget_pause(self) -> None:
+        sent: list[tuple[str, str]] = []
+
+        class PausingController(ConvergenceController):
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                return {"ok": True}
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                return [pr(122), pr(123)]
+
+            def _converge_inventory(self, inventory: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
+                results.append({"number": 122, "status": "eligible100"})
+                # Exhaust the run budget so `run()` takes the paused-budget path.
+                raise RunBudgetExceeded("budget")
+
+            def _send_digest(self, results: list[dict[str, Any]], discovery: dict[str, Any] | None) -> None:
+                sent.append(("digest", str(results)))
+
+            def notify_once(self, kind, current, head, message, detail):
+                return {"sent": True}
+
+        class PausingNoBudget(PausingController):
+            def start_run_budget(self) -> None:
+                pass
+
+            def recover_interrupted_runs(self) -> None:
+                pass
+
+            def ensure_budget(self, label: str) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = PausingNoBudget(root=root, pub_refs=root / "pub", state_path=root / "state.json")
+            result = c.run()
+        self.assertEqual(result["status"], "paused-budget")
+        self.assertTrue(sent, "digest should fire on a paused-budget run")
+        self.assertEqual(len(sent), 1)
+
+
 class MaintenanceModelTests(unittest.TestCase):
     def test_agent_calls_pin_the_configured_model(self) -> None:
         calls: list[tuple[str, ...]] = []

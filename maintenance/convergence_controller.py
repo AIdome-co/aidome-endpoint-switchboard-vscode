@@ -1280,6 +1280,14 @@ class ConvergenceController:
                     "results": results,
                 }
             )
+            # The most common completion is a budget pause (durable resume), so the
+            # digest must fire here too, or the loop would stay silent between
+            # milestones. Best-effort; never fails the run.
+            if not self.dry_run:
+                try:
+                    self._send_digest(results, discovery)
+                except ControllerError:
+                    pass
         except Exception as exc:  # noqa: BLE001 - controller must persist and alert every failure.
             detail = str(exc)
             run_record.update({"status": "failed", "finishedAt": utc_now(), "error": detail})
