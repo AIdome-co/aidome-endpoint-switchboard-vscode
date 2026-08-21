@@ -10,3 +10,7 @@ CONTROLLER_RUN_BUDGET_SECONDS = 1500
 HERMES_SCRIPT_TIMEOUT_SECONDS = 1620
 HERMES_ENTRYPOINT_NAME = "switchboard-maintenance.py"
 HERMES_MAINTENANCE_MODEL = "deepseek/deepseek-v4-flash-0731"
+# Opt-in: allow the controller to mark a draft PR ready for review when it is
+# currently mergeable and non-conflicting. Never auto-merges. Off by default so
+# un-drafting remains a manual, explicit decision unless an operator enables it.
+AUTO_UN_DRAFT_PRS = False

@@ -29,9 +29,21 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 try:
-    from .schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, HERMES_MAINTENANCE_MODEL, TELEGRAM_TARGET, TIMEZONE_NAME
+    from .schedule_config import (
+        AUTO_UN_DRAFT_PRS,
+        CONTROLLER_RUN_BUDGET_SECONDS,
+        HERMES_MAINTENANCE_MODEL,
+        TELEGRAM_TARGET,
+        TIMEZONE_NAME,
+    )
 except ImportError:  # Script execution from the maintenance directory.
-    from schedule_config import CONTROLLER_RUN_BUDGET_SECONDS, HERMES_MAINTENANCE_MODEL, TELEGRAM_TARGET, TIMEZONE_NAME
+    from schedule_config import (
+        AUTO_UN_DRAFT_PRS,
+        CONTROLLER_RUN_BUDGET_SECONDS,
+        HERMES_MAINTENANCE_MODEL,
+        TELEGRAM_TARGET,
+        TIMEZONE_NAME,
+    )
 
 
 REPOSITORY = "AIdome-co/aidome-endpoint-switchboard-vscode"
@@ -340,6 +352,7 @@ class ConvergenceController:
         check_wait_seconds: int = CHECK_WAIT_SECONDS,
         run_budget_seconds: int = CONTROLLER_RUN_BUDGET_SECONDS,
         discovery_min_budget_seconds: int | None = None,
+        auto_un_draft: bool = AUTO_UN_DRAFT_PRS,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.repository = repository
@@ -356,6 +369,7 @@ class ConvergenceController:
             raise ValueError("run_budget_seconds must leave room for checkpointing")
         self.run_budget_seconds = run_budget_seconds
         self.discovery_min_budget_seconds = discovery_min_budget_seconds
+        self.auto_un_draft = auto_un_draft
         self.sleep_fn = sleep_fn
         self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
@@ -553,8 +567,27 @@ class ConvergenceController:
         latest: dict[str, Any] | None = None
         while True:
             latest = self.gate(number)
-            checks = latest.get("checks") or {}
-            if "allCompleted" not in checks or checks.get("allCompleted"):
+            # A gate with no checks field has nothing to wait on -> resolve it
+            # immediately (legacy/never-created check sets are treated as complete).
+            checks = latest.get("checks")
+            if checks is None:
+                return latest
+            # GitHub recomputes mergeability asynchronously; a transient UNKNOWN
+            # state indicates the merge/check result is not settled yet. Back off
+            # and retry rather than treating it as a hard blocker, and also retry
+            # on secondary/first-party rate-limit signals so we do not mis-flag a
+            # healthy PR as failed under API throttling.
+            if self._is_transient_gate(latest):
+                if time.monotonic() >= deadline:
+                    reasons = list(latest.get("reasons", []))
+                    reasons.append("GitHub merge state remained UNKNOWN after the bounded wait")
+                    latest["eligible100"] = False
+                    latest["reasons"] = reasons
+                    latest["checksTimedOut"] = True
+                    return latest
+                self.sleep_fn(min(CHECK_POLL_SECONDS, max(0, deadline - time.monotonic())))
+                continue
+            if checks.get("allCompleted"):
                 return latest
             if time.monotonic() >= deadline:
                 reasons = list(latest.get("reasons", []))
@@ -564,6 +597,19 @@ class ConvergenceController:
                 latest["checksTimedOut"] = True
                 return latest
             self.sleep_fn(min(CHECK_POLL_SECONDS, max(0, deadline - time.monotonic())))
+
+    @staticmethod
+    def _is_transient_gate(gate: dict[str, Any]) -> bool:
+        """True when GitHub reports an unsettled or throttled gate that deserves retry."""
+        pr = gate.get("pr") or {}
+        merge_state = str(pr.get("mergeStateStatus", ""))
+        mergeable = str(pr.get("mergeable", ""))
+        rate_limited = str(gate.get("message", "")).lower() in {
+            "api rate limit exceeded",
+            "rate limit exceeded",
+            "secondary rate limit",
+        }
+        return merge_state == "UNKNOWN" or mergeable == "UNKNOWN" or rate_limited
 
     def prepare_worktree(self, pr: dict[str, Any]) -> Path:
         number = int(pr["number"])
@@ -836,6 +882,50 @@ class ConvergenceController:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+    def _send_digest(self, results: list[dict[str, Any]], discovery: dict[str, Any] | None) -> None:
+        """Send one concise per-run status line so the loop is not silent between milestones.
+
+        Non-spammy: one message per run, only on live non-controlled runs. Individual
+        success/failure alerts already fire via notify_once; this gives a compact
+        snapshot of every in-scope PR plus the discovery outcome.
+        """
+        if self.dry_run:
+            return
+        resolved: dict[Any, str] = {}
+        for item in results:
+            if isinstance(item, dict) and item.get("number") is not None:
+                resolved[item["number"]] = str(item.get("status", "unknown"))
+        # Fill in the persisted status for any PR not covered by this run's results
+        # so the digest reflects the full in-scope picture, not just this run.
+        for number, entry in self.state.get("prs", {}).items():
+            if isinstance(entry, dict) and entry.get("status") and number not in resolved:
+                resolved[int(number)] = str(entry["status"])
+
+        line_items: list[str] = []
+        for number in sorted(resolved):
+            flag = ":white_check_mark:" if resolved[number] == "eligible100" else ""
+            line_items.append(f"#{number} {resolved[number]}{flag}")
+        discovery_line = ""
+        if discovery:
+            dstatus = str(discovery.get("status", ""))
+            if dstatus == "discovery-deferred":
+                discovery_line = "\nDiscovery deferred (PR work or budget)."
+            elif dstatus == "completed":
+                discovery_line = "\nDiscovery ran this run."
+            elif dstatus == "planned":
+                discovery_line = "\nDiscovery planned (dry run)."
+        message = (
+            f"Switchboard maintenance digest — {len(line_items)} PRs in scope.\n"
+            + "\n".join(line_items)
+            + discovery_line
+        )
+        synthetic = {"number": 0, "headRefOid": self.run_id, "url": f"https://github.com/{self.repository}/pulls"}
+        try:
+            self.notify_once("digest", synthetic, self.run_id, message, "scheduled-run-digest")
+        except ControllerError:
+            # A digest is best-effort; a broken digest must never fail the run.
+            pass
+
     def record_pr(self, pr: dict[str, Any], **values: Any) -> None:
         item = self.state.setdefault("prs", {}).setdefault(str(pr["number"]), {})
         item.update(values)
@@ -884,6 +974,42 @@ class ConvergenceController:
             return {"number": number, "status": "dependency-review", "review": review}
         if mode != "full-fix":
             return {"number": number, "status": "out-of-scope"}
+
+        # Opt-in auto-un-draft: when enabled and the PR is a draft but currently
+        # mergeable and non-conflicting (CLEAN), mark it ready for review so the
+        # gate can actually certify it. Never auto-merges. Non-CLEAN drafts are
+        # left for a human/agent cycle to resolve first.
+        if self.auto_un_draft and not self.dry_run and pr.get("isDraft"):
+            merge_state = str(pr.get("mergeStateStatus", ""))
+            if merge_state in {"CLEAN", "BLOCKED", "BEHIND", "UNSTABLE"}:
+                ready = self.run_command(
+                    "/home/aidome-dev/.local/bin/gh",
+                    "pr",
+                    "ready",
+                    str(number),
+                    "--repo",
+                    self.repository,
+                    cwd=self.root,
+                    timeout=COMMAND_TIMEOUT,
+                )
+                if ready.returncode == 0:
+                    refreshed = self.current_pr(number)
+                    self.record_pr(
+                        refreshed,
+                        status="ready-for-review",
+                        lastHead=str(refreshed.get("headRefOid", "")),
+                        autoUnDrafted=True,
+                    )
+                else:
+                    detail = f"auto-un-draft failed for PR #{number}: {short_output(ready.output)}"
+                    self.record_pr(pr, status="un-draft-failed", blocker=detail)
+                    self.notify_once(
+                        "un-draft-failed",
+                        pr,
+                        str(pr.get("headRefOid", "unknown")),
+                        f"Switchboard maintenance could not un-draft PR #{number}.\n{pr.get('url', '')}\n{detail}",
+                        detail,
+                    )
 
         last_gate: dict[str, Any] | None = None
         cycles: list[dict[str, Any]] = []
@@ -1134,6 +1260,7 @@ class ConvergenceController:
                 # Normal scheduled run: converge existing PRs BEFORE discovery.
                 self._converge_inventory(inventory, results)
                 discovery = self.decide_discovery(results)
+                self._send_digest(results, discovery)
             run_record.update(
                 {
                     "status": self._run_status(results, discovery),

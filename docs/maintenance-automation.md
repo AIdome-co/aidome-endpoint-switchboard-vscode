@@ -230,6 +230,22 @@ tests are repeatedly flaky, or a PR is stale.
 If no actionable finding or notification exists, leave the run state recorded
 and do not send a Telegram message.
 
+In addition to the deduplicated success/failure/untrusted alerts, each normal
+scheduled run emits one concise `digest` message listing the status of every
+in-scope PR plus the discovery outcome, so the loop is visible between
+milestones. The digest is best-effort and never fails the run.
+
+By default the controller treats a draft PR as needing a human to mark it
+ready for review. Operators may opt into `AUTO_UN_DRAFT_PRS` (in
+`maintenance/schedule_config.py`): when enabled, the controller marks a
+non-conflicting `CLEAN` draft PR ready for review so the gate can certify it,
+but it never merges. Drafts that are conflicting or otherwise not clean are
+left for a human or an agent cycle to resolve first.
+
+The controller retries transient GitHub gate states — `mergeStateStatus` or
+`mergeable` reported as `UNKNOWN`, or a secondary/first-party rate-limit
+message — with bounded backoff rather than mis-flagging a healthy PR as failed.
+
 ## Safe operating rules
 
 - Do not overwrite dirty worktrees, user branches, or existing unrelated edits.

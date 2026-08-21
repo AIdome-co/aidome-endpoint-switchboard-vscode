@@ -640,6 +640,152 @@ class ValidationCommandTests(unittest.TestCase):
         self.assertEqual(e2e[-1], "test:e2e")
 
 
+class TransientGateTests(unittest.TestCase):
+    def test_transient_gate_is_flagged_for_retry(self) -> None:
+        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"))
+        self.assertTrue(
+            controller._is_transient_gate({"pr": {"mergeStateStatus": "UNKNOWN"}}),
+            "UNKNOWN mergeStateStatus must be treated as transient",
+        )
+        self.assertTrue(
+            controller._is_transient_gate({"pr": {"mergeable": "UNKNOWN"}}),
+            "UNKNOWN mergeable must be treated as transient",
+        )
+        self.assertTrue(
+            controller._is_transient_gate({"message": "Secondary rate limit"}),
+            "rate-limit message must be treated as transient",
+        )
+        self.assertFalse(
+            controller._is_transient_gate({"pr": {"mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE"}, "message": ""}),
+            "a stable CLEAN gate must NOT be transient",
+        )
+
+    def test_wait_for_gate_retries_transient_unknown_then_resolves(self) -> None:
+        seen: list[dict[str, Any]] = []
+
+        class RetryController(ConvergenceController):
+            def gate(self, number: int) -> dict[str, Any]:
+                seen.append(dict(number=number))
+                state = seen[-1]
+                # First call: unknown merge state; second: checks complete.
+                if len(seen) == 1:
+                    return {"eligible100": False, "pr": {"mergeStateStatus": "UNKNOWN"}, "checks": {"allCompleted": False}}
+                return {
+                    "eligible100": True,
+                    "pr": {"mergeStateStatus": "CLEAN", "mergeable": "MERGEABLE"},
+                    "checks": {"allCompleted": True},
+                }
+
+        controller = RetryController(
+            root=Path("/tmp/x"),
+            pub_refs=Path("/tmp/p"),
+            sleep_fn=lambda _: None,  # no real sleeping in the test
+            check_wait_seconds=10,
+        )
+        result = controller.wait_for_gate(5)
+        self.assertEqual(result["eligible100"], True)
+        self.assertEqual(len(seen), 2, "should have retried the transient UNKNOWN gate once")
+
+
+class AutoUnDraftTests(unittest.TestCase):
+    def _make_controller(self, runner, **kwargs: Any) -> ConvergenceController:
+        return ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner, **kwargs)
+
+    def test_auto_un_draft_is_disabled_by_default(self) -> None:
+        # Must not run `gh pr ready` unless explicitly enabled.
+        executed: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            executed.append(command)
+            return CommandResult(0, "")
+
+        class NoCurrent(ConvergenceController):
+            def current_pr(self, number: int) -> dict[str, Any]:
+                return pr(number)
+
+            def gate(self, number: int) -> dict[str, Any]:
+                return {"eligible100": False, "checks": None, "reasons": ["blocked"]}
+
+            def prepare_worktree(self, current: dict[str, Any]) -> Path:
+                wt = self.pub_refs / "wt"
+                wt.mkdir(parents=True, exist_ok=True)
+                return wt
+
+            def ensure_dependencies(self, worktree: Path) -> dict[str, Any]:
+                return {"status": "present"}
+
+            def run_agent(self, current: dict[str, Any], cycle: int, worktree: Path) -> dict[str, Any]:
+                return {"status": "completed"}
+
+            def push_evidence(self, current: dict[str, Any], worktree: Path, head_before: str) -> dict[str, Any]:
+                return {"pushVerified": True}
+
+            def validate(self, worktree: Path) -> dict[str, Any]:
+                return {"passed": True, "commands": []}
+
+            def notify_once(self, kind: str, current: dict[str, Any], head: str, message: str, detail: str) -> dict[str, Any]:
+                return {"sent": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = NoCurrent(root=root, pub_refs=root / "pub", state_path=root / "state.json", runner=runner)
+            draft = pr()
+            draft["isDraft"] = True
+            c.process_pr(draft)  # auto_un_draft defaults to False
+        gh_calls = [x for x in executed if x and Path(x[0]).name == "gh"]
+        self.assertEqual(gh_calls, [], f"gh pr ready should NOT run by default, got {gh_calls}")
+
+    def test_auto_un_draft_runs_ready_on_clean_draft_when_enabled(self) -> None:
+        executed: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            executed.append(command)
+            return CommandResult(0, "")
+
+        class NoCurrent(ConvergenceController):
+            def current_pr(self, number: int) -> dict[str, Any]:
+                return pr(number)
+
+            def gate(self, number: int) -> dict[str, Any]:
+                return {"eligible100": False, "checks": None, "reasons": ["draft"]}
+
+            def prepare_worktree(self, current: dict[str, Any]) -> Path:
+                wt = self.pub_refs / "wt"
+                wt.mkdir(parents=True, exist_ok=True)
+                return wt
+
+            def ensure_dependencies(self, worktree: Path) -> dict[str, Any]:
+                return {"status": "present"}
+
+            def run_agent(self, current: dict[str, Any], cycle: int, worktree: Path) -> dict[str, Any]:
+                return {"status": "completed"}
+
+            def push_evidence(self, current: dict[str, Any], worktree: Path, head_before: str) -> dict[str, Any]:
+                return {"pushVerified": True}
+
+            def validate(self, worktree: Path) -> dict[str, Any]:
+                return {"passed": True, "commands": []}
+
+            def notify_once(self, kind: str, current: dict[str, Any], head: str, message: str, detail: str) -> dict[str, Any]:
+                return {"sent": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = NoCurrent(
+                root=root,
+                pub_refs=root / "pub",
+                state_path=root / "state.json",
+                runner=runner,
+                auto_un_draft=True,
+            )
+            draft = pr()
+            draft["isDraft"] = True
+            draft["mergeStateStatus"] = "CLEAN"
+            c.process_pr(draft)
+        gh_calls = [x for x in executed if x and Path(x[0]).name == "gh" and "ready" in x]
+        self.assertTrue(gh_calls, f"gh pr ready SHOULD run when enabled for a CLEAN draft, got {executed}")
+
+
 class MaintenanceModelTests(unittest.TestCase):
     def test_agent_calls_pin_the_configured_model(self) -> None:
         calls: list[tuple[str, ...]] = []
