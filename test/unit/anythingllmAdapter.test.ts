@@ -18,6 +18,17 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
+// Allow tests to force the platform used by getDetectionPaths() without
+// hitting the unavailable ESM namespace spy. Defaults to the real platform.
+const osState = vi.hoisted(() => ({ platform: undefined as NodeJS.Platform | undefined }));
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return {
+    ...actual,
+    platform: () => osState.platform ?? actual.platform(),
+  };
+});
+
 describe('AnythingLlmAdapter', () => {
   let adapter: AnythingLlmAdapter;
   let mockProfile: EndpointProfile;
@@ -105,6 +116,38 @@ describe('AnythingLlmAdapter', () => {
         expect(detectionPaths?.every(p => !p.startsWith('C:\\Program Files'))).toBe(true);
       }
     });
+
+    it('should build Windows detection paths on the win32 platform', async () => {
+      osState.platform = 'win32';
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      try {
+        const result = await adapter.verify();
+        const detectionPaths = result.details?.detectionPaths as string[];
+
+        // Windows paths: under AppData\Local, Programs, and Program Files.
+        expect(detectionPaths.some(p => p.includes('AppData') && p.includes('AnythingLLM'))).toBe(true);
+        expect(detectionPaths.some(p => p.includes('Program Files') && p.includes('AnythingLLM'))).toBe(true);
+        expect(detectionPaths.some(p => p.includes('Program Files (x86)') && p.includes('AnythingLLM'))).toBe(true);
+      } finally {
+        osState.platform = undefined;
+      }
+    });
+
+    it('should build macOS detection paths on the darwin platform', async () => {
+      osState.platform = 'darwin';
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      try {
+        const result = await adapter.verify();
+        const detectionPaths = result.details?.detectionPaths as string[];
+
+        expect(detectionPaths.some(p => p.includes('AnythingLLM.app'))).toBe(true);
+        expect(detectionPaths.some(p => p.startsWith('/Applications/'))).toBe(true);
+      } finally {
+        osState.platform = undefined;
+      }
+    });
   });
 
   describe('buildPlan', () => {
@@ -148,29 +191,85 @@ describe('AnythingLlmAdapter', () => {
       expect(copyStep).toBeDefined();
       expect(copyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
     });
+
+    it('should reject an endpoint URL using an unsupported scheme', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should reject a file: endpoint URL', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'file:///etc/passwd'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should reject an unparseable endpoint URL', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'not a url'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should accept a localhost http endpoint URL for development', async () => {
+      const localProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'http://localhost:8000/v1'
+      };
+
+      const plan = await adapter.buildPlan(localProfile);
+      expect(plan.profileId).toBe(localProfile.id);
+    });
+  });
+
+  describe('apply', () => {
+    it('should resolve without error (no-op for Tier B guided setup)', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      await expect(adapter.apply(plan)).resolves.toBeUndefined();
+    });
   });
 
   describe('verify', () => {
-    it('should return success when AnythingLLM is detected', async () => {
+    it('should not claim configuration success when AnythingLLM is only detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('detected');
       expect(result.details?.detected).toBe(true);
       expect(result.details?.tier).toBe('B');
     });
 
-    it('should return success with guidance when not detected', async () => {
+    it('should return a failed verification with guidance when not detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('not auto-detected');
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not detected');
       expect(result.details?.detected).toBe(false);
       expect(result.details?.tier).toBe('B');
+      expect(result.details?.configurationStatus).toBe('not-detected');
+    });
+
+    it('should report manual configuration as required when detected', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+      expect(result.details?.supportedProvider).toBe('Generic OpenAI / OpenAI Compatible');
     });
 
     it('should include detection paths in details', async () => {
@@ -187,9 +286,8 @@ describe('AnythingLlmAdapter', () => {
 
       const result = await adapter.verify();
 
-      // verify() wraps detect() which catches errors and returns false
-      // So verify() still returns success: true with detected: false
-      expect(result.success).toBe(true);
+      // verify() reports the detection failure instead of claiming the app is usable.
+      expect(result.success).toBe(false);
       expect(result.details?.detected).toBe(false);
     });
   });

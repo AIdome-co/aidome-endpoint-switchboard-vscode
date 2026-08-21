@@ -484,7 +484,8 @@
         ],
         "notes": [
           "AnythingLLM supports a 'Generic OpenAI' provider pattern for OpenAI-compatible gateways via Base URL.",
-          "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
+          "AnythingLLM is a desktop application, so Switchboard provides guided UI steps and cannot verify the saved provider fields from VS Code.",
+          "The adapter reports detection separately from manual-configuration-required status."
         ]
       },
       "tlsVerification": {
@@ -493,7 +494,8 @@
         "notes": "AnythingLLM (Node.js-based) has no built-in TLS toggle. The NODE_TLS_REJECT_UNAUTHORIZED env var is the only workaround."
       },
       "sources": [
-        "https://docs.anythingllm.com/setup/llm-configuration/cloud/openai"
+        "https://docs.anythingllm.com/setup/llm-configuration/cloud/openai",
+        "https://github.com/Mintplex-Labs/anything-llm"
       ]
     },
     {
