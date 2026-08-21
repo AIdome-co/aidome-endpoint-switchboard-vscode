@@ -78,9 +78,11 @@ next run resumes from the last checkpoint. Dependabot
 PRs receive a read-only review and never enter a fix worktree. PRs from
 untrusted source repositories are blocked before code execution. Legacy
 list-shaped PR state is migrated to the durable keyed format at startup.
-The controller exits with a distinct non-zero status for `paused-budget` and
-`discovery-deferred`, so Hermes records an incomplete scheduled run rather than
-reporting `ok`.
+The controller exits with a distinct non-zero status for `paused-budget`, and for
+`discovery-deferred` only when actionable PR work is still pending, so Hermes
+records an incomplete scheduled run rather than reporting `ok`. A discovery
+deferred purely for a budget edge with no PR work waiting is a successful
+completion and exits `0`.
 
 All discovery, fix-cycle, and dependency-review agent calls pass the explicit
 OpenRouter model `deepseek/deepseek-v4-flash-0731`; they do not inherit Hermes'
@@ -105,9 +107,11 @@ creates at most one focused `maintenance/switchboard-*` PR linked with
 recorded in the PR description and maintenance report. Its branch, cleanliness,
 and pushed remote head are verified before the refreshed inventory is
 processed on a later run. If discovery cannot run because of unfinished PR work
-or insufficient budget, it is recorded as `discovery-deferred` and is never
-reported as a successful completion; the controller exits non-zero so Hermes
-marks the scheduled job incomplete, and the run resumes on the next schedule.
+or insufficient budget, it is recorded as `discovery-deferred`. If actionable PR
+work is still waiting, the run is treated as incomplete and exits non-zero so
+Hermes marks the scheduled job incomplete; if discovery was deferred only for a
+budget edge with no PR work pending, the run is a successful completion and
+exits `0`, and discovery remains due for the next run.
 The second daily run skips discovery and focuses on convergence. Controlled
 `--pr` and `--reconcile-only` runs intentionally skip discovery.
 

@@ -464,10 +464,46 @@ class DiscoveryPriorityTests(unittest.TestCase):
 
             result = controller.run()
 
-            self.assertEqual(result["status"], "discovery-deferred")
+            # Priority PR work converged (all eligible100); discovery was merely
+            # deferred for a budget edge, so the run is a successful completion.
+            self.assertEqual(result["status"], "completed")
             persisted = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(persisted["lastRun"]["discovery"]["status"], "discovery-deferred")
             self.assertEqual(persisted["runs"][-1]["discovery"]["reason"], "insufficient-budget")
+
+    def test_budget_edge_deferral_with_no_pending_pr_work_is_completed(self) -> None:
+        # When PR convergence fully finishes and discovery is deferred only for a
+        # budget edge (no actionable PR work waiting), the run must NOT be flagged
+        # as an incomplete/non-zero run. Discovery stays due for the next run.
+        class LowBudgetNoPrController(ConvergenceController):
+            def sync_provider_refs(self, weekly: bool) -> dict[str, Any]:
+                return {"ok": True}
+
+            def pr_inventory(self) -> list[dict[str, Any]]:
+                return []
+
+            def run_discovery(self) -> dict[str, Any]:
+                raise AssertionError("discovery must not run when the budget is insufficient")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            controller = LowBudgetNoPrController(
+                root=root,
+                pub_refs=root / "pub",
+                state_path=state_path,
+                discovery_min_budget_seconds=10_000_000,
+            )
+
+            result = controller.run()
+
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(exit_code_for_run_status(result["status"]), 0)
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["lastRun"]["discovery"]["status"], "discovery-deferred")
+            self.assertEqual(persisted["runs"][-1]["discovery"]["reason"], "insufficient-budget")
+            # Discovery was not run and remains due for a future run.
+            self.assertNotIn("lastDiscoveryLocalDate", persisted)
 
     def test_discovery_cannot_starve_an_existing_pr(self) -> None:
         class BlockedPrController(ConvergenceController):

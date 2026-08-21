@@ -1032,13 +1032,18 @@ class ConvergenceController:
         return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
 
     def _run_status(self, results: list[dict[str, Any]], discovery: dict[str, Any]) -> str:
-        """Classify the run, giving a deferred discovery priority over completion.
+        """Classify the run.
 
-        A deferred discovery is never a successful completion: it must be surfaced
-        as its own status so Hermes reports the run as incomplete rather than `ok`.
+        A deferred discovery is treated as a non-completion only when actionable
+        PR work is still pending. Discovery is secondary to PR convergence: when
+        the priority PR work fully finished and discovery was merely deferred for
+        a budget edge (with no PR work waiting), the run is a successful
+        completion so Hermes does not spuriously mark it `error`.
         """
         if discovery.get("status") == "discovery-deferred":
-            return "discovery-deferred"
+            if self.unfinished_pr_work(results):
+                return "discovery-deferred"
+            return "completed"
         if any(
             isinstance(item, dict) and item.get("status") in {"blocked", "blocked-untrusted-source", "failed"}
             for item in results
@@ -1210,9 +1215,11 @@ class MaintenanceLock:
 def exit_code_for_run_status(status: str) -> int:
     """Map a run status to a process exit code.
 
-    A successful run returns 0. Paused and deferred runs are durable but NOT
-    successful completions, so they return distinct non-zero codes that make the
-    Hermes scheduled job record an incomplete run instead of `ok`.
+    A successful run returns 0. Paused runs and runs deferred while actionable
+    PR work is still pending are durable but NOT successful completions, so they
+    return distinct non-zero codes that make the Hermes scheduled job record an
+    incomplete run instead of `ok`. A discovery deferred purely for a budget edge
+    with no PR work waiting is a successful completion and returns 0.
     """
     if status == "paused-budget":
         return 2
