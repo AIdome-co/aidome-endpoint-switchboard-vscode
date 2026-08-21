@@ -18,6 +18,17 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
+// Allow tests to force the platform used by getDetectionPaths() without
+// hitting the unavailable ESM namespace spy. Defaults to the real platform.
+const osState = vi.hoisted(() => ({ platform: undefined as NodeJS.Platform | undefined }));
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return {
+    ...actual,
+    platform: () => osState.platform ?? actual.platform(),
+  };
+});
+
 describe('AnythingLlmAdapter', () => {
   let adapter: AnythingLlmAdapter;
   let mockProfile: EndpointProfile;
@@ -103,6 +114,38 @@ describe('AnythingLlmAdapter', () => {
       } else {
         // On non-Windows, Windows paths are simply not present at all.
         expect(detectionPaths?.every(p => !p.startsWith('C:\\Program Files'))).toBe(true);
+      }
+    });
+
+    it('should build Windows detection paths on the win32 platform', async () => {
+      osState.platform = 'win32';
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      try {
+        const result = await adapter.verify();
+        const detectionPaths = result.details?.detectionPaths as string[];
+
+        // Windows paths: under AppData\Local, Programs, and Program Files.
+        expect(detectionPaths.some(p => p.includes('AppData') && p.includes('AnythingLLM'))).toBe(true);
+        expect(detectionPaths.some(p => p.includes('Program Files') && p.includes('AnythingLLM'))).toBe(true);
+        expect(detectionPaths.some(p => p.includes('Program Files (x86)') && p.includes('AnythingLLM'))).toBe(true);
+      } finally {
+        osState.platform = undefined;
+      }
+    });
+
+    it('should build macOS detection paths on the darwin platform', async () => {
+      osState.platform = 'darwin';
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      try {
+        const result = await adapter.verify();
+        const detectionPaths = result.details?.detectionPaths as string[];
+
+        expect(detectionPaths.some(p => p.includes('AnythingLLM.app'))).toBe(true);
+        expect(detectionPaths.some(p => p.startsWith('/Applications/'))).toBe(true);
+      } finally {
+        osState.platform = undefined;
       }
     });
   });
