@@ -148,6 +148,51 @@ describe('AnythingLlmAdapter', () => {
       expect(copyStep).toBeDefined();
       expect(copyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
     });
+
+    it('should reject an endpoint URL using an unsupported scheme', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'javascript:alert(1)'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should reject a file: endpoint URL', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'file:///etc/passwd'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should reject an unparseable endpoint URL', async () => {
+      const badProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'not a url'
+      };
+
+      await expect(adapter.buildPlan(badProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('should accept a localhost http endpoint URL for development', async () => {
+      const localProfile: EndpointProfile = {
+        ...mockProfile,
+        baseUrl: 'http://localhost:8000/v1'
+      };
+
+      const plan = await adapter.buildPlan(localProfile);
+      expect(plan.profileId).toBe(localProfile.id);
+    });
+  });
+
+  describe('apply', () => {
+    it('should resolve without error (no-op for Tier B guided setup)', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      await expect(adapter.apply(plan)).resolves.toBeUndefined();
+    });
   });
 
   describe('verify', () => {
