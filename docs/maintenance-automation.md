@@ -121,6 +121,14 @@ validation environment. If no supported runtime is available, the PR is
 blocked and the owner is notified; Node 18 is never treated as an equivalent
 passing environment.
 
+On a memory-starved host, the controller defers the heavy `test:e2e` validation
+step (which launches a full VS Code Extension Development Host) rather than
+stacking another instance on a thrashing box. This protects other live sessions
+on a shared VM. When `MemAvailable` drops below a threshold or free swap is
+nearly exhausted, the E2E step is recorded as a non-passing environment deferral
+(it does not spawn a VS Code instance), keeping the PR below 100% until a later
+run has headroom. It is reported as an environment condition, not a code failure.
+
 ### Pull request scope
 
 Every daily run builds its target list with
