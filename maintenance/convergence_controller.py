@@ -693,8 +693,23 @@ class ConvergenceController:
             f"refs/remotes/origin/{branch}",
             timeout=COMMAND_TIMEOUT,
         )
+        # `git switch` refuses to run while a (possibly stale) rebase/merge state is
+        # still registered, even after a successful reset. Quit any in-progress op and
+        # retry once so the switch always reaches the canonical detached head.
         if switched.returncode:
-            raise ControllerError(f"Could not reset PR #{number} worktree: {short_output(switched.output)}")
+            for aborter in ("rebase", "--quit"), ("merge", "--abort"), ("cherry-pick", "--abort"):
+                self.run_command("git", "-C", str(worktree), *aborter, timeout=COMMAND_TIMEOUT)
+            switched = self.run_command(
+                "git",
+                "-C",
+                str(worktree),
+                "switch",
+                "--detach",
+                f"refs/remotes/origin/{branch}",
+                timeout=COMMAND_TIMEOUT,
+            )
+            if switched.returncode:
+                raise ControllerError(f"Could not reset PR #{number} worktree: {short_output(switched.output)}")
         return worktree
 
     def prepare_discovery_worktree(self) -> Path:
