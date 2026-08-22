@@ -100,6 +100,13 @@ describe('TabnineAdapter', () => {
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
       expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Set server URL');
     });
+
+    it('should reject an invalid or unsafe endpoint URL before producing a plan', async () => {
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'file:///etc/passwd' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
+    });
   });
 
   describe('verify', () => {
