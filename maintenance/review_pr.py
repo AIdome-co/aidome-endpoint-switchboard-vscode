@@ -123,7 +123,7 @@ def main() -> int:
             "api",
             "graphql",
             "-f",
-            "query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved,isOutdated,comments(first:20){nodes{author{login},body,url}}},pageInfo{hasNextPage}}}}}",
+            "query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved,isOutdated,comments(first:100){nodes{author{login},body,url},pageInfo{hasNextPage}}},pageInfo{hasNextPage}}}}}",
             "-f",
             f"owner={owner}",
             "-f",
@@ -134,6 +134,9 @@ def main() -> int:
         thread_data = json.loads(graphql)["data"]["repository"]["pullRequest"]["reviewThreads"]
         threads = thread_data.get("nodes", [])
         unresolved = [thread for thread in threads if not thread.get("isResolved") and not thread.get("isOutdated")]
+        truncated_comments = any(
+            thread.get("comments", {}).get("pageInfo", {}).get("hasNextPage") for thread in threads
+        )
         codex_comments = [
             comment
             for thread in unresolved
@@ -167,6 +170,8 @@ def main() -> int:
             reasons.append(f"{len(unresolved)} unresolved review thread(s)")
         if thread_data.get("pageInfo", {}).get("hasNextPage"):
             reasons.append("review thread results were truncated")
+        if truncated_comments:
+            reasons.append("review thread comments were truncated")
         if report is None:
             reasons.append("canonical maintenance report is missing")
         else:
@@ -203,7 +208,11 @@ def main() -> int:
                 and all(str(check.get("status", "")).upper() == "COMPLETED" for check in checks),
                 "allPassing": bool(checks) and all(check_is_passing(check) for check in checks),
             },
-            "reviewThreads": {"unresolved": len(unresolved), "codex": len(codex_comments)},
+            "reviewThreads": {
+                "unresolved": len(unresolved),
+                "codex": len(codex_comments),
+                "commentsTruncated": truncated_comments,
+            },
             "report": {
                 "count": report_count,
                 "percent": report_percent(report or ""),

@@ -42,11 +42,16 @@ daily at 12:00 and 19:00:
 - On Sunday, the same run first synchronizes provider references and rebases
   the local `switchboard-maintenance` branches.
 
-The Hermes gateway owns the scheduler. The deterministic controller acquires a
-repository lock before changing files, so a manual live run cannot overlap an
-unattended run. The scheduled Hermes prompt only invokes the controller and
-returns `[SILENT]`; the controller sends deduplicated actionable Telegram
-notifications directly.
+The Hermes gateway owns the scheduler. The job runs in Hermes no-agent/script
+mode through the reviewed `maintenance/hermes_cron_entrypoint.py` entrypoint,
+so it does not spend an LLM session or terminal inactivity budget merely
+launching the deterministic controller. The entrypoint is installed under
+Hermes' trusted scripts directory with a 1620-second scheduler timeout; the
+controller has its own 1500-second budget and checkpoints before that limit. The
+controller acquires a repository lock before changing files, so a manual live
+run cannot overlap an unattended run. The controller sends deduplicated
+actionable Telegram notifications directly and emits no duplicate stdout
+delivery.
 
 ### Deterministic convergence controller
 
@@ -64,11 +69,51 @@ The controller performs one bounded Hermes fix cycle at a time in an isolated
 worktree for each trusted full-fix PR. After every cycle it independently
 checks cleanliness, dependencies, validation commands, the pushed remote head,
 the refreshed PR metadata, the canonical report, and `review_pr.py`. It allows
-at most three cycles per scheduled run and persists per-PR state under
-`/home/aidome-dev/pub-refs/`; the next run resumes PRs that are still below
-100%. Dependabot PRs receive a read-only review and never enter a fix
-worktree. PRs from untrusted source repositories are blocked before code
-execution.
+at most three cycles per scheduled run, rotates the PR cursor so a slow PR
+cannot starve the queue, and persists per-PR state under
+`/home/aidome-dev/pub-refs/`. Existing PRs always converge before repository-wide
+discovery, so a discovered PR can never consume the budget that an existing PR
+needs. If the budget is reached, the run is recorded as `paused-budget` and the
+next run resumes from the last checkpoint. Dependabot
+PRs receive a read-only review and never enter a fix worktree. PRs from
+untrusted source repositories are blocked before code execution. Legacy
+list-shaped PR state is migrated to the durable keyed format at startup.
+The controller exits with a distinct non-zero status for `paused-budget`, and for
+`discovery-deferred` only when actionable PR work is still pending, so Hermes
+records an incomplete scheduled run rather than reporting `ok`. A discovery
+deferred purely for a budget edge with no PR work waiting is a successful
+completion and exits `0`.
+
+All discovery, fix-cycle, and dependency-review agent calls pass the explicit
+OpenRouter model `deepseek/deepseek-v4-flash-0731`; they do not inherit Hermes'
+global default model. Operators can override it for a controlled run with
+`SWITCHBOARD_HERMES_MODEL` or `--hermes-model`. Telegram delivery uses Hermes'
+`send` and does not invoke a model.
+
+Before repository-wide discovery, the controller first synchronizes provider
+references, inventories all in-scope PRs, and converges the existing
+`maintenance/switchboard-*` and `fix/*` PRs (with read-only reviews for
+`dependabot/*`). Only after that convergence step does it budget discovery
+independently: a separate main-based discovery worktree runs at most once per
+Israel local date, and only when no unfinished PR work is waiting and the
+remaining run budget exceeds a safe threshold that reserves headroom for at
+least one PR convergence cycle. Discovery has its own bounded 300-second
+session timeout so it can never consume the whole run budget. That session
+scans the product and provider references for reproduced bugs or drift and
+deduplicates against existing PRs and issues. It creates at most one new
+GitHub Issue (or reuses one) containing evidence and acceptance criteria, then
+creates at most one focused `maintenance/switchboard-*` PR linked with
+`Fixes #<issue-number>`. The issue URL and provider-reference commit are
+recorded in the PR description and maintenance report. Its branch, cleanliness,
+and pushed remote head are verified before the refreshed inventory is
+processed on a later run. If discovery cannot run because of unfinished PR work
+or insufficient budget, it is recorded as `discovery-deferred`. If actionable PR
+work is still waiting, the run is treated as incomplete and exits non-zero so
+Hermes marks the scheduled job incomplete; if discovery was deferred only for a
+budget edge with no PR work pending, the run is a successful completion and
+exits `0`, and discovery remains due for the next run.
+The second daily run skips discovery and focuses on convergence. Controlled
+`--pr` and `--reconcile-only` runs intentionally skip discovery.
 
 Validation selects a Node.js runtime at version 22 or newer (or the executable
 specified by `SWITCHBOARD_NODE_BIN`) and prepends its `bin` directory to the
@@ -84,7 +129,7 @@ command, not only PRs created during the current run:
 
 | Branch pattern | Automation behavior |
 | --- | --- |
-| `maintenance/switchboard-*` | Full review, fix, test, push, report, and convergence loop |
+| `maintenance/switchboard-*` | Full review, fix, test, push, report, and convergence loop; newly discovered work is linked to an Issue |
 | `fix/*` | Full review, fix, test, push, report, and convergence loop on the existing branch |
 | `dependabot/*` | Read-only review; fixes use a separate maintenance branch |
 
@@ -121,12 +166,15 @@ GitHub, Git, or Telegram writes.
 1. Read `AGENTS.md`, this document, the provider manifest, and the current
    Switchboard state.
 2. Run `python3 maintenance/sync_provider_refs.py --json` to fetch references.
-3. Search for evidence-backed bugs, regressions, provider API drift, weak error
-   handling, missing tests, stale documentation, dependency problems, and
-   security issues.
-4. Run `python3 maintenance/pr_scope.py` and process every returned PR. Check
+3. Run `python3 maintenance/pr_scope.py` and converge every returned PR first,
+   before any repository-wide discovery. Check
    existing `maintenance/switchboard-*` and `fix/*` branches before creating
    anything new. Reuse a PR when a finding is already being handled.
+4. Only after the existing PRs have been processed, run the discovery pass
+   (search for evidence-backed bugs, regressions, provider API drift, weak error
+   handling, missing tests, stale documentation, dependency problems, and
+   security issues) when the run budget safely allows it. If budget or unfinished
+   PR work prevents it, record `discovery-deferred` and move on.
 5. For a scoped finding, reproduce it, make the smallest fix, add a regression
    test, update documentation or `CHANGELOG.md` when required, and run the
    repository's full applicable checks:
@@ -181,6 +229,22 @@ tests are repeatedly flaky, or a PR is stale.
 
 If no actionable finding or notification exists, leave the run state recorded
 and do not send a Telegram message.
+
+In addition to the deduplicated success/failure/untrusted alerts, each normal
+scheduled run emits one concise `digest` message listing the status of every
+in-scope PR plus the discovery outcome, so the loop is visible between
+milestones. The digest is best-effort and never fails the run.
+
+By default the controller treats a draft PR as needing a human to mark it
+ready for review. Operators may opt into `AUTO_UN_DRAFT_PRS` (in
+`maintenance/schedule_config.py`): when enabled, the controller marks a
+non-conflicting `CLEAN` draft PR ready for review so the gate can certify it,
+but it never merges. Drafts that are conflicting or otherwise not clean are
+left for a human or an agent cycle to resolve first.
+
+The controller retries transient GitHub gate states — `mergeStateStatus` or
+`mergeable` reported as `UNKNOWN`, or a secondary/first-party rate-limit
+message — with bounded backoff rather than mis-flagging a healthy PR as failed.
 
 ## Safe operating rules
 

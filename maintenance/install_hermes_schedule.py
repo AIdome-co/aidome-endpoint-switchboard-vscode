@@ -5,13 +5,22 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from schedule_config import EXPECTED_RUN_HOURS, SCHEDULE, TELEGRAM_TARGET, TIMEZONE_NAME
+from convergence_controller import discover_supported_node_bin_dir
+from schedule_config import (
+    EXPECTED_RUN_HOURS,
+    HERMES_ENTRYPOINT_NAME,
+    HERMES_SCRIPT_TIMEOUT_SECONDS,
+    SCHEDULE,
+    TELEGRAM_TARGET,
+    TIMEZONE_NAME,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,18 +32,12 @@ HERMES = os.environ.get("HERMES_BIN", "/home/aidome-dev/.local/bin/hermes")
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))).resolve()
 JOB_NAME = "switchboard-maintenance-daily"
 TIMEZONE = ZoneInfo(TIMEZONE_NAME)
+ENTRYPOINT_SOURCE = WORKTREE / "maintenance/hermes_cron_entrypoint.py"
+ENTRYPOINT_DEST = HERMES_HOME / "scripts" / HERMES_ENTRYPOINT_NAME
 
 PROMPT = (
-    f"This scheduled job runs at 12:00 and 19:00 in {TIMEZONE_NAME}. "
-    f"Operate only through the deterministic controller in {WORKTREE}; never use the user checkout. "
-    f"Run: python3 {WORKTREE}/maintenance/convergence_controller.py "
-    f"--root {WORKTREE} --pub-refs {PUB_REFS} --repo AIdome-co/aidome-endpoint-switchboard-vscode "
-    "--auto-weekly. The controller owns provider synchronization, trusted-source checks, isolated "
-    "per-PR worktrees, bounded Hermes fix cycles, validation, push/current-head verification, the "
-    "100% gate, durable state, and idempotent Telegram notifications. Do not perform maintenance "
-    "actions outside the controller, do not merge, and do not send a second notification. The final "
-    "response must be exactly [SILENT] because the controller sends only deduplicated actionable "
-    "notifications directly through Hermes."
+    f"Deterministic Switchboard maintenance runs from {WORKTREE} in a no-agent script. "
+    "The controller owns all repository actions, checkpoints, gates, and deduplicated Telegram notifications."
 )
 
 
@@ -72,11 +75,15 @@ def ensure_dependencies() -> None:
 
     if (WORKTREE / "node_modules/.bin/eslint").is_file():
         return
-    npm = shutil.which("npm")
-    if npm is None:
-        raise RuntimeError("npm is unavailable; refusing to install a schedule that cannot run validation")
+    try:
+        node_bin_dir = discover_supported_node_bin_dir()
+    except RuntimeError as exc:
+        raise RuntimeError(str(exc)) from exc
+    npm = node_bin_dir / "npm"
     run(
-        npm,
+        "env",
+        f"PATH={node_bin_dir}:{os.environ.get('PATH', '')}",
+        str(npm),
         "--prefix",
         str(WORKTREE),
         "ci",
@@ -85,6 +92,22 @@ def ensure_dependencies() -> None:
         "--no-fund",
         timeout=900,
     )
+
+
+def install_entrypoint() -> None:
+    """Install the reviewed controller entrypoint inside Hermes' script sandbox."""
+
+    if not ENTRYPOINT_SOURCE.is_file():
+        raise RuntimeError(f"Maintenance entrypoint is missing from the deployed worktree: {ENTRYPOINT_SOURCE}")
+    ENTRYPOINT_DEST.parent.mkdir(parents=True, exist_ok=True)
+    temporary = ENTRYPOINT_DEST.with_name(f".{ENTRYPOINT_DEST.name}.{os.getpid()}.tmp")
+    shutil.copyfile(ENTRYPOINT_SOURCE, temporary)
+    temporary.chmod(0o700)
+    temporary.replace(ENTRYPOINT_DEST)
+
+
+def configure_script_timeout() -> None:
+    run(HERMES, "config", "set", "cron.script_timeout_seconds", str(HERMES_SCRIPT_TIMEOUT_SECONDS))
 
 
 def verify_live_schedule() -> None:
@@ -102,6 +125,14 @@ def verify_live_schedule() -> None:
         raise RuntimeError(f"Hermes workdir is not the dedicated worktree: {job.get('workdir')}")
     if job.get("deliver") != TELEGRAM_TARGET:
         raise RuntimeError(f"Hermes delivery target is not Telegram: {job.get('deliver')}")
+    if not job.get("no_agent") or job.get("script") != HERMES_ENTRYPOINT_NAME:
+        raise RuntimeError(f"Hermes job is not using the deterministic no-agent entrypoint: {job.get('script')}")
+    if not ENTRYPOINT_DEST.is_file():
+        raise RuntimeError(f"Hermes entrypoint was not installed: {ENTRYPOINT_DEST}")
+    config_text = (HERMES_HOME / "config.yaml").read_text(encoding="utf-8")
+    match = re.search(r"(?m)^\s*script_timeout_seconds:\s*(\d+)\s*$", config_text)
+    if not match or int(match.group(1)) < HERMES_SCRIPT_TIMEOUT_SECONDS:
+        raise RuntimeError("Hermes cron script timeout is shorter than the controller entrypoint budget")
     next_run = job.get("next_run_at")
     if not next_run:
         raise RuntimeError(f"Hermes did not persist a next run for {JOB_NAME}")
@@ -116,7 +147,9 @@ def verify_live_schedule() -> None:
 def main() -> int:
     ensure_worktree()
     ensure_dependencies()
+    install_entrypoint()
     run(HERMES, "config", "set", "timezone", TIMEZONE_NAME)
+    configure_script_timeout()
     jobs = run(HERMES, "cron", "list", "--all")
     if JOB_NAME in jobs:
         command = [
@@ -128,6 +161,9 @@ def main() -> int:
             SCHEDULE,
             "--prompt",
             PROMPT,
+            "--script",
+            HERMES_ENTRYPOINT_NAME,
+            "--no-agent",
             "--deliver",
             TELEGRAM_TARGET,
             "--workdir",
@@ -143,6 +179,9 @@ def main() -> int:
             PROMPT,
             "--name",
             JOB_NAME,
+            "--script",
+            HERMES_ENTRYPOINT_NAME,
+            "--no-agent",
             "--deliver",
             TELEGRAM_TARGET,
             "--workdir",

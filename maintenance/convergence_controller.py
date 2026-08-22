@@ -29,9 +29,21 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 try:
-    from .schedule_config import TELEGRAM_TARGET, TIMEZONE_NAME
+    from .schedule_config import (
+        AUTO_UN_DRAFT_PRS,
+        CONTROLLER_RUN_BUDGET_SECONDS,
+        HERMES_MAINTENANCE_MODEL,
+        TELEGRAM_TARGET,
+        TIMEZONE_NAME,
+    )
 except ImportError:  # Script execution from the maintenance directory.
-    from schedule_config import TELEGRAM_TARGET, TIMEZONE_NAME
+    from schedule_config import (
+        AUTO_UN_DRAFT_PRS,
+        CONTROLLER_RUN_BUDGET_SECONDS,
+        HERMES_MAINTENANCE_MODEL,
+        TELEGRAM_TARGET,
+        TIMEZONE_NAME,
+    )
 
 
 REPOSITORY = "AIdome-co/aidome-endpoint-switchboard-vscode"
@@ -46,6 +58,13 @@ VALIDATION_TIMEOUT = 1800
 NOTIFICATION_RETRIES = 3
 CHECK_WAIT_SECONDS = 300
 CHECK_POLL_SECONDS = 15
+MIN_COMMAND_RESERVE_SECONDS = 10
+# Discovery gets its own bounded session timeout so it can never consume the
+# whole run budget. We additionally reserve headroom for at least one PR
+# convergence cycle so repository-wide discovery cannot starve existing PRs.
+DISCOVERY_AGENT_TIMEOUT = 300
+DISCOVERY_BUDGET_RESERVE_SECONDS = 300
+UNFINISHED_STATUSES: frozenset[str] = frozenset({"blocked", "blocked-untrusted-source", "failed"})
 VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("npm", "run", "lint"),
     ("npm", "run", "compile"),
@@ -60,6 +79,10 @@ VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
 
 class ControllerError(RuntimeError):
     """Raised when the controller cannot safely continue."""
+
+
+class RunBudgetExceeded(ControllerError):
+    """Raised when the controller must checkpoint before its scheduler budget ends."""
 
 
 @dataclass(frozen=True)
@@ -105,6 +128,37 @@ def short_output(value: str, limit: int = 1200) -> str:
     return value[-limit:]
 
 
+def discover_supported_node_bin_dir() -> Path:
+    """Find an approved Node.js >=22 runtime and its npm executable."""
+
+    candidates: list[Path] = []
+    configured = os.environ.get("SWITCHBOARD_NODE_BIN")
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    nvm_root = Path("/home/aidome-dev/.nvm/versions/node")
+    if nvm_root.is_dir():
+        candidates.extend(sorted(nvm_root.glob("v*/bin/node"), reverse=True))
+    discovered = shutil.which("node")
+    if discovered:
+        candidates.append(Path(discovered))
+    for candidate in candidates:
+        node = candidate / "node" if candidate.is_dir() else candidate
+        npm = node.with_name("npm")
+        if not node.is_file() or not npm.is_file():
+            continue
+        try:
+            result = subprocess.run([str(node), "--version"], check=False, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        match = re.match(r"v(\d+)", result.stdout.strip())
+        if result.returncode == 0 and match and int(match.group(1)) >= 22:
+            return node.parent
+    raise ControllerError(
+        "A supported Node.js runtime (>=22 with npm) is unavailable; "
+        "set SWITCHBOARD_NODE_BIN to the approved Node executable."
+    )
+
+
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -129,9 +183,25 @@ def load_state(path: Path, repository: str = REPOSITORY) -> dict[str, Any]:
         raise ControllerError(f"Maintenance state is not an object: {path}")
     payload.setdefault("schemaVersion", STATE_SCHEMA_VERSION)
     payload.setdefault("repository", repository)
-    payload.setdefault("prs", {})
+    prs = payload.get("prs", {})
+    if isinstance(prs, list):
+        # Older Hermes runs stored PR state as a list keyed by ``pr``. Migrate
+        # it before any controller mutation so a timeout cannot strand state.
+        migrated: dict[str, Any] = {}
+        for item in prs:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("pr") or item.get("number") or "").strip()
+            if key:
+                migrated[key] = {name: value for name, value in item.items() if name != "pr"}
+        payload["prs"] = migrated
+    elif isinstance(prs, dict):
+        payload["prs"] = prs
+    else:
+        raise ControllerError(f"Maintenance state PR index is invalid: {path}")
     payload.setdefault("notifications", {})
-    payload.setdefault("runs", [])
+    if not isinstance(payload.get("runs"), list):
+        payload["runs"] = []
     return payload
 
 
@@ -232,6 +302,38 @@ def dependency_review_prompt(pr: dict[str, Any], root: Path, pub_refs: Path) -> 
     ).strip()
 
 
+def discovery_prompt(worktree: Path, pub_refs: Path) -> str:
+    return textwrap.dedent(
+        f"""
+        You are the Switchboard daily discovery agent for {REPOSITORY}.
+        Work only in {worktree}; never use the user checkout and never merge anything.
+        Read AGENTS.md, CLAUDE.md, docs/maintenance-automation.md, maintenance/provider-repositories.json,
+        and the current Git state before acting.
+
+        Inspect the adapter registry and all supported providers, matching official repositories under
+        {pub_refs}, source, tests, CI, dependencies, error handling, security, documentation, and changelog.
+        Look for reproduced bugs, provider API drift, deprecations, endpoint/auth changes, and concrete
+        test or documentation gaps. Prefer evidence-backed findings over speculative cleanup. Synchronize
+        the matching official provider reference before acting on a provider-related finding.
+
+        Search existing branches, issues, and PRs before creating anything. Limit this
+        discovery session to at most ONE new GitHub issue and at most ONE new PR. For a safe,
+        deduplicated finding, create or reuse one GitHub issue before changing any code. The
+        issue must contain the observed behavior, reproduction/evidence, affected provider or
+        files, proposed acceptance criteria, and the relevant provider-reference commit when
+        applicable. Then make the smallest fix, add a regression test, update docs/changelog
+        when required, run the applicable checks, and create or update one focused
+        maintenance/switchboard-* PR linked to that issue; the PR body MUST include
+        `Fixes #<issue-number>`. Use a draft when confidence is low or checks do not pass.
+        Never modify an unrelated branch, never merge, and never send Telegram. If there is no
+        concrete finding, make no code changes.
+
+        Commit and push any focused change. Finish with a concise summary of findings, branch/PR URLs,
+        tests, and blockers; the controller will verify the worktree and rediscover PRs afterward.
+        """
+    ).strip()
+
+
 class ConvergenceController:
     """Orchestrate one bounded, verifiable convergence run."""
 
@@ -243,10 +345,14 @@ class ConvergenceController:
         pub_refs: Path,
         state_path: Path | None = None,
         hermes: str = "/home/aidome-dev/.local/bin/hermes",
+        hermes_model: str = HERMES_MAINTENANCE_MODEL,
         runner: Runner = command_runner,
         max_cycles: int = MAX_CYCLES_PER_RUN,
         dry_run: bool = False,
         check_wait_seconds: int = CHECK_WAIT_SECONDS,
+        run_budget_seconds: int = CONTROLLER_RUN_BUDGET_SECONDS,
+        discovery_min_budget_seconds: int | None = None,
+        auto_un_draft: bool = AUTO_UN_DRAFT_PRS,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.repository = repository
@@ -254,54 +360,138 @@ class ConvergenceController:
         self.pub_refs = pub_refs.resolve()
         self.state_path = (state_path or self.pub_refs / "switchboard-maintenance-state.json").resolve()
         self.hermes = hermes
+        self.hermes_model = hermes_model
         self.runner = runner
         self.max_cycles = max_cycles
         self.dry_run = dry_run
         self.check_wait_seconds = check_wait_seconds
+        if run_budget_seconds <= MIN_COMMAND_RESERVE_SECONDS:
+            raise ValueError("run_budget_seconds must leave room for checkpointing")
+        self.run_budget_seconds = run_budget_seconds
+        self.discovery_min_budget_seconds = discovery_min_budget_seconds
+        self.auto_un_draft = auto_un_draft
         self.sleep_fn = sleep_fn
+        self.bypass_budget = False
         self._node_bin_dir: Path | None = None
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         self.state = load_state(self.state_path, self.repository)
+        self._run_deadline: float | None = None
+
+    def start_run_budget(self) -> None:
+        self._run_deadline = time.monotonic() + self.run_budget_seconds
+
+    def budget_remaining(self) -> float | None:
+        if self._run_deadline is None:
+            return None
+        return max(0.0, self._run_deadline - time.monotonic())
+
+    def ensure_budget(self, action: str) -> None:
+        remaining = self.budget_remaining()
+        if remaining is not None and remaining <= MIN_COMMAND_RESERVE_SECONDS:
+            raise RunBudgetExceeded(
+                f"run budget exhausted before {action}; checkpointed state will resume on the next scheduled run"
+            )
+
+    def local_date(self) -> str:
+        return datetime.now(ZoneInfo(TIMEZONE_NAME)).date().isoformat()
+
+    def discovery_due(self) -> bool:
+        return self.state.get("lastDiscoveryLocalDate") != self.local_date()
+
+    def discovery_min_budget(self) -> int:
+        """Minimum remaining budget required to run discovery.
+
+        Discovery has its own bounded session timeout plus a safety cushion that
+        reserves headroom for at least one PR convergence cycle, so repository-wide
+        discovery can never starve an existing PR.
+        """
+        if self.discovery_min_budget_seconds is not None:
+            return self.discovery_min_budget_seconds
+        return DISCOVERY_AGENT_TIMEOUT + DISCOVERY_BUDGET_RESERVE_SECONDS + MIN_COMMAND_RESERVE_SECONDS
+
+    def discovery_affordable(self) -> bool:
+        """True only when the remaining run budget exceeds the safe discovery threshold."""
+        remaining = self.budget_remaining()
+        if remaining is None:
+            return True
+        return remaining > self.discovery_min_budget()
+
+    def unfinished_pr_work(self, results: list[dict[str, Any]]) -> bool:
+        """True when any in-scope PR still needs convergence work on a future run."""
+        return any(
+            isinstance(item, dict) and item.get("status") in UNFINISHED_STATUSES
+            for item in results
+        )
+
+    def decide_discovery(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Decide discovery only AFTER existing PRs were converged.
+
+        Discovery is deferred (never treated as a successful completion) when the
+        discovery has already run today, when unfinished PR work is waiting, or when
+        the remaining budget cannot safely fit discovery plus a command reserve.
+        """
+        if self.dry_run:
+            return {"status": "planned"}
+        if not self.discovery_due():
+            return {"status": "skipped-already-completed-today", "localDate": self.local_date()}
+        if self.unfinished_pr_work(results):
+            return {
+                "status": "discovery-deferred",
+                "reason": "unfinished-pr-work-waiting",
+            }
+        if not self.discovery_affordable():
+            remaining = self.budget_remaining() or 0
+            return {
+                "status": "discovery-deferred",
+                "reason": "insufficient-budget",
+                "budgetRemainingSeconds": int(remaining),
+                "requiredSeconds": self.discovery_min_budget(),
+            }
+        discovery = self.run_discovery()
+        if discovery.get("status") == "completed":
+            self.state["lastDiscoveryLocalDate"] = self.local_date()
+            save_state(self.state_path, self.state)
+        return discovery
+
+    def recover_interrupted_runs(self) -> None:
+        changed = False
+        for record in self.state.get("runs", []):
+            if isinstance(record, dict) and record.get("status") == "running":
+                record.update(
+                    {
+                        "status": "interrupted",
+                        "finishedAt": utc_now(),
+                        "error": "Previous scheduled run did not reach its checkpoint; work resumes from durable state.",
+                    }
+                )
+                changed = True
+        if changed and not self.dry_run:
+            save_state(self.state_path, self.state)
 
     def node_bin_dir(self) -> Path:
         """Select a Node runtime compatible with the repository toolchain."""
 
         if self._node_bin_dir is not None:
             return self._node_bin_dir
-        candidates: list[Path] = []
-        configured = os.environ.get("SWITCHBOARD_NODE_BIN")
-        if configured:
-            candidates.append(Path(configured).expanduser())
-        nvm_root = Path("/home/aidome-dev/.nvm/versions/node")
-        if nvm_root.is_dir():
-            candidates.extend(sorted(nvm_root.glob("v*/bin/node"), reverse=True))
-        discovered = shutil.which("node")
-        if discovered:
-            candidates.append(Path(discovered))
-        for candidate in candidates:
-            node = candidate / "node" if candidate.is_dir() else candidate
-            npm = node.with_name("npm")
-            if not node.is_file() or not npm.is_file():
-                continue
-            try:
-                result = subprocess.run([str(node), "--version"], check=False, capture_output=True, text=True, timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-            match = re.match(r"v(\d+)", result.stdout.strip())
-            if result.returncode == 0 and match and int(match.group(1)) >= 22:
-                self._node_bin_dir = node.parent
-                return self._node_bin_dir
-        raise ControllerError(
-            "A supported Node.js runtime (>=22 with npm) is unavailable; "
-            "set SWITCHBOARD_NODE_BIN to the approved Node executable."
-        )
+        self._node_bin_dir = discover_supported_node_bin_dir()
+        return self._node_bin_dir
 
     def run_command(self, *command: str, cwd: Path | None = None, timeout: int = COMMAND_TIMEOUT) -> CommandResult:
+        self.ensure_budget(f"running {' '.join(command)}")
         effective = command
         if command and command[0] in {"node", "npm", "npx"}:
             node_dir = self.node_bin_dir()
             effective = ("env", f"PATH={node_dir}:{os.environ.get('PATH', '')}", *command)
-        return self.runner(*effective, cwd=cwd, timeout=timeout)
+        remaining = self.budget_remaining()
+        effective_timeout = timeout
+        if remaining is not None:
+            effective_timeout = min(timeout, max(1, int(remaining - MIN_COMMAND_RESERVE_SECONDS)))
+        result = self.runner(*effective, cwd=cwd, timeout=effective_timeout)
+        if result.timed_out and remaining is not None and effective_timeout < timeout:
+            raise RunBudgetExceeded(
+                f"run budget exhausted while {(' '.join(command))}; checkpointed state will resume on the next scheduled run"
+            )
+        return result
 
     def pr_inventory(self) -> list[dict[str, Any]]:
         result = self.run_command(
@@ -378,8 +568,27 @@ class ConvergenceController:
         latest: dict[str, Any] | None = None
         while True:
             latest = self.gate(number)
-            checks = latest.get("checks") or {}
-            if "allCompleted" not in checks or checks.get("allCompleted"):
+            # A gate with no checks field has nothing to wait on -> resolve it
+            # immediately (legacy/never-created check sets are treated as complete).
+            checks = latest.get("checks")
+            if checks is None:
+                return latest
+            # GitHub recomputes mergeability asynchronously; a transient UNKNOWN
+            # state indicates the merge/check result is not settled yet. Back off
+            # and retry rather than treating it as a hard blocker, and also retry
+            # on secondary/first-party rate-limit signals so we do not mis-flag a
+            # healthy PR as failed under API throttling.
+            if self._is_transient_gate(latest):
+                if time.monotonic() >= deadline:
+                    reasons = list(latest.get("reasons", []))
+                    reasons.append("GitHub merge state remained UNKNOWN after the bounded wait")
+                    latest["eligible100"] = False
+                    latest["reasons"] = reasons
+                    latest["checksTimedOut"] = True
+                    return latest
+                self.sleep_fn(min(CHECK_POLL_SECONDS, max(0, deadline - time.monotonic())))
+                continue
+            if checks.get("allCompleted"):
                 return latest
             if time.monotonic() >= deadline:
                 reasons = list(latest.get("reasons", []))
@@ -389,6 +598,19 @@ class ConvergenceController:
                 latest["checksTimedOut"] = True
                 return latest
             self.sleep_fn(min(CHECK_POLL_SECONDS, max(0, deadline - time.monotonic())))
+
+    @staticmethod
+    def _is_transient_gate(gate: dict[str, Any]) -> bool:
+        """True when GitHub reports an unsettled or throttled gate that deserves retry."""
+        pr = gate.get("pr") or {}
+        merge_state = str(pr.get("mergeStateStatus", ""))
+        mergeable = str(pr.get("mergeable", ""))
+        rate_limited = str(gate.get("message", "")).lower() in {
+            "api rate limit exceeded",
+            "rate limit exceeded",
+            "secondary rate limit",
+        }
+        return merge_state == "UNKNOWN" or mergeable == "UNKNOWN" or rate_limited
 
     def prepare_worktree(self, pr: dict[str, Any]) -> Path:
         number = int(pr["number"])
@@ -432,6 +654,88 @@ class ConvergenceController:
             raise ControllerError(f"Could not reset PR #{number} worktree: {short_output(switched.output)}")
         return worktree
 
+    def prepare_discovery_worktree(self) -> Path:
+        """Prepare a clean main-based worktree for repository-wide discovery."""
+
+        worktree = self.pub_refs / "switchboard-discovery-worktree"
+        fetched = self.run_command(
+            "git",
+            "-C",
+            str(self.root),
+            "fetch",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            timeout=VALIDATION_TIMEOUT,
+        )
+        if fetched.returncode:
+            raise ControllerError(f"Could not fetch main for discovery: {short_output(fetched.output)}")
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        self.run_command("git", "-C", str(self.root), "worktree", "prune")
+        if not (worktree / ".git").exists():
+            added = self.run_command(
+                "git",
+                "-C",
+                str(self.root),
+                "worktree",
+                "add",
+                "--detach",
+                str(worktree),
+                "refs/remotes/origin/main",
+                timeout=VALIDATION_TIMEOUT,
+            )
+            if added.returncode:
+                raise ControllerError(f"Could not create discovery worktree: {short_output(added.output)}")
+        status = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+        if status.returncode or status.output:
+            raise ControllerError("discovery worktree is dirty; refusing to run discovery")
+        switched = self.run_command(
+            "git",
+            "-C",
+            str(worktree),
+            "switch",
+            "--detach",
+            "refs/remotes/origin/main",
+            timeout=COMMAND_TIMEOUT,
+        )
+        if switched.returncode:
+            raise ControllerError(f"Could not reset discovery worktree: {short_output(switched.output)}")
+        return worktree
+
+    def run_discovery(self) -> dict[str, Any]:
+        if self.dry_run:
+            return {"status": "planned"}
+        worktree = self.prepare_discovery_worktree()
+        result = self.run_command(
+            self.hermes,
+            "-m",
+            self.hermes_model,
+            "--accept-hooks",
+            "-z",
+            discovery_prompt(worktree, self.pub_refs),
+            cwd=worktree,
+            timeout=DISCOVERY_AGENT_TIMEOUT,
+        )
+        if result.returncode:
+            raise ControllerError(f"daily discovery failed: {short_output(result.output)}")
+        status = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+        if status.returncode or status.output:
+            raise ControllerError("daily discovery left uncommitted changes in its worktree")
+        branch_result = self.run_command("git", "-C", str(worktree), "symbolic-ref", "--short", "-q", "HEAD")
+        branch = branch_result.output if branch_result.returncode == 0 else ""
+        head = self.run_command("git", "-C", str(worktree), "rev-parse", "HEAD")
+        base = self.run_command("git", "-C", str(worktree), "rev-parse", "refs/remotes/origin/main")
+        if head.returncode or base.returncode:
+            raise ControllerError("daily discovery could not verify its final head")
+        changed = head.output != base.output
+        if changed:
+            if not branch.startswith("maintenance/switchboard-"):
+                raise ControllerError(f"daily discovery changed to an unsafe branch: {branch or 'detached'}")
+            remote = self.run_command("git", "-C", str(worktree), "ls-remote", "origin", f"refs/heads/{branch}")
+            remote_head = remote.output.split()[0] if remote.output else ""
+            if remote.returncode or remote_head != head.output:
+                raise ControllerError("daily discovery changed code without a verified pushed branch")
+        return {"status": "completed", "changed": changed, "branch": branch or None, "head": head.output}
+
     def ensure_dependencies(self, worktree: Path) -> dict[str, Any]:
         if (worktree / "node_modules/.bin/eslint").is_file():
             self.node_bin_dir()
@@ -455,10 +759,17 @@ class ConvergenceController:
     def validate(self, worktree: Path) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         for command in VALIDATION_COMMANDS:
-            result = self.run_command(*command, cwd=worktree, timeout=VALIDATION_TIMEOUT)
+            effective = command
+            # The Extension Development Host E2E suite (`test:e2e`) launches a real
+            # VS Code window, which requires a display server. On headless hosts
+            # (no DISPLAY), run it under a virtual framebuffer so the controller can
+            # actually verify a PR; otherwise it crashes with "Missing X server".
+            if command[:2] == ("npm", "run") and any("e2e" in part for part in command) and not os.environ.get("DISPLAY"):
+                effective = ("xvfb-run", "-a") + command
+            result = self.run_command(*effective, cwd=worktree, timeout=VALIDATION_TIMEOUT)
             results.append(
                 {
-                    "command": " ".join(command),
+                    "command": " ".join(effective),
                     "returncode": result.returncode,
                     "passed": result.returncode == 0,
                     "timedOut": result.timed_out,
@@ -497,6 +808,9 @@ class ConvergenceController:
             return {"status": "planned"}
         result = self.run_command(
             self.hermes,
+            "-m",
+            self.hermes_model,
+            "--accept-hooks",
             "-z",
             cycle_prompt(pr, cycle, worktree, self.pub_refs),
             cwd=worktree,
@@ -514,6 +828,9 @@ class ConvergenceController:
             raise ControllerError("base maintenance worktree is dirty; read-only Dependabot review refused")
         result = self.run_command(
             self.hermes,
+            "-m",
+            self.hermes_model,
+            "--accept-hooks",
             "-z",
             dependency_review_prompt(pr, self.root, self.pub_refs),
             cwd=self.root,
@@ -543,15 +860,14 @@ class ConvergenceController:
                 temporary_path = Path(message_file.name)
             result: CommandResult | None = None
             for _attempt in range(NOTIFICATION_RETRIES):
-                result = self.run_command(
-                    self.hermes,
-                    "send",
-                    "--to",
-                    TELEGRAM_TARGET,
-                    "--file",
-                    str(temporary_path),
-                    timeout=COMMAND_TIMEOUT,
-                )
+                command = (self.hermes, "send", "--to", TELEGRAM_TARGET, "--file", str(temporary_path))
+                # Notifications must stay reachable right after a budget pause, so
+                # the digest (and only it) can bypass the budget gate via a per-call
+                # flag. Other notifications keep the normal budget-guarded path.
+                if getattr(self, "bypass_budget", False):
+                    result = self.runner(*command, cwd=self.root, timeout=COMMAND_TIMEOUT)
+                else:
+                    result = self.run_command(*command, timeout=COMMAND_TIMEOUT)
                 if result.returncode == 0:
                     break
             if result is None or result.returncode:
@@ -566,6 +882,54 @@ class ConvergenceController:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+    def _send_digest(self, results: list[dict[str, Any]], discovery: dict[str, Any] | None) -> None:
+        """Send one concise per-run status line so the loop is not silent between milestones.
+
+        Non-spammy: one message per run, only on live non-controlled runs. Individual
+        success/failure alerts already fire via notify_once; this gives a compact
+        snapshot of every in-scope PR plus the discovery outcome.
+        """
+        if self.dry_run:
+            return
+        resolved: dict[Any, str] = {}
+        for item in results:
+            if isinstance(item, dict) and item.get("number") is not None:
+                resolved[item["number"]] = str(item.get("status", "unknown"))
+        # Fill in the persisted status for any PR not covered by this run's results
+        # so the digest reflects the full in-scope picture, not just this run.
+        for number, entry in self.state.get("prs", {}).items():
+            if isinstance(entry, dict) and entry.get("status") and number not in resolved:
+                resolved[int(number)] = str(entry["status"])
+
+        line_items: list[str] = []
+        for number in sorted(resolved):
+            flag = ":white_check_mark:" if resolved[number] == "eligible100" else ""
+            line_items.append(f"#{number} {resolved[number]}{flag}")
+        discovery_line = ""
+        if discovery:
+            dstatus = str(discovery.get("status", ""))
+            if dstatus == "discovery-deferred":
+                discovery_line = "\nDiscovery deferred (PR work or budget)."
+            elif dstatus == "completed":
+                discovery_line = "\nDiscovery ran this run."
+            elif dstatus == "planned":
+                discovery_line = "\nDiscovery planned (dry run)."
+        message = (
+            f"Switchboard maintenance digest — {len(line_items)} PRs in scope.\n"
+            + "\n".join(line_items)
+            + discovery_line
+        )
+        synthetic = {"number": 0, "headRefOid": self.run_id, "url": f"https://github.com/{self.repository}/pulls"}
+        try:
+            self.bypass_budget = True
+            try:
+                self.notify_once("digest", synthetic, self.run_id, message, "scheduled-run-digest")
+            finally:
+                self.bypass_budget = False
+        except ControllerError:
+            # A digest is best-effort; a broken digest must never fail the run.
+            pass
+
     def record_pr(self, pr: dict[str, Any], **values: Any) -> None:
         item = self.state.setdefault("prs", {}).setdefault(str(pr["number"]), {})
         item.update(values)
@@ -574,6 +938,23 @@ class ConvergenceController:
         if pr.get("mode") is not None:
             item["mode"] = pr.get("mode")
         item["updatedAt"] = utc_now()
+        if not self.dry_run:
+            save_state(self.state_path, self.state)
+
+    def rotate_inventory(self, inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Start after the last completed PR so one slow PR cannot starve the queue."""
+
+        cursor = self.state.get("scheduler", {}).get("lastProcessedPr")
+        if cursor is None:
+            return inventory
+        for index, item in enumerate(inventory):
+            if str(item.get("number")) == str(cursor):
+                return inventory[index + 1 :] + inventory[: index + 1]
+        return inventory
+
+    def record_cursor(self, number: int) -> None:
+        self.state.setdefault("scheduler", {})["lastProcessedPr"] = number
+        self.state["scheduler"]["updatedAt"] = utc_now()
         if not self.dry_run:
             save_state(self.state_path, self.state)
 
@@ -597,6 +978,42 @@ class ConvergenceController:
             return {"number": number, "status": "dependency-review", "review": review}
         if mode != "full-fix":
             return {"number": number, "status": "out-of-scope"}
+
+        # Opt-in auto-un-draft: when enabled and the PR is a draft but currently
+        # mergeable and non-conflicting (CLEAN), mark it ready for review so the
+        # gate can actually certify it. Never auto-merges. Non-CLEAN drafts are
+        # left for a human/agent cycle to resolve first.
+        if self.auto_un_draft and not self.dry_run and pr.get("isDraft"):
+            merge_state = str(pr.get("mergeStateStatus", ""))
+            if merge_state in {"CLEAN", "BLOCKED", "BEHIND", "UNSTABLE"}:
+                ready = self.run_command(
+                    "/home/aidome-dev/.local/bin/gh",
+                    "pr",
+                    "ready",
+                    str(number),
+                    "--repo",
+                    self.repository,
+                    cwd=self.root,
+                    timeout=COMMAND_TIMEOUT,
+                )
+                if ready.returncode == 0:
+                    refreshed = self.current_pr(number)
+                    self.record_pr(
+                        refreshed,
+                        status="ready-for-review",
+                        lastHead=str(refreshed.get("headRefOid", "")),
+                        autoUnDrafted=True,
+                    )
+                else:
+                    detail = f"auto-un-draft failed for PR #{number}: {short_output(ready.output)}"
+                    self.record_pr(pr, status="un-draft-failed", blocker=detail)
+                    self.notify_once(
+                        "un-draft-failed",
+                        pr,
+                        str(pr.get("headRefOid", "unknown")),
+                        f"Switchboard maintenance could not un-draft PR #{number}.\n{pr.get('url', '')}\n{detail}",
+                        detail,
+                    )
 
         last_gate: dict[str, Any] | None = None
         cycles: list[dict[str, Any]] = []
@@ -635,6 +1052,7 @@ class ConvergenceController:
                     self.record_pr(
                         refreshed,
                         status="eligible100",
+                        lastHead=head_before,
                         notification=notification,
                         validation=final_validation,
                         dependencies=final_dependencies,
@@ -687,8 +1105,9 @@ class ConvergenceController:
             cycle_history.append(cycle_record)
             last_gate = effective_gate
             self.record_pr(
-                current,
+                refreshed,
                 status=cycle_record["status"],
+                lastHead=str(refreshed.get("headRefOid", "")),
                 cycles=cycles,
                 cycleHistory=cycle_history[-30:],
                 lastGate=effective_gate,
@@ -707,6 +1126,7 @@ class ConvergenceController:
                 self.record_pr(
                     refreshed,
                     status="eligible100",
+                    lastHead=str(refreshed.get("headRefOid", "")),
                     notification=notification,
                     cycles=cycles,
                     cycleHistory=cycle_history[-30:],
@@ -726,6 +1146,7 @@ class ConvergenceController:
         self.record_pr(
             current,
             status="blocked",
+            lastHead=str(current.get("headRefOid", "")),
             blocker=blocker,
             notification=notification,
             cycles=cycles,
@@ -733,13 +1154,93 @@ class ConvergenceController:
         )
         return {"number": number, "status": "blocked", "gate": last_gate, "cycles": cycles}
 
-    def run(self, *, weekly: bool = False, only_pr: int | None = None) -> dict[str, Any]:
+    def reconcile_pr(self, pr: dict[str, Any]) -> dict[str, Any]:
+        """Refresh durable state from GitHub without invoking an agent or mutating a branch."""
+
+        current = self.current_pr(int(pr["number"]))
+        gate = self.wait_for_gate(int(pr["number"]))
+        self.record_pr(
+            current,
+            status="reconciled",
+            lastHead=str(current.get("headRefOid", "")),
+            lastGate=gate,
+            reconcileOnly=True,
+        )
+        return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
+
+    def _run_status(self, results: list[dict[str, Any]], discovery: dict[str, Any]) -> str:
+        """Classify the run.
+
+        A deferred discovery is treated as a non-completion only when actionable
+        PR work is still pending. Discovery is secondary to PR convergence: when
+        the priority PR work fully finished and discovery was merely deferred for
+        a budget edge (with no PR work waiting), the run is a successful
+        completion so Hermes does not spuriously mark it `error`.
+        """
+        if discovery.get("status") == "discovery-deferred":
+            if self.unfinished_pr_work(results):
+                return "discovery-deferred"
+            return "completed"
+        if any(
+            isinstance(item, dict) and item.get("status") in {"blocked", "blocked-untrusted-source", "failed"}
+            for item in results
+        ):
+            return "completed-with-alert"
+        return "completed"
+
+    def _converge_inventory(self, inventory: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
+        """Converge existing in-scope PRs, one bounded cycle at a time.
+
+        Existing maintenance/fix PRs always run before repository-wide discovery;
+        a slow or failing PR is preserved in ``results`` so a paused budget still
+        persists partial progress.
+        """
+        for pr in self.rotate_inventory(inventory):
+            self.ensure_budget(f"processing PR #{pr['number']}")
+            try:
+                results.append(self.process_pr(pr))
+                self.record_cursor(int(pr["number"]))
+            except RunBudgetExceeded:
+                raise
+            except ControllerError as exc:
+                detail = str(exc)
+                current = pr
+                try:
+                    current = self.current_pr(int(pr["number"]))
+                except ControllerError:
+                    pass
+                notification: dict[str, Any] | None = None
+                try:
+                    notification = self.notify_once(
+                        "pr-failure",
+                        current,
+                        str(current.get("headRefOid", pr.get("headRefOid", "unknown"))),
+                        f"Switchboard maintenance PR #{pr['number']} failed and requires attention.\n"
+                        f"{current.get('url', pr.get('url', ''))}\n{detail}",
+                        detail,
+                    )
+                except ControllerError as notification_error:
+                    detail = f"{detail}; notification failed: {notification_error}"
+                self.record_pr(current, status="failed", blocker=detail, notification=notification)
+                results.append({"number": int(pr["number"]), "status": "failed", "error": detail})
+                self.record_cursor(int(pr["number"]))
+
+    def run(
+        self,
+        *,
+        weekly: bool = False,
+        only_pr: int | None = None,
+        reconcile_only: bool = False,
+    ) -> dict[str, Any]:
+        self.start_run_budget()
+        self.recover_interrupted_runs()
         started = utc_now()
         run_record: dict[str, Any] = {"runId": self.run_id, "startedAt": started, "weekly": weekly, "status": "running"}
         self.state.setdefault("runs", []).append(run_record)
         if not self.dry_run:
             save_state(self.state_path, self.state)
         results: list[dict[str, Any]] = []
+        discovery: dict[str, Any] | None = None
         try:
             provider_sync = self.sync_provider_refs(weekly)
             inventory = self.pr_inventory()
@@ -748,42 +1249,49 @@ class ConvergenceController:
                 if not inventory:
                     raise ControllerError(f"PR #{only_pr} was not returned by the in-scope PR inventory")
             if self.dry_run:
-                results = [{"number": int(pr["number"]), "status": "planned", "mode": pr.get("mode")} for pr in inventory]
+                discovery = {"status": "planned"}
+                results = [
+                    {"number": int(pr["number"]), "status": "planned", "mode": pr.get("mode")} for pr in inventory
+                ]
+            elif reconcile_only:
+                discovery = {"status": "skipped-controlled-mode"}
+                results = [self.reconcile_pr(pr) for pr in inventory]
+            elif only_pr is not None:
+                # Controlled single-PR run: converge it, never run discovery.
+                discovery = {"status": "skipped-controlled-mode"}
+                self._converge_inventory(inventory, results)
             else:
-                for pr in inventory:
-                    try:
-                        results.append(self.process_pr(pr))
-                    except ControllerError as exc:
-                        detail = str(exc)
-                        current = pr
-                        try:
-                            current = self.current_pr(int(pr["number"]))
-                        except ControllerError:
-                            pass
-                        notification: dict[str, Any] | None = None
-                        try:
-                            notification = self.notify_once(
-                                "pr-failure",
-                                current,
-                                str(current.get("headRefOid", pr.get("headRefOid", "unknown"))),
-                                f"Switchboard maintenance PR #{pr['number']} failed and requires attention.\n"
-                                f"{current.get('url', pr.get('url', ''))}\n{detail}",
-                                detail,
-                            )
-                        except ControllerError as notification_error:
-                            detail = f"{detail}; notification failed: {notification_error}"
-                        self.record_pr(current, status="failed", blocker=detail, notification=notification)
-                        results.append({"number": int(pr["number"]), "status": "failed", "error": detail})
+                # Normal scheduled run: converge existing PRs BEFORE discovery.
+                self._converge_inventory(inventory, results)
+                discovery = self.decide_discovery(results)
+                self._send_digest(results, discovery)
             run_record.update(
                 {
-                    "status": "completed-with-alert"
-                    if any(item.get("status") in {"blocked", "blocked-untrusted-source", "failed"} for item in results)
-                    else "completed",
+                    "status": self._run_status(results, discovery),
                     "finishedAt": utc_now(),
                     "providerSync": {"ok": bool(provider_sync.get("ok", False)), "weekly": weekly},
+                    "discovery": discovery,
                     "results": results,
                 }
             )
+        except RunBudgetExceeded as exc:
+            run_record.update(
+                {
+                    "status": "paused-budget",
+                    "finishedAt": utc_now(),
+                    "error": str(exc),
+                    "resumesOnNextRun": True,
+                    "results": results,
+                }
+            )
+            # The most common completion is a budget pause (durable resume), so the
+            # digest must fire here too, or the loop would stay silent between
+            # milestones. Best-effort; never fails the run.
+            if not self.dry_run:
+                try:
+                    self._send_digest(results, discovery)
+                except ControllerError:
+                    pass
         except Exception as exc:  # noqa: BLE001 - controller must persist and alert every failure.
             detail = str(exc)
             run_record.update({"status": "failed", "finishedAt": utc_now(), "error": detail})
@@ -807,6 +1315,21 @@ class ConvergenceController:
             raise
         finally:
             run_record["finishedAt"] = run_record.get("finishedAt", utc_now())
+            self.state["lastRun"] = {
+                "runId": run_record.get("runId"),
+                "startedAt": run_record.get("startedAt"),
+                "finishedAt": run_record.get("finishedAt"),
+                "status": run_record.get("status"),
+                "weekly": run_record.get("weekly", False),
+                "resumesOnNextRun": run_record.get("resumesOnNextRun", False),
+                "error": run_record.get("error"),
+                "discovery": {"status": discovery.get("status")} if discovery is not None else None,
+                "results": [
+                    {"number": item.get("number"), "status": item.get("status")}
+                    for item in results
+                    if isinstance(item, dict)
+                ],
+            }
             if not self.dry_run:
                 save_state(self.state_path, self.state)
         return {"runId": self.run_id, "status": run_record["status"], "results": results}
@@ -835,6 +1358,22 @@ class MaintenanceLock:
             self.handle.close()
 
 
+def exit_code_for_run_status(status: str) -> int:
+    """Map a run status to a process exit code.
+
+    A successful run returns 0. Paused runs and runs deferred while actionable
+    PR work is still pending are durable but NOT successful completions, so they
+    return distinct non-zero codes that make the Hermes scheduled job record an
+    incomplete run instead of `ok`. A discovery deferred purely for a budget edge
+    with no PR work waiting is a successful completion and returns 0.
+    """
+    if status == "paused-budget":
+        return 2
+    if status == "discovery-deferred":
+        return 3
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=REPOSITORY)
@@ -842,11 +1381,13 @@ def main() -> int:
     parser.add_argument("--pub-refs", type=Path, default=Path("/home/aidome-dev/pub-refs"))
     parser.add_argument("--state", type=Path, default=None)
     parser.add_argument("--hermes", default=os.environ.get("HERMES_BIN", "/home/aidome-dev/.local/bin/hermes"))
+    parser.add_argument("--hermes-model", default=os.environ.get("SWITCHBOARD_HERMES_MODEL", HERMES_MAINTENANCE_MODEL))
     parser.add_argument("--weekly", action="store_true")
     parser.add_argument("--auto-weekly", action="store_true", help="Use Sunday in Asia/Jerusalem for weekly synchronization.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-cycles", type=int, default=MAX_CYCLES_PER_RUN)
     parser.add_argument("--pr", type=int, default=None, help="Process one in-scope PR; intended for controlled validation.")
+    parser.add_argument("--reconcile-only", action="store_true", help="Refresh state from GitHub without invoking an agent.")
     args = parser.parse_args()
     if not 1 <= args.max_cycles <= MAX_CYCLES_PER_RUN:
         parser.error(f"--max-cycles must be between 1 and {MAX_CYCLES_PER_RUN}")
@@ -861,16 +1402,20 @@ def main() -> int:
             pub_refs=pub_refs,
             state_path=state,
             hermes=args.hermes,
+            hermes_model=args.hermes_model,
             max_cycles=args.max_cycles,
             dry_run=args.dry_run,
         )
         if args.dry_run:
-            result = controller.run(weekly=weekly, only_pr=args.pr)
+            result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         else:
             with MaintenanceLock(lock):
-                result = controller.run(weekly=weekly, only_pr=args.pr)
+                result = controller.run(weekly=weekly, only_pr=args.pr, reconcile_only=args.reconcile_only)
         print(json.dumps(result, indent=2))
-        return 0
+        # A paused or discovery-deferred run is durable and resumable, but it is
+        # not a successful maintenance completion. Return a distinct non-zero
+        # status so Hermes records the scheduled job as incomplete instead of `ok`.
+        return exit_code_for_run_status(result.get("status", ""))
     except ControllerError as exc:
         print(str(exc), file=sys.stderr)
         return 1

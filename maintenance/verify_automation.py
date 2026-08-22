@@ -6,13 +6,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from schedule_config import EXPECTED_RUN_HOURS, SCHEDULE, TELEGRAM_TARGET, TIMEZONE_NAME
+from schedule_config import (
+    EXPECTED_RUN_HOURS,
+    HERMES_ENTRYPOINT_NAME,
+    HERMES_MAINTENANCE_MODEL,
+    HERMES_SCRIPT_TIMEOUT_SECONDS,
+    SCHEDULE,
+    TELEGRAM_TARGET,
+    TIMEZONE_NAME,
+)
 
 
 def command_ok(*command: str) -> bool:
@@ -53,6 +62,19 @@ def main() -> int:
     add("maintenance-prompt", (repo / "maintenance/agent-prompt.md").is_file(), "agent prompt exists")
     add("maintenance-documentation", (repo / "docs/maintenance-automation.md").is_file(), "runbook exists")
     add("deterministic-controller", (repo / "maintenance/convergence_controller.py").is_file(), "convergence controller exists")
+    controller_text = (repo / "maintenance/convergence_controller.py").read_text(encoding="utf-8")
+    add(
+        "pr-priority-over-discovery",
+        "_converge_inventory" in controller_text and "decide_discovery" in controller_text,
+        "existing PRs converge before repository-wide discovery",
+    )
+    add(
+        "discovery-budget-gating",
+        "DISCOVERY_AGENT_TIMEOUT" in controller_text
+        and "discovery-deferred" in controller_text
+        and "unfinished_pr_work" in controller_text,
+        "discovery is budgeted independently and deferred safely",
+    )
     add("deterministic-pr-gate", (repo / "maintenance/review_pr.py").is_file(), "PR gate script exists")
     add("pr-scope-policy", (repo / "maintenance/pr_scope.py").is_file(), "open PR scope policy exists")
     add("sync-dry-run", command_ok("python3", str(repo / "maintenance/sync_provider_refs.py"), "--dry-run", "--pub-refs", str(pub_refs)), "read-only synchronizer validation")
@@ -92,6 +114,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             cron = None
         jobs_path = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "cron/jobs.json"
+        hermes_home = jobs_path.parent.parent
         expected_worktree = pub_refs / "switchboard-worktree"
         cron_ok = False
         cron_detail = f"twice-daily 12:00/19:00 {TIMEZONE_NAME} job is registered"
@@ -99,15 +122,24 @@ def main() -> int:
             jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
             job = next(item for item in jobs if item.get("name") == "switchboard-maintenance-daily")
             next_run = datetime.fromisoformat(job["next_run_at"]).astimezone(ZoneInfo("Asia/Jerusalem"))
-            prompt = str(job.get("prompt", ""))
+            script_path = hermes_home / "scripts" / str(job.get("script", ""))
+            script_text = script_path.read_text(encoding="utf-8") if script_path.is_file() else ""
+            config_text = (hermes_home / "config.yaml").read_text(encoding="utf-8")
+            timeout_match = re.search(r"(?m)^\s*script_timeout_seconds:\s*(\d+)\s*$", config_text)
             cron_ok = (
                 cron is not None
                 and cron.returncode == 0
                 and job.get("schedule", {}).get("expr") == SCHEDULE
                 and job.get("workdir") == str(expected_worktree)
                 and job.get("deliver") == TELEGRAM_TARGET
-                and "convergence_controller.py" in prompt
-                and "--auto-weekly" in prompt
+                and job.get("no_agent") is True
+                and job.get("script") == HERMES_ENTRYPOINT_NAME
+                and script_path.is_file()
+                and "convergence_controller.py" in script_text
+                and "--auto-weekly" in script_text
+                and HERMES_MAINTENANCE_MODEL in (expected_worktree / "maintenance/schedule_config.py").read_text(encoding="utf-8")
+                and timeout_match is not None
+                and int(timeout_match.group(1)) >= HERMES_SCRIPT_TIMEOUT_SECONDS
                 and next_run.hour in EXPECTED_RUN_HOURS
                 and next_run.minute == 0
             )
@@ -115,6 +147,8 @@ def main() -> int:
                 cron_detail = (
                     f"schedule={job.get('schedule', {}).get('expr')}, "
                     f"workdir={job.get('workdir')}, deliver={job.get('deliver')}, "
+                f"no_agent={job.get('no_agent')}, script={job.get('script')}, "
+                    f"model={HERMES_MAINTENANCE_MODEL}, "
                     f"next={next_run.isoformat()}"
                 )
         except (OSError, KeyError, StopIteration, json.JSONDecodeError, ValueError) as exc:

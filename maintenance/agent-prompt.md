@@ -97,6 +97,20 @@ report.
 
 ## Daily maintenance
 
+Existing in-scope PRs always converge before any new repository-wide discovery.
+Each run first synchronizes provider references, inventories all in-scope PRs,
+and processes (`maintenance/switchboard-*`, `fix/*`) or read-only reviews
+(`dependabot/*`) them. Discovery is budgeted independently: it runs only after
+that convergence step, only when no unfinished PR work is waiting, and only when
+the remaining run budget exceeds a safe threshold (discovery has its own bounded
+300-second session timeout plus a reserve for a PR convergence cycle). If
+discovery cannot run for budget or priority reasons, the controller records
+`discovery-deferred` and never reports it as a successful completion.
+
+Limit each discovery session to at most one new GitHub Issue and at most one new
+PR. Create or reuse the GitHub Issue before editing any code, and link the PR
+body with `Fixes #<issue-number>`.
+
 Before using relative paths, confirm the shell is in
 `/home/aidome-dev/pub-refs/switchboard-worktree`. If it is not, use absolute
 paths or explicitly change into that directory. Never read or modify the user
@@ -113,14 +127,26 @@ checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
    concrete bugs or drift. Prefer a reproduced failure or a source-backed
    compatibility issue over speculative cleanup.
 4. Before creating a branch, search existing maintenance branches, issues, and
-   pull requests. Deduplicate by normalized finding title and affected paths.
-5. For each safe, scoped finding, reproduce it first, then make the smallest
-   fix. Add a regression test that fails before the fix whenever practical.
-   Preserve SecretStorage, redaction, URL validation, backup-before-modify,
-   adapter-only configuration writes, and no-console rules.
-6. Update documentation and `CHANGELOG.md` when behavior, provider support, or
+   pull requests. Deduplicate by normalized finding title, affected paths, and
+   provider. Reuse an existing open issue when it describes the same finding.
+5. For each new, validated finding, create a GitHub issue before editing code:
+
+   ```bash
+   gh issue create --repo AIdome-co/aidome-endpoint-switchboard-vscode \
+     --title "bug: <concise finding>" \
+     --body-file <evidence-and-acceptance-criteria-file>
+   ```
+
+   The issue must record the observed behavior, reproduction/evidence, affected
+   files or provider, provider-reference commit when relevant, risk, and
+   acceptance criteria. Record the issue number and URL in the PR description.
+6. Reproduce the finding, then make the smallest fix. Add a regression test
+   that fails before the fix whenever practical. Preserve SecretStorage,
+   redaction, URL validation, backup-before-modify, adapter-only configuration
+   writes, and no-console rules.
+7. Update documentation and `CHANGELOG.md` when behavior, provider support, or
    user-facing guidance changes. Do not change release version headings.
-7. Run every applicable check and record the exact command and exit status:
+8. Run every applicable check and record the exact command and exit status:
 
    ```bash
    npm run lint
@@ -142,18 +168,20 @@ checkout at `/home/aidome-dev/aidome-endpoint-switchboard-vscode`.
    ```bash
    npm ci --ignore-scripts --no-audit --no-fund
    ```
-8. Keep one focused branch per new finding using the prefix
+9. Keep one focused branch per new finding using the prefix
    `maintenance/switchboard-`. For an existing `fix/*` PR in scope, update its
    existing branch rather than opening a duplicate. Do not alter the user's
    current branch or commit unrelated work. If the current worktree is dirty,
    inspect it and stop before modifying overlapping files.
-9. Push the branch and create a GitHub PR with `gh`. Use a draft PR when tests
+10. Push the branch and create a GitHub PR with `gh`. Link it to the issue using
+   `Fixes #<issue-number>` in the PR body. Use a draft PR when tests
    fail, confidence is low, the finding is ambiguous, or the change is broad.
    Never merge a PR.
 
 ## Controller-owned review/fix cycle
 
-The controller invokes this instruction once per cycle for every in-scope
+The no-agent Hermes entrypoint invokes the controller, and the controller
+invokes this instruction once per cycle for every in-scope
 `maintenance/switchboard-*` or `fix/*` PR, including existing PRs found by the
 inventory. In one cycle:
 
@@ -175,9 +203,11 @@ inventory. In one cycle:
 The controller independently verifies the worktree, pushed branch head,
 validation results, GitHub state, report, and deterministic gate after this
 cycle. It may invoke another cycle, up to three per scheduled run, and resumes
-unfinished PRs from durable state on the next scheduled run. If the bounded
-run does not converge, leave the PR below 100%; the controller records the
-blocker and sends the idempotent Telegram alert. Never claim 100% because a
+unfinished PRs from durable state on the next scheduled run. The controller
+also stops before the Hermes scheduler deadline and records `paused-budget`
+when the current run cannot safely start another command. If the bounded run
+does not converge, leave the PR below 100%; the controller records the blocker
+and sends the idempotent Telegram alert. Never claim 100% because a
 report was written or because GitHub showed only a green badge before the
 latest push.
 
