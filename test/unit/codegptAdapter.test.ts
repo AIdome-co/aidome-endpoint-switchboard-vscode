@@ -5,18 +5,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CodeGptAdapter } from '../../src/adapters/codegpt/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
-import * as settingsScanner from '../../src/adapters/generic/settingsScanner';
 
 // Mock vscode module
 const mockExtension = {
   packageJSON: {
     contributes: {
-      configuration: {
-          properties: {
-            'codegpt.apiUrl': {},
-          'codegpt.provider': { enum: ['openai-compatible', 'custom'] }
-        }
-      }
+      configuration: { properties: {} }
     }
   }
 };
@@ -26,9 +20,7 @@ vi.mock('vscode', () => ({
     getExtension: vi.fn()
   },
   workspace: {
-    getConfiguration: vi.fn(() => ({
-      get: vi.fn()
-    }))
+    getConfiguration: vi.fn(() => ({ get: vi.fn() }))
   }
 }));
 
@@ -42,6 +34,22 @@ vi.mock('../../src/util/log', () => ({
   }
 }));
 
+// Mock the storage module so adapter tests don't hit a real ~/.codegpt DB.
+vi.mock('../../src/adapters/codegpt/codegptStorage', () => ({
+  writeCodeGptConnection: vi.fn(async () => '/tmp/backup'),
+  writeCodeGptLocalFlavor: vi.fn(async () => true),
+  readCodeGptConnection: vi.fn(),
+  resolveCodeGptHome: vi.fn(() => '/home/test/.codegpt'),
+  normalizeStorageBaseUrl: vi.fn((b: string) => b.replace(/\/v1$/, '').replace(/\/+$/, '')),
+}));
+
+import {
+  readCodeGptConnection,
+  normalizeStorageBaseUrl as mockNormalize,
+} from '../../src/adapters/codegpt/codegptStorage';
+
+const mockReadConnection = vi.mocked(readCodeGptConnection);
+
 describe('CodeGptAdapter', () => {
   let adapter: CodeGptAdapter;
   let mockProfile: EndpointProfile;
@@ -51,11 +59,12 @@ describe('CodeGptAdapter', () => {
     mockProfile = {
       id: 'test-profile',
       name: 'Test Profile',
-      baseUrl: 'https://aidome.example.com/v1',
+      baseUrl: 'http://80.240.29.183:8100/v1',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+    mockReadConnection.mockResolvedValue(undefined);
   });
 
   describe('detect', () => {
@@ -91,205 +100,25 @@ describe('CodeGptAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('rejects an unsafe or unsupported endpoint URL before building the plan', async () => {
-      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
-        .rejects.toThrow('unsupported scheme');
-    });
-
-    it('should create a plan with settings when keys are discovered', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://old-url.com');
-
+    it('emits a single write-assistant-storage step with the normalized base URL and authRef', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
-      expect(plan).toBeDefined();
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('codegpt');
-      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.steps).toHaveLength(1);
 
-      const settingStep = plan.steps.find(s => s.action === 'set-vscode-setting');
-      expect(settingStep).toBeDefined();
-      expect(settingStep?.newValue).toBe(mockProfile.baseUrl);
+      const step = plan.steps[0];
+      expect(step.action).toBe('write-assistant-storage');
+      expect(step.assistantKey).toBe('codegpt');
+      expect(step.data.baseUrl).toBe('http://80.240.29.183:8100');
+      expect(step.data.authRef).toBeUndefined();
+      expect(mockNormalize).toHaveBeenCalledWith('http://80.240.29.183:8100/v1');
     });
 
-    it('should fall back to guided mode when no settings keys found', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan).toBeDefined();
-      const guidedSteps = plan.steps.filter(s => s.action === 'show-guided-steps');
-      expect(guidedSteps.length).toBeGreaterThan(0);
-      
-      const mainGuidance = guidedSteps[0];
-      expect(mainGuidance.assistantKey).toBe('codegpt');
-      expect(mainGuidance.data.baseUrl).toBe(mockProfile.baseUrl);
-      expect(mainGuidance.data.configurationType).toBe('in-extension-ui');
-      expect(mainGuidance.data.limitation).toContain('version-dependent');
-      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
-      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
-      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Manage my AI Models');
-    });
-
-    it('should include provider setting when discovered', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const providerStep = plan.steps.find(s => 
-        s.action === 'set-vscode-setting' && 
-        s.targetPath?.includes('provider')
-      );
-      expect(providerStep).toBeDefined();
-      expect(providerStep?.newValue).toBe('openai-compatible');
-    });
-
-    it('should write the schema-specific provider enum value when available', async () => {
-      const vscode = await import('vscode');
-      const customOnlyExtension = {
-        packageJSON: {
-          contributes: {
-            configuration: {
-              properties: {
-                'codegpt.provider': { enum: ['custom'] }
-              }
-            }
-          }
-        }
-      };
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(customOnlyExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const providerStep = plan.steps.find(s =>
-        s.action === 'set-vscode-setting' && s.targetPath?.includes('provider')
-      );
-      expect(providerStep).toBeDefined();
-      expect(providerStep?.newValue).toBe('custom');
-    });
-
-    it('should retain guided completion when only a provider setting is discoverable', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan.steps.some(step => step.action === 'set-vscode-setting')).toBe(true);
-      const guidedStep = plan.steps.find(step => step.action === 'show-guided-steps');
-      expect(guidedStep?.data.configurationType).toBe('in-extension-ui');
-      expect((guidedStep?.data.steps as string[]).join('\n')).toContain('API URL/Base URL');
-    });
-
-    it('does not auto-set a provider whose schema lacks an OpenAI-compatible enum value', async () => {
-      const vscode = await import('vscode');
-      const unsupportedProviderExtension = {
-        packageJSON: {
-          contributes: {
-            configuration: {
-              properties: {
-                'codegpt.provider': { enum: ['anthropic', 'gemini'] }
-              }
-            }
-          }
-        }
-      };
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(unsupportedProviderExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const providerStep = plan.steps.find(s =>
-        s.action === 'set-vscode-setting' && s.targetPath?.includes('provider')
-      );
-      expect(providerStep).toBeUndefined();
-      expect(plan.steps.some(step => step.action === 'show-guided-steps')).toBe(true);
-    });
-
-    it('does not auto-set a provider whose schema has no enum array', async () => {
-      const vscode = await import('vscode');
-      const noEnumExtension = {
-        packageJSON: {
-          contributes: {
-            configuration: {
-              properties: {
-                'codegpt.provider': { type: 'string' }
-              }
-            }
-          }
-        }
-      };
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(noEnumExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const providerStep = plan.steps.find(s =>
-        s.action === 'set-vscode-setting' && s.targetPath?.includes('provider')
-      );
-      expect(providerStep).toBeUndefined();
-      expect(plan.steps.some(step => step.action === 'show-guided-steps')).toBe(true);
-    });
-
-    it('should fall back to guided steps when the extension is not installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const guidedStep = plan.steps.find(step => step.action === 'show-guided-steps');
-      expect(guidedStep).toBeDefined();
-      expect(guidedStep?.data.configurationType).toBe('in-extension-ui');
-      expect(plan.steps.some(step => step.action === 'set-vscode-setting')).toBe(false);
-    });
-
-    it('should fall back to guided steps when setting discovery throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockImplementation(() => {
-        throw new Error('discovery failure');
-      });
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const guidedStep = plan.steps.find(step => step.action === 'show-guided-steps');
-      expect(guidedStep).toBeDefined();
-      expect(guidedStep?.data.configurationType).toBe('in-extension-ui');
+    it('passes the authRef through when set', async () => {
+      const profile = { ...mockProfile, authRef: 'my-profile-name' };
+      const plan = await adapter.buildPlan(profile);
+      expect(plan.steps[0].data.authRef).toBe('my-profile-name');
     });
   });
 
@@ -304,85 +133,45 @@ describe('CodeGptAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should return failure when no settings are configured', async () => {
+    it('should return failure when CodeGPT storage has no configured local provider', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
+      mockReadConnection.mockResolvedValue(undefined);
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('endpoint URL is not configured');
+      expect(result.message).toContain('not configured');
       expect(result.details?.tier).toBe('B');
-      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
     });
 
-    it('should reject an unsafe or non-URL endpoint value during verification', async () => {
+    it('should return success when a valid base URL is stored in CodeGPT storage', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('javascript:alert(1)');
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('endpoint URL is not configured');
-    });
-
-    it('should return success when settings are configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://aidome.example.com/v1');
+      mockReadConnection.mockResolvedValue({
+        customLink: 'http://80.240.29.183:8100',
+        apikey: 'some-key',
+      });
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain('verified');
-      expect(result.details?.configuredSettingKeys).toEqual(['codegpt.apiUrl']);
+      expect(result.details?.apiKeyConfigured).toBe(true);
       expect(result.details?.configurationStatus).toBe('endpoint-configured');
     });
 
-    it('should include the provider setting key when a value is configured', async () => {
+    it('should return failure when the stored base URL is not a valid URL', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockImplementation((key: string) =>
-        key === 'codegpt.apiUrl' ? 'https://aidome.example.com/v1' : 'openai-compatible'
-      );
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.details?.configuredSettingKeys).toContain('codegpt.provider');
-      expect(result.details?.configurationStatus).toBe('endpoint-configured');
-    });
-
-    it('should handle errors gracefully', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('Test error');
+      mockReadConnection.mockResolvedValue({
+        customLink: 'file:///etc/passwd',
+        apikey: undefined,
       });
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Error verifying');
+      expect(result.details?.configurationStatus).toBe('invalid-storage-value');
     });
   });
 
