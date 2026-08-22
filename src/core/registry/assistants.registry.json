@@ -421,7 +421,7 @@
       "kind": "vscode-extension",
       "detection": {
         "vscodeExtensionIds": [
-          "CodeGPT.codegpt"
+          "DanielSanMedium.dscodegpt"
         ]
       },
       "dialect": {

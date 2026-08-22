@@ -66,7 +66,7 @@ describe('CodeGptAdapter', () => {
       const result = await adapter.detect();
 
       expect(result).toBe(true);
-      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('CodeGPT.codegpt');
+      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('DanielSanMedium.dscodegpt');
     });
 
     it('should return false when extension is not detected', async () => {
