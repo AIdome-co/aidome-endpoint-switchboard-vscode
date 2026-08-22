@@ -1,6 +1,6 @@
 {
   "$schemaVersion": "0.1.0",
-  "updatedAt": "2026-05-21",
+  "updatedAt": "2026-08-16",
   "dialectCatalog": {
     "openai.chat_completions": "OpenAI-style /v1/chat/completions",
     "openai.responses": "OpenAI-style /v1/responses",
@@ -125,33 +125,36 @@
         ]
       },
       "endpointSwitching": {
-        "supported": true,
-        "tier": "A",
+        "supported": false,
+        "tier": "C",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "vscode-settings",
-          "in-extension-ui"
-        ],
-        "settingKeyHints": [
-          "roo-cline.apiProvider",
-          "roo-cline.openAiBaseUrl",
-          "roo-cline.openAiModelId",
-          "roo-cline.useOpenRouter",
-          "roo-cline.anthropicApiKey",
-          "roo-cline.geminiApiKey"
+          "in-extension-ui",
+          "guided-only"
         ],
         "notes": [
-          "⚠️ DEFUNCT: Roo Code shut down on May 15, 2026. The extension and documentation are no longer maintained. Community fork 'ZooCode' exists but uses a different extension ID.",
-          "Roo Code is a fork-family of the Cline-style agent and exposes explicit VS Code settings keys.",
-          "Exact keys may evolve; keep a scan-and-verify path."
+          "⚠️ ARCHIVED: Roo Code's final 3.54.0 release was published before the repository was archived on May 15, 2026. Community fork 'ZooCode' exists but uses a different extension ID.",
+          "Roo Code stores provider profiles as JSON in its own SecretStorage; its final extension manifest has no endpoint configuration keys for the Switchboard to write.",
+          "The final source supports OpenAI-compatible chat completions and a separate native OpenAI Responses provider, but endpoint routing must be configured in Roo Code's settings UI.",
+          "The adapter therefore detects Roo Code and provides guided setup without claiming automatic endpoint switching or automatic verification."
         ]
       },
       "tlsVerification": {
-        "support": "vscode-global",
-        "settingHint": "http.proxyStrictSSL",
-        "notes": "Roo Code relies on VS Code's http.proxyStrictSSL. No extension-specific TLS toggle."
+        "support": "none",
+        "notes": "The final Roo Code source uses the OpenAI SDK/Node request path. Its debugProxy.tlsInsecure setting is for the debug proxy, not provider endpoint TLS; no endpoint-specific TLS override is exposed."
       },
       "sources": [
+        "https://github.com/RooCodeInc/Roo-Code",
+        "https://github.com/RooCodeInc/Roo-Code/tree/v3.54.0/apps/docs/docs/providers",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/apps/docs/docs/providers/openai-compatible.md",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/apps/docs/docs/providers/openai.md",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/packages/types/src/provider-settings.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/core/config/ProviderSettingsManager.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/index.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/providers/openai.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/src/api/providers/openai-native.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/webview-ui/src/components/settings/constants.ts",
+        "https://github.com/RooCodeInc/Roo-Code/blob/v3.54.0/webview-ui/src/utils/validate.ts",
         "https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline"
       ]
     },
