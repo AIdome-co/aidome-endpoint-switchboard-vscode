@@ -14,7 +14,7 @@ import { validateUrl } from '../../core/profiles/profileValidator';
  * CodeGPT assistant adapter.
  */
 export class CodeGptAdapter extends BaseExtensionAdapter {
-  protected readonly extensionId = 'CodeGPT.codegpt';
+  protected readonly extensionId = 'DanielSanMedium.dscodegpt';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     if (!validateUrl(profile.baseUrl)) {
