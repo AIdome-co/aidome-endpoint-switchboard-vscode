@@ -639,6 +639,47 @@ class ValidationCommandTests(unittest.TestCase):
         self.assertNotIn("xvfb-run", e2e, f"expected plain npm run test:e2e, got {e2e}")
         self.assertEqual(e2e[-1], "test:e2e")
 
+    def test_memory_pressure_parses_meminfo(self) -> None:
+        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"))
+        result = controller._memory_pressure()
+        self.assertIn("critical", result)
+        self.assertIn("availableMb", result)
+        # On a normal host with headroom this should be False; if it is True here the
+        # threshold is too aggressive and would defer E2E on every run.
+        # We only assert the shape, not a specific value, to stay environment-agnostic.
+
+    def test_e2e_is_deferred_under_critical_memory_pressure(self) -> None:
+        # Simulate a memory-starved host: E2E must NOT spawn a VS Code instance; it
+        # must be recorded as a (non-passing) environment deferral so the PR stays
+        # below 100% without slamming an already-thrashing box.
+        seen: list[tuple[str, ...]] = []
+
+        def runner(*command: str, cwd: Path | None = None, timeout: int = 0) -> CommandResult:
+            seen.append(command)
+            return CommandResult(0, "")
+
+        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner)
+        # Force the pressure gate on, independent of /proc/meminfo.
+        controller._memory_pressure = lambda: {"critical": True, "availableMb": 200, "swapUsedMb": 6000}  # type: ignore[method-assign]
+
+        old_display = os.environ.get("DISPLAY")
+        os.environ.pop("DISPLAY", None)
+        try:
+            result = controller.validate(Path("/tmp/wt"))
+        finally:
+            if old_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = old_display
+
+        e2e_entries = [r for r in result["commands"] if "test:e2e" in r["command"]]
+        self.assertEqual(len(e2e_entries), 1, "E2E entry must still be recorded")
+        self.assertFalse(e2e_entries[0]["passed"], "deferred E2E must not count as passing")
+        self.assertIsNone(e2e_entries[0]["returncode"], "deferred E2E must not have a returncode")
+        self.assertIn("Deferred under memory pressure", e2e_entries[0]["output"])
+        # No VS Code / xvfb command may actually run when pressure is critical.
+        self.assertFalse(any("test:e2e" in " ".join(c) for c in seen), f"E2E must not spawn under pressure: {seen}")
+
 
 class TransientGateTests(unittest.TestCase):
     def test_transient_gate_is_flagged_for_retry(self) -> None:

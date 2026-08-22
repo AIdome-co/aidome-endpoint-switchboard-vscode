@@ -76,6 +76,16 @@ VALIDATION_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("npm", "run", "package"),
 )
 
+# Memory-headroom thresholds for deferring the heavy E2E validation step. These
+# protect a shared host from being slammed by stacked full VS Code Extension
+# Development Host instances while it is already memory-starved (the condition
+# that wedged a live vscode-server session). "Critical" fires when available RAM
+# drops below MIN_AVAILABLE_MB or free swap falls below MIN_SWAP_FREE_PERCENT.
+# Tuned against the observed crash state (~1.3 GiB available / ~78% swap used) so
+# the gate genuinely fires before that point, not only at the edge of OOM.
+VALIDATION_MIN_AVAILABLE_MB = 2048
+VALIDATION_MIN_SWAP_FREE_PERCENT = 20
+
 
 class ControllerError(RuntimeError):
     """Raised when the controller cannot safely continue."""
@@ -639,8 +649,35 @@ class ConvergenceController:
             if added.returncode:
                 raise ControllerError(f"Could not create PR #{number} worktree: {short_output(added.output)}")
         status = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+        # A leftover worktree from a prior interrupted run may hold uncommitted
+        # changes and/or be pointing at the wrong commit. Because PR worktrees live
+        # under the automation-owned pub-refs directory (never the user checkout) and
+        # the branch is scoped by the allowlist above, we can safely reset it to the
+        # remote head instead of permanently wedging the PR — the failure mode observed
+        # as "PR #N worktree is not clean" that recurred on every run until a human
+        # manually reset it. A dirty-but-HEAD-matched worktree means an agent cycle is
+        # actively mid-flight, which the controller never re-enters concurrently, so a
+        # reset here is always to the canonical remote state.
         if status.returncode or status.output:
-            raise ControllerError(f"PR #{number} worktree is not clean")
+            reset = self.run_command(
+                "git",
+                "-C",
+                str(worktree),
+                "reset",
+                "--hard",
+                f"refs/remotes/origin/{branch}",
+                timeout=COMMAND_TIMEOUT,
+            )
+            if reset.returncode:
+                raise ControllerError(f"PR #{number} worktree is not clean and could not be reset: {short_output(reset.output)}")
+            clean = self.run_command(
+                "git", "-C", str(worktree), "clean", "-fd", f"--exclude={worktree}/node_modules"
+            )
+            if clean.returncode:
+                raise ControllerError(f"PR #{number} worktree cleanup failed: {short_output(clean.output)}")
+            quiesced = self.run_command("git", "-C", str(worktree), "status", "--porcelain")
+            if quiesced.returncode or quiesced.output:
+                raise ControllerError(f"PR #{number} worktree remains dirty after reset: {short_output(quiesced.output)}")
         switched = self.run_command(
             "git",
             "-C",
@@ -756,8 +793,40 @@ class ConvergenceController:
             raise ControllerError(f"npm ci failed: {short_output(result.output)}")
         return {"status": "installed"}
 
+    def _memory_pressure(self) -> dict[str, Any]:
+        """Return available-RAM headroom metrics; True values mean the host is at risk.
+
+        Reads /proc/meminfo so the controller can avoid stacking heavy validation
+        (notably the full VS Code Extension Development Host E2E) on a box that is
+        already memory-starved — the condition that caused a shared VM's vscode-server
+        session to wedge. Survives when /proc/meminfo is unreadable (additive so the
+        controller never hard-fails on this path).
+        """
+        try:
+            with open("/proc/meminfo", encoding="utf-8") as handle:
+                info: dict[str, int] = {}
+                for line in handle:
+                    key, rest = line.split(":", 1)
+                    value = int(rest.strip().split()[0])  # kB
+                    info[key] = value
+            mem_total = info.get("MemTotal", 0)
+            mem_avail = info.get("MemAvailable", 0)
+            swap_total = info.get("SwapTotal", 0)
+            swap_free = info.get("SwapFree", 0)
+            swap_used = swap_total - swap_free
+            avail_mb = mem_avail // 1024
+            swap_used_mb = swap_used // 1024
+            # Heuristic: critical when available RAM is tiny OR swap is almost
+            # entirely consumed (thrashing) — exactly the pre-crash state observed.
+            critical = mem_total > 0 and avail_mb < VALIDATION_MIN_AVAILABLE_MB
+            critical = critical or (swap_total > 0 and (swap_free * 100 // swap_total) < VALIDATION_MIN_SWAP_FREE_PERCENT)
+            return {"critical": bool(critical), "availableMb": avail_mb, "swapUsedMb": swap_used_mb}
+        except (OSError, ValueError):
+            return {"critical": False, "availableMb": None, "swapUsedMb": None}
+
     def validate(self, worktree: Path) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
+        pressure = self._memory_pressure()
         for command in VALIDATION_COMMANDS:
             effective = command
             # The Extension Development Host E2E suite (`test:e2e`) launches a real
@@ -766,6 +835,27 @@ class ConvergenceController:
             # actually verify a PR; otherwise it crashes with "Missing X server".
             if command[:2] == ("npm", "run") and any("e2e" in part for part in command) and not os.environ.get("DISPLAY"):
                 effective = ("xvfb-run", "-a") + command
+            # Under critical memory pressure, skip the E2E step (a full VS Code
+            # instance) rather than stack it on a thrashing box and jeopardize the
+            # host's other sessions. Record it as an environment deferral, not a code
+            # failure: the result is "not passed" (PR stays safely below 100%) until a
+            # later run has headroom, but the box is not endangered and the PR is not
+            # spuriously flagged as a regression.
+            if any("e2e" in part for part in command) and pressure.get("critical"):
+                results.append(
+                    {
+                        "command": " ".join(effective),
+                        "returncode": None,
+                        "passed": False,
+                        "timedOut": False,
+                        "output": (
+                            f"Deferred under memory pressure "
+                            f"(available={pressure.get('availableMb')}MiB, swap-used={pressure.get('swapUsedMb')}MiB); "
+                            f"rerun when headroom is available."
+                        ),
+                    }
+                )
+                continue
             result = self.run_command(*effective, cwd=worktree, timeout=VALIDATION_TIMEOUT)
             results.append(
                 {
