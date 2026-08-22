@@ -97,8 +97,9 @@ Individual assistants may also reject self-signed certificates independently of 
 | **Env var** | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` |
 | **Env var** | Codex CLI | `CODEX_CA_CERTIFICATE` or `SSL_CERT_FILE` (custom CA bundle) |
 | **Env var** | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
-| **VS Code global** | GitHub Copilot, Cline, Roo Code, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` |
+| **VS Code global** | GitHub Copilot, Cline, Kilo Code, CodeGPT, Tabnine | `"http.proxyStrictSSL": false` |
 | **None** | Gemini CLI | No documented mechanism |
+| **None** | Roo Code | No provider-endpoint TLS override is exposed; use a trusted system CA and verify the gateway request manually |
 
 For full details per assistant, see the `tlsVerification` field in `src/core/registry/assistants.registry.json`.
 
