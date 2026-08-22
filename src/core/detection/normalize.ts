@@ -27,7 +27,8 @@ const EXTENSION_ALIASES: Record<string, string> = {
   'anthropic.claude-code': 'claude-code',
   
   // CodeGPT
-  'codegpt.codegpt': 'codegpt',
+  'danielsanmedium.dscodegpt': 'codegpt',
+  'danielsanmedium.codegpt': 'codegpt',
   
   // Tabnine
   'tabnine.tabnine-vscode': 'tabnine'
