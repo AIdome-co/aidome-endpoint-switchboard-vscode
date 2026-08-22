@@ -250,7 +250,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
   it('patches Codex config content instead of replacing it with the URL', async () => {
     const applier = new PlanApplier(fakeContext);
     mockAccess.mockResolvedValue(undefined);
-    mockReadFile.mockResolvedValue('model = "existing-model"\n\n[providers.openai]\nbase_url = "https://api.openai.com/v1"\n');
+    mockReadFile.mockResolvedValue('model = "existing-model"\n\n[model_providers.existing]\nname = "Existing"\nbase_url = "https://api.openai.com/v1"\n');
     const step = makeStep({
       action: 'edit-config-file',
       assistantKey: 'openai-codex',
@@ -264,8 +264,27 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.success).toBe(true);
     const written = mockSafeWriteFile.mock.calls.at(-1)?.[1];
     expect(written).toContain('model = "existing-model"');
-    expect(written).toContain('[providers.aidome]');
+    expect(written).toContain('[model_providers.aidome]');
     expect(written).toContain('base_url = "https://gateway.example.com/v1"');
+  });
+
+  it('passes Codex auth environment guidance without writing a secret', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockReadFile.mockResolvedValue(undefined);
+    const step = makeStep({
+      action: 'edit-config-file',
+      assistantKey: 'openai-codex',
+      targetPath: '/tmp/codex-config.toml',
+      newValue: 'https://gateway.example.com/v1',
+      data: { format: 'toml', authEnvVar: 'OPENAI_API_KEY' },
+    });
+
+    const result = await applier.applyPlan(makePlan([step]), 'profile');
+
+    expect(result.success).toBe(true);
+    const written = mockSafeWriteFile.mock.calls.at(-1)?.[1];
+    expect(written).toContain('env_key = "OPENAI_API_KEY"');
+    expect(written).not.toContain('api_key');
   });
 
   it('records a composite changeLogEntry for API compatibility', async () => {

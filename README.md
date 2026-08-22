@@ -73,6 +73,12 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
 
+OpenAI Codex routing:
+
+- Configures the user-level `~/.codex/config.toml` with a custom `[model_providers.aidome]` entry and selects it through `model_provider = "aidome"`.
+- Preserves the existing model and other provider entries, migrates the legacy Switchboard `[providers.*]` table when present, and always selects the Responses API.
+- Codex credentials stay outside `config.toml`; when a profile has a saved secret, the generated provider points at `OPENAI_API_KEY` and the setup flow provides the required process-environment guidance.
+
 Claude Code gateway routing:
 
 - Configures Claude Code user settings (`~/.claude/settings.json` by default, or `CLAUDE_CONFIG_DIR/settings.json` when overridden) with `env.ANTHROPIC_BASE_URL` for Anthropic Messages-compatible gateways.
