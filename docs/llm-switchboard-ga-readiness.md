@@ -474,7 +474,7 @@ This document tracks everything completed to date and everything remaining befor
 | Cline | https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev |
 | Roo Code | https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline |
 | Kilo Code | https://marketplace.visualstudio.com/items?itemName=kilocode.kilo-code |
-| CodeGPT | https://marketplace.visualstudio.com/items?itemName=CodeGPT.codegpt |
+| CodeGPT | https://marketplace.visualstudio.com/items?itemName=DanielSanMedium.dscodegpt |
 | Tabnine | https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode |
 | Amazon Q Developer | https://marketplace.visualstudio.com/items?itemName=AmazonWebServices.amazon-q-vscode |
 | JetBrains AI Assistant | https://marketplace.visualstudio.com/items?itemName=JetBrains.JetBrains-AI-Assistant |
