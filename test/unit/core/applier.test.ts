@@ -22,6 +22,7 @@ const {
   mockReadFile,
   mockUnlink,
   mockShowWarningMessage,
+  mockGetSecret,
 } = vi.hoisted(() => ({
   mockSafeWriteFile: vi.fn().mockResolvedValue(true),
   mockCreateBackup: vi.fn().mockResolvedValue('/tmp/backup.json'),
@@ -33,6 +34,7 @@ const {
   mockReadFile: vi.fn().mockResolvedValue('{"existing":true}'),
   mockUnlink: vi.fn().mockResolvedValue(undefined),
   mockShowWarningMessage: vi.fn(),
+  mockGetSecret: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../src/util/fsSafe', () => ({
@@ -86,6 +88,12 @@ vi.mock('../../../src/core/orchestration/changeLog', () => ({
   }),
 }));
 
+vi.mock('../../../src/core/profiles/profileSecrets', () => ({
+  ProfileSecrets: vi.fn(function (this: { getSecret: typeof mockGetSecret }) {
+    this.getSecret = mockGetSecret;
+  }),
+}));
+
 import { PlanApplier } from '../../../src/core/orchestration/applier';
 import type { Plan, PlanStep } from '../../../src/core/orchestration/planBuilder';
 
@@ -129,6 +137,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     mockAccess.mockRejectedValue(createEnoentError());
     mockReadFile.mockResolvedValue('{"existing":true}');
     mockUnlink.mockResolvedValue(undefined);
+    mockGetSecret.mockResolvedValue(undefined);
   });
 
   it('returns success=true when all steps succeed', async () => {
@@ -266,6 +275,84 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(written).toContain('model = "existing-model"');
     expect(written).toContain('[providers.aidome]');
     expect(written).toContain('base_url = "https://gateway.example.com/v1"');
+  });
+
+  it('applies Kilo native config with authenticated discovery without persisting the profile secret', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockResolvedValue(undefined);
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      provider: {
+        'existing-provider': {
+          name: 'Existing',
+          options: { baseURL: 'https://existing.example.com/v1' },
+          models: { 'existing-model': { name: 'Existing model', reasoning: true } }
+        },
+        'aidome-gateway': {
+          options: { apiKey: '{env:OPENAI_API_KEY}' },
+          models: { 'manual-model': { name: 'Manual model', reasoning: true } }
+        }
+      },
+      permission: { bash: 'allow' }
+    }));
+    mockGetSecret.mockResolvedValue('profile-secret');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'discovered-model' }] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await applier.applyPlan(makePlan([makeStep({
+      action: 'edit-config-file',
+      assistantKey: 'kilo-code',
+      targetPath: '/home/user/.config/kilo/kilo.jsonc',
+      newValue: 'https://gateway.example.com/v1',
+      data: { authRef: 'profile-secret-ref', format: 'jsonc' }
+    })]), 'profile');
+
+    expect(result.success).toBe(true);
+    expect(mockGetSecret).toHaveBeenCalledWith('profile-secret-ref');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gateway.example.com/v1/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer profile-secret' })
+      })
+    );
+    const written = JSON.parse(mockSafeWriteFile.mock.calls.at(-1)?.[1]);
+    const provider = written.provider['aidome-gateway'];
+    expect(provider.options.apiKey).toBe('{env:OPENAI_API_KEY}');
+    expect(provider.models).toEqual({
+      'manual-model': { name: 'Manual model', reasoning: true },
+      'discovered-model': { name: 'discovered-model' }
+    });
+    expect(written.provider['existing-provider']).toBeDefined();
+    expect(written.permission).toEqual({ bash: 'allow' });
+    expect(mockSafeWriteFile.mock.calls.at(-1)?.[1]).not.toContain('profile-secret');
+  });
+
+  it('rolls back a newly-created Kilo config when a later Kilo step fails', async () => {
+    const applier = new PlanApplier(fakeContext);
+    mockAccess.mockRejectedValue(createEnoentError());
+    mockUpdateConfig.mockRejectedValueOnce(new Error('later Kilo step failed'));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+    const result = await applier.applyPlan(makePlan([
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'kilo-code',
+        targetPath: '/home/user/.config/kilo/kilo.jsonc',
+        newValue: 'https://gateway.example.com/v1',
+        data: { format: 'jsonc' }
+      }),
+      makeStep({
+        action: 'set-vscode-setting',
+        assistantKey: 'kilo-code',
+        targetPath: 'kilocode.unrelatedSetting',
+        newValue: true
+      })
+    ]), 'profile');
+
+    expect(result.success).toBe(false);
+    expect(mockUnlink).toHaveBeenCalledWith('/home/user/.config/kilo/kilo.jsonc');
   });
 
   it('records a composite changeLogEntry for API compatibility', async () => {

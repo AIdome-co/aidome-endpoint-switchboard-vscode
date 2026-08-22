@@ -31,7 +31,7 @@ Use this checklist before asking developers to run the Setup Wizard:
 | Continue.dev | Tier A — auto-configure | Patches `~/.continue/config.json` |
 | Cline | Tier A — auto-configure | Sets VS Code settings |
 | Roo Code | Tier A — auto-configure | Sets VS Code settings |
-| Kilo Code | Tier A — auto-configure | Sets VS Code settings |
+| Kilo Code | Tier B — partial/guided | Patches native JSONC; runtime auth may require Kilo-native setup |
 | Codex CLI | Tier A — auto-configure | Patches `~/.codex/config.toml` or env vars |
 | Claude Code | Tier A — auto-configure | Rewrites Claude Code user settings and gateway bearer token; requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
 | CodeGPT | Tier B — verify after | May need manual model selection |

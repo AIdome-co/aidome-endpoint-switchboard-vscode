@@ -14,8 +14,14 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
-import { getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
+import {
+  getKiloConfigPath,
+  discoverModels,
+  buildModelEntries,
+  inspectKiloConfigContent
+} from './kiloConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 /**
  * Kilo Code assistant adapter.
@@ -24,6 +30,10 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = 'kilocode.kilo-code';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('Kilo Code endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     const configPath = getKiloConfigPath();
     let plan = createPlan(profile.id, ['kilo-code']);
 
@@ -35,6 +45,8 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       : undefined;
 
     const configExists = await fileExists(configPath);
+    const existingContent = configExists ? await readFileSafe(configPath) : undefined;
+    const existingInspection = existingContent ? inspectKiloConfigContent(existingContent) : undefined;
     if (configExists) {
       plan = addStep(plan, {
         action: 'backup-file',
@@ -57,7 +69,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
         configPath: configPath,
         profileId: profile.id,
         baseUrl: profile.baseUrl,
-        authRef: profile.name,
+        authRef: profile.authRef,
         profileName: profile.name,
         format: 'jsonc',
         providerSlug: 'aidome-gateway',
@@ -66,8 +78,8 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       reversible: true
     });
 
-    // If auto-discovery failed and no existing config, guide the user
-    if (!models && !configExists) {
+    // If auto-discovery failed and no usable model list exists, guide the user.
+    if (!models && (existingInspection?.modelCount ?? 0) === 0) {
       plan = addStep(plan, {
         action: 'show-guided-steps',
         description: 'Configure models in Kilo Code UI',
@@ -78,9 +90,11 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
             `Open Kilo Code and go to provider settings`,
             `Select the "AIdome Gateway" provider`,
             `Add model(s) under "Models" (e.g. "gpt-4" or any model your gateway serves)`,
-            `Save the provider configuration`
+            `Save the provider configuration`,
+            `If the gateway requires authentication, configure Kilo's provider API key using a trusted environment reference; Switchboard never writes the profile secret to JSONC`
           ],
-          baseUrl: profile.baseUrl
+          baseUrl: profile.baseUrl,
+          tier: 'B'
         },
         reversible: false
       });
@@ -109,10 +123,16 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const hasProviderConfig = content.includes('"aidome-gateway"') &&
-                              content.includes('baseURL');
+    const inspection = inspectKiloConfigContent(content);
+    if (!inspection) {
+      return {
+        success: false,
+        message: 'Kilo Code config file is not valid JSONC',
+        details: { configPath }
+      };
+    }
 
-    if (!hasProviderConfig) {
+    if (!inspection.hasProvider || !inspection.baseUrl) {
       return {
         success: false,
         message: 'Kilo Code config does not have AIdome Gateway provider configured',
@@ -120,10 +140,22 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       };
     }
 
+    if (inspection.modelCount === 0) {
+      return {
+        success: false,
+        message: 'Kilo Code AIdome Gateway provider has no models configured',
+        details: { configPath }
+      };
+    }
+
     return {
       success: true,
       message: 'Kilo Code configuration verified',
-      details: { configPath }
+      details: {
+        configPath,
+        modelCount: inspection.modelCount,
+        authReferenceConfigured: inspection.hasAuthReference
+      }
     };
   }
 
@@ -132,6 +164,6 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'A';
+    return 'B';
   }
 }

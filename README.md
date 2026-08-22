@@ -64,7 +64,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | Continue.dev | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | Cline | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
 | Roo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
-| Kilo Code | VS Code Extension | A — Full | ✅ Yes | OpenAI Chat |
+| Kilo Code | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | OpenAI Codex CLI | CLI | A — Full | ✅ Yes | OpenAI Responses |
 | CodeGPT | VS Code Extension | B — Partial | ⚡ Partial | OpenAI Chat |
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
@@ -79,6 +79,12 @@ Claude Code gateway routing:
 - Requires raw OpenAI `/v1/chat/completions` endpoints to be fronted by a gateway that exposes Anthropic Messages, Bedrock InvokeModel, or Vertex rawPredict semantics.
 - Enables `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; Claude Code uses that only on v2.1.129+ with Anthropic Messages gateways and only surfaces gateway models whose IDs begin with `claude` or `anthropic`.
 - When Claude Code is assigned to a profile, profile activation rewrites `env.ANTHROPIC_AUTH_TOKEN` in the shared Claude settings file from that profile's stored secret, and clears any stale `env.ANTHROPIC_API_KEY` value so Claude Code stays in the gateway bearer-token path.
+
+Kilo Code gateway routing:
+
+- Kilo Code 7.4+ uses the native global JSONC provider configuration (`~/.config/kilo/kilo.jsonc`, or the path selected by `KILO_CONFIG_DIR`/`KILO_CONFIG`), not the former `kilocode.*` VS Code settings. Endpoint and model configuration is automated; runtime authentication may require guided Kilo-native setup.
+- The adapter writes `provider.aidome-gateway` with Kilo's `@ai-sdk/openai-compatible` provider, updates only its `options.baseURL`, and adds OpenAI-compatible model IDs discovered from `{baseURL}/models`.
+- Authenticated model discovery uses the profile token from SecretStorage. The token is never serialized into Kilo's JSONC; existing Kilo auth references, headers, models, providers, and settings are preserved. Configure runtime credentials through Kilo's native environment-reference or provider-auth flow when the gateway requires authentication.
 
 ### Tier Explanation
 
@@ -237,8 +243,8 @@ When you apply a profile, the extension only changes configuration surfaces for 
 
 | Surface | Examples | Safety behavior |
 |---------|----------|-----------------|
-| VS Code settings | Cline, Roo Code, Kilo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
-| User config files | Continue `config.json`, Codex CLI `config.toml`, Claude Code `settings.json` | A timestamped backup is created before modification |
+| VS Code settings | Cline, Roo Code, CodeGPT, Copilot proxy override | Settings are applied through the VS Code configuration API where supported |
+| User config files | Continue `config.json`, Codex CLI `config.toml`, Kilo `kilo.jsonc`, Claude Code `settings.json` | A timestamped backup is created before modification |
 | Environment hints | Assistant-specific TLS or gateway variables documented in guided output | Secrets are redacted in logs and diagnostics |
 
 The extension does **not** modify source code, workspace files, prompts, or assistant conversation history.
