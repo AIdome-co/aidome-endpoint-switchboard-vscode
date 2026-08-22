@@ -11,7 +11,8 @@ export type PlanStepAction =
   | 'set-env-var'
   | 'backup-file'
   | 'verify-endpoint'
-  | 'show-guided-steps';
+  | 'show-guided-steps'
+  | 'write-assistant-storage';
 
 /**
  * Typed data shape for `show-guided-steps` plan steps.

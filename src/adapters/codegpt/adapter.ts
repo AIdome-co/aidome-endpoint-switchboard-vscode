@@ -4,11 +4,15 @@
 
 import * as vscode from 'vscode';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
+import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
-import { getSettingValue, discoverBaseUrlSettings, discoverProviderSettings } from '../generic/settingsScanner';
-
+import { validateInputUrl } from '../../core/profiles/profileValidator';
+import {
+  readCodeGptConnection,
+  resolveCodeGptHome,
+  normalizeStorageBaseUrl,
+} from './codegptStorage';
 /**
  * CodeGPT assistant adapter.
  */
@@ -18,89 +22,23 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     let plan = createPlan(profile.id, ['codegpt']);
 
-    const settingKeys = await this.discoverSettingKeys();
-
-    if (settingKeys.baseUrlKey || settingKeys.providerKey) {
-      if (settingKeys.baseUrlKey) {
-        const oldValue = getSettingValue(settingKeys.baseUrlKey);
-        plan = addStep(plan, {
-          action: 'set-vscode-setting',
-          description: `Set ${settingKeys.baseUrlKey} to ${profile.baseUrl}`,
-          assistantKey: 'codegpt',
-          targetPath: settingKeys.baseUrlKey,
-          oldValue: oldValue,
-          newValue: profile.baseUrl,
-          requiresConfirmation: true,
-          data: { 
-            settingKey: settingKeys.baseUrlKey, 
-            value: profile.baseUrl,
-            oldValue: oldValue
-          },
-          reversible: true
-        });
-      }
-
-      if (settingKeys.providerKey) {
-        const oldValue = getSettingValue(settingKeys.providerKey);
-        plan = addStep(plan, {
-          action: 'set-vscode-setting',
-          description: `Set ${settingKeys.providerKey} to custom provider`,
-          assistantKey: 'codegpt',
-          targetPath: settingKeys.providerKey,
-          oldValue: oldValue,
-          newValue: 'openai-compatible',
-          requiresConfirmation: true,
-          data: { 
-            settingKey: settingKeys.providerKey, 
-            value: 'openai-compatible',
-            oldValue: oldValue,
-            note: 'May need to be set to "custom" or "openai-compatible" depending on CodeGPT version'
-          },
-          reversible: true
-        });
-      }
-    } else {
-      const guidedData: GuidedStepsData = {
-        message: 'CodeGPT settings could not be auto-detected. Please configure manually.',
-        steps: [
-          'Open CodeGPT settings (Ctrl+Shift+P → CodeGPT: Settings)',
-          'Select "Custom" or "OpenAI-compatible" provider',
-          `Enter your AIdome endpoint URL: ${profile.baseUrl}`,
-          'Save the configuration',
-          'Restart VS Code if needed'
-        ],
-        baseUrl: profile.baseUrl
-      };
-      plan = addStep(plan, {
-        action: 'show-guided-steps',
-        description: 'Manual configuration required for CodeGPT',
-        assistantKey: 'codegpt',
-        data: guidedData,
-        reversible: false
-      });
-    }
+    // CodeGPT stores its local/OpenAI-compatible provider in its own SQLite
+    // connection table (~/.codegpt/db.sqlite), not in contributed VS Code
+    // settings. Write it exactly as CodeGPT's own UI does so models appear
+    // in the CodeGPT panel automatically.
+    plan = addStep(plan, {
+      action: 'write-assistant-storage',
+      description: 'Configure CodeGPT local provider (custom_link + api key)',
+      assistantKey: 'codegpt',
+      targetPath: resolveCodeGptHome(),
+      data: {
+        baseUrl: normalizeStorageBaseUrl(profile.baseUrl),
+        authRef: profile.authRef,
+      },
+      reversible: true,
+    });
 
     return plan;
-  }
-
-  private async discoverSettingKeys(): Promise<{ baseUrlKey?: string; providerKey?: string }> {
-    try {
-      const extension = vscode.extensions.getExtension(this.extensionId);
-      if (!extension) {
-        return {};
-      }
-
-      const baseUrlMatches = discoverBaseUrlSettings(this.extensionId);
-      const providerMatches = discoverProviderSettings(this.extensionId);
-
-      return {
-        baseUrlKey: baseUrlMatches.length > 0 ? baseUrlMatches[0].key : undefined,
-        providerKey: providerMatches.length > 0 ? providerMatches[0].key : undefined
-      };
-    } catch (error) {
-      this.logger.warning('Error discovering CodeGPT setting keys', error);
-      return {};
-    }
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
@@ -113,42 +51,40 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const settingKeys = await this.discoverSettingKeys();
-    const configuredSettings: Record<string, unknown> = {};
+    // The authoritative store is CodeGPT's own SQLite database, not VS Code
+    // contributed settings. Read the real custom_link / apikey so verification
+    // reflects what CodeGPT will actually use.
+    const stored = await readCodeGptConnection();
+    const storedBaseUrl = stored?.customLink;
 
-    if (settingKeys.baseUrlKey) {
-      const value = getSettingValue(settingKeys.baseUrlKey);
-      if (value) {
-        configuredSettings[settingKeys.baseUrlKey] = value;
-      }
-    }
-
-    if (settingKeys.providerKey) {
-      const value = getSettingValue(settingKeys.providerKey);
-      if (value) {
-        configuredSettings[settingKeys.providerKey] = value;
-      }
-    }
-
-    if (Object.keys(configuredSettings).length === 0) {
+    if (!storedBaseUrl) {
       return {
         success: false,
-        message: 'No CodeGPT endpoint settings configured',
-        details: { 
+        message: 'CodeGPT local provider is not configured in its storage',
+        details: {
           extension: true,
-          checkedKeys: settingKeys,
           tier: 'B',
-          note: 'Configuration may need to be done manually through CodeGPT UI'
+          configurationStatus: 'manual-configuration-required',
+          note: 'CodeGPT stores its local provider in ~/.codegpt/db.sqlite; run the setup to write it',
         }
       };
     }
 
+    // The stored custom_link reflects the (already-validated) profile base URL,
+    // which may legitimately be a remote http endpoint. Use the lenient parser
+    // (http/https only, any host) rather than validateUrl (https/localhost only)
+    // so a correctly-stored gateway URL isn't flagged as invalid.
+    const storedValid = validateInputUrl(storedBaseUrl);
     return {
-      success: true,
-      message: 'CodeGPT configuration verified',
-      details: { 
+      success: storedValid,
+      message: storedValid
+        ? 'CodeGPT configuration verified (local provider stored in CodeGPT storage)'
+        : 'CodeGPT stored base URL is invalid',
+      details: {
         extension: true,
-        configuredSettings: configuredSettings 
+        storedCustomLink: storedBaseUrl,
+        apiKeyConfigured: !!stored?.apikey,
+        configurationStatus: storedValid ? 'endpoint-configured' : 'invalid-storage-value',
       }
     };
   }
