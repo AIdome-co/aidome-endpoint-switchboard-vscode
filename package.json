@@ -238,6 +238,7 @@
     "pretest": "npm run compile",
     "lint": "eslint src",
     "test": "vitest",
+    "validate:registry": "vitest run --config vitest.validation.config.ts",
     "compile:e2e": "tsc -p ./tsconfig.e2e.json",
     "pretest:e2e": "npm run compile && npm run compile:e2e",
     "test:e2e": "vscode-test",

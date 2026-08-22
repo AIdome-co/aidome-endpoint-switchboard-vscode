@@ -17,6 +17,11 @@ vi.mock('vscode', () => {
       packageJSON: { version: '3.2.0' },
       isActive: false,
     },
+    {
+      id: 'danielsanmedium.dscodegpt',
+      packageJSON: { version: '3.24.52' },
+      isActive: true,
+    },
   ];
   const onDidChangeFn = vi.fn(() => ({ dispose: vi.fn() }));
   return {
@@ -49,6 +54,23 @@ import {
   initializeExtensionCaching,
 } from '../../src/core/detection/detectExtensions';
 import type { AssistantRegistry } from '../../src/core/registry/registryTypes';
+import type { ExtensionIdResolver } from '../../src/core/detection/extensionIdResolver';
+
+/**
+ * Fake resolver that returns the declared IDs unchanged — no marketplace
+ * network access during fast unit tests.
+ */
+function fakeResolver(): ExtensionIdResolver {
+  return {
+    resolveForAssistant: async (entry) => ({
+      assistantKey: entry.key,
+      displayName: entry.displayName,
+      declaredIds: entry.detection.vscodeExtensionIds ?? [],
+      resolvedIds: entry.detection.vscodeExtensionIds ?? [],
+      status: 'declared-valid',
+    }),
+  } as unknown as ExtensionIdResolver;
+}
 
 describe('detectExtensions', () => {
   beforeEach(() => {
@@ -56,7 +78,7 @@ describe('detectExtensions', () => {
     vi.clearAllMocks();
   });
 
-  it('detects installed extensions from registry', () => {
+  it('detects installed extensions from registry', async () => {
     const registry: AssistantRegistry = {
       version: '1.0',
       assistants: [
@@ -70,7 +92,7 @@ describe('detectExtensions', () => {
       ],
     };
 
-    const results = detectExtensions(registry);
+    const results = await detectExtensions(registry, fakeResolver());
     expect(results).toHaveLength(1);
     expect(results[0].assistantKey).toBe('continue');
     expect(results[0].displayName).toBe('Continue.dev');
@@ -78,7 +100,7 @@ describe('detectExtensions', () => {
     expect(results[0].isActive).toBe(true);
   });
 
-  it('returns empty when no extensions match', () => {
+  it('returns empty when no extensions match', async () => {
     const registry: AssistantRegistry = {
       version: '1.0',
       assistants: [
@@ -92,11 +114,11 @@ describe('detectExtensions', () => {
       ],
     };
 
-    const results = detectExtensions(registry);
+    const results = await detectExtensions(registry, fakeResolver());
     expect(results).toHaveLength(0);
   });
 
-  it('detects only the first matching extension ID per assistant', () => {
+  it('detects only the first matching extension ID per assistant', async () => {
     const registry: AssistantRegistry = {
       version: '1.0',
       assistants: [
@@ -110,12 +132,12 @@ describe('detectExtensions', () => {
       ],
     };
 
-    const results = detectExtensions(registry);
+    const results = await detectExtensions(registry, fakeResolver());
     expect(results).toHaveLength(1);
     expect(results[0].extensionId).toBe('saoudrizwan.claude-dev');
   });
 
-  it('is case-insensitive for extension IDs', () => {
+  it('is case-insensitive for extension IDs', async () => {
     const registry: AssistantRegistry = {
       version: '1.0',
       assistants: [
@@ -129,8 +151,69 @@ describe('detectExtensions', () => {
       ],
     };
 
-    const results = detectExtensions(registry);
+    const results = await detectExtensions(registry, fakeResolver());
     expect(results).toHaveLength(1);
+  });
+
+  it('detects an installed extension via the resolver when the declared ID is stale', async () => {
+    // The registry declares a non-existent ID ('CodeGPT.codegpt'); the installed
+    // extension is DanielSanMedium.dscodegpt. The resolver supplies the canonical
+    // ID so the assistant is still detected (the class of bug this layer fixes).
+    const registry: AssistantRegistry = {
+      version: '1.0',
+      assistants: [
+        {
+          key: 'codegpt',
+          displayName: 'CodeGPT',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['CodeGPT.codegpt'] },
+          endpointSwitching: { tier: 'B', dialect: 'openai.chat_completions' },
+        } as any,
+      ],
+    };
+
+    const resolver = {
+      resolveForAssistant: async (entry: any) => ({
+        assistantKey: entry.key,
+        displayName: entry.displayName,
+        declaredIds: ['CodeGPT.codegpt'],
+        resolvedIds: ['DanielSanMedium.dscodegpt'],
+        status: 'resolved-from-market' as const,
+      }),
+    } as unknown as ExtensionIdResolver;
+
+    const results = await detectExtensions(registry, resolver);
+    expect(results).toHaveLength(1);
+    expect(results[0].assistantKey).toBe('codegpt');
+    expect(results[0].extensionId).toBe('DanielSanMedium.dscodegpt');
+  });
+
+  it('does not detect when neither declared nor resolved IDs match', async () => {
+    const registry: AssistantRegistry = {
+      version: '1.0',
+      assistants: [
+        {
+          key: 'codegpt',
+          displayName: 'CodeGPT',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['CodeGPT.codegpt'] },
+          endpointSwitching: { tier: 'B', dialect: 'openai.chat_completions' },
+        } as any,
+      ],
+    };
+
+    const resolver = {
+      resolveForAssistant: async (entry: any) => ({
+        assistantKey: entry.key,
+        displayName: entry.displayName,
+        declaredIds: ['CodeGPT.codegpt'],
+        resolvedIds: ['something.else'],
+        status: 'resolved-from-market' as const,
+      }),
+    } as unknown as ExtensionIdResolver;
+
+    const results = await detectExtensions(registry, resolver);
+    expect(results).toHaveLength(0);
   });
 });
 
