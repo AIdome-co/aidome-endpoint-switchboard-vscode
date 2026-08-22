@@ -659,6 +659,12 @@ class ConvergenceController:
         # actively mid-flight, which the controller never re-enters concurrently, so a
         # reset here is always to the canonical remote state.
         if status.returncode or status.output:
+            # A leftover interrupted run may have left the worktree mid-rebase,
+            # mid-merge, or mid-cherry-pick — any of which blocks `git reset`. These
+            # aborts are idempotent (safe no-ops when no operation is in progress), so
+            # attempt them first and proceed regardless of their exit code.
+            for aborter in ("rebase", "--quit"), ("merge", "--abort"), ("cherry-pick", "--abort"):
+                self.run_command("git", "-C", str(worktree), *aborter, timeout=COMMAND_TIMEOUT)
             reset = self.run_command(
                 "git",
                 "-C",
