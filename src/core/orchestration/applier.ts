@@ -191,6 +191,10 @@ export class PlanApplier {
       case 'verify-endpoint':
         await this.applyVerifyEndpoint(step);
         break;
+
+      case 'write-assistant-storage':
+        await this.applyWriteAssistantStorage(step, appliedStep);
+        break;
       
       default:
         throw new Error(`Unknown action: ${step.action}`);
@@ -458,6 +462,44 @@ export class PlanApplier {
   }
 
   /**
+   * Applies an assistant-specific storage write (e.g. CodeGPT's SQLite
+   * connection table + settings.json). The step's `data` carries the
+   * provider, base URL and api key; the adapter-specific writer is invoked
+   * by assistant key.
+   */
+  private async applyWriteAssistantStorage(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
+    const assistantKey = step.assistantKey;
+    const data = (step.data ?? {}) as Record<string, unknown>;
+    const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl : undefined;
+    const authRef = typeof data.authRef === 'string' ? data.authRef : undefined;
+
+    if (!baseUrl) {
+      throw new Error('write-assistant-storage requires a baseUrl in step data');
+    }
+
+    // Resolve the API key from SecretStorage via the profile's authRef.
+    let apiKey: string | undefined;
+    if (authRef) {
+      apiKey = await this.profileSecrets.getSecret(authRef);
+    }
+
+    // Only CodeGPT currently uses this action; its writer owns the backup and
+    // returns the backup path so rollback can restore it.
+    if (assistantKey === 'codegpt') {
+      const { writeCodeGptConnection, writeCodeGptLocalFlavor, resolveDbPath } = await import('../../adapters/codegpt/codegptStorage');
+      const homeDir = data.homeDir as string | undefined;
+      const backupPath = await writeCodeGptConnection(baseUrl, apiKey, homeDir);
+      await writeCodeGptLocalFlavor(homeDir);
+      appliedStep.backupPath = backupPath;
+      appliedStep.target = resolveDbPath(homeDir);
+      this.logger.info(`Wrote CodeGPT local-provider storage (baseUrl=${baseUrl}, backup=${backupPath ?? 'none'})`);
+      return;
+    }
+
+    throw new Error(`write-assistant-storage not supported for assistant: ${assistantKey}`);
+  }
+
+  /**
    * Rolls back a list of applied steps (for automatic rollback on failure).
    */
   private async rollbackSteps(steps: AppliedStep[]): Promise<void> {
@@ -571,6 +613,19 @@ export class PlanApplier {
       case 'backup-file':
       case 'verify-endpoint':
         // These actions don't need reversal
+        break;
+
+      case 'write-assistant-storage':
+        // Restore the CodeGPT SQLite DB from the binary backup created during
+        // apply. Requires fs.copyFile (binary-safe), not a text write.
+        if (step.backupPath && step.target) {
+          try {
+            await fs.copyFile(step.backupPath, step.target);
+            this.logger.info(`Restored CodeGPT storage from backup: ${step.backupPath}`);
+          } catch (error) {
+            this.logger.warning(`Could not restore CodeGPT storage from backup: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
         break;
     }
   }
