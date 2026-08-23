@@ -123,4 +123,8 @@ describe('Continue Config Patcher', () => {
       JSON.stringify({ models: { provider: 'openai' }, customSetting: true })
     )).toThrow('models must be an array of objects');
   });
+
+  it('rejects a non-object config root without replacing the file', () => {
+    expect(() => buildContinueConfigContent(mockProfile.baseUrl, '[]')).toThrow('config must be a JSON object');
+  });
 });
