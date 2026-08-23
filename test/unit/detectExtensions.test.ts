@@ -18,8 +18,8 @@ vi.mock('vscode', () => {
       isActive: false,
     },
     {
-      id: 'danielsanmedium.dscodegpt',
-      packageJSON: { version: '3.24.52' },
+      id: 'DanielSanMedium.dscodegpt',
+      packageJSON: { version: '3.24.53' },
       isActive: true,
     },
   ];
@@ -28,7 +28,7 @@ vi.mock('vscode', () => {
     extensions: {
       all: extensionsList,
       getExtension: vi.fn((id: string) => {
-        return extensionsList.find(e => e.id === id.toLowerCase()) || undefined;
+        return extensionsList.find(e => e.id.toLowerCase() === id.toLowerCase()) || undefined;
       }),
       onDidChange: onDidChangeFn,
     },
@@ -135,6 +135,48 @@ describe('detectExtensions', () => {
     const results = await detectExtensions(registry, fakeResolver());
     expect(results).toHaveLength(1);
     expect(results[0].extensionId).toBe('saoudrizwan.claude-dev');
+  });
+
+  it('detects CodeGPT from its real marketplace extension ID', async () => {
+    const registry: AssistantRegistry = {
+      version: '1.0',
+      assistants: [
+        {
+          key: 'codegpt',
+          displayName: 'CodeGPT',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['DanielSanMedium.dscodegpt'] },
+          endpointSwitching: { tier: 'B', dialect: 'openai.chat_completions' },
+        } as any,
+      ],
+    };
+
+    const results = await detectExtensions(registry, fakeResolver());
+    expect(results).toHaveLength(1);
+    expect(results[0].assistantKey).toBe('codegpt');
+    expect(results[0].extensionId).toBe('DanielSanMedium.dscodegpt');
+    expect(results[0].version).toBe('3.24.53');
+    expect(results[0].isActive).toBe(true);
+  });
+
+  it('returns empty when only the old nonexistent CodeGPT extension ID is registered', async () => {
+    const registry: AssistantRegistry = {
+      version: '1.0',
+      assistants: [
+        {
+          key: 'codegpt',
+          displayName: 'CodeGPT',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['CodeGPT.codegpt'] },
+          endpointSwitching: { tier: 'B', dialect: 'openai.chat_completions' },
+        } as any,
+      ],
+    };
+
+    // Regression guard: the old CodeGPT.codegpt ID returns HTTP 404 on the
+    // VS Code Marketplace and is not installed, so detection must be empty.
+    const results = await detectExtensions(registry, fakeResolver());
+    expect(results).toHaveLength(0);
   });
 
   it('is case-insensitive for extension IDs', async () => {
