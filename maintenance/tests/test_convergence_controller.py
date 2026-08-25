@@ -404,8 +404,9 @@ class ConvergenceControllerTests(unittest.TestCase):
 
             controller.reconcile_pr(pr())
 
-            # The fresh gate is eligible100 with empty reasons -> stale blocker cleared.
-            self.assertEqual(controller.state["prs"]["123"]["status"], "reconciled")
+            # The fresh gate is eligible100 with empty reasons -> stale blocker
+            # cleared AND the PR mirrors the live gate as eligible100.
+            self.assertEqual(controller.state["prs"]["123"]["status"], "eligible100")
             self.assertEqual(controller.state["prs"]["123"].get("blocker", ""), "")
 
     def test_reconcile_blocked_gate_preserves_blocker(self) -> None:
@@ -420,6 +421,100 @@ class ConvergenceControllerTests(unittest.TestCase):
 
             self.assertEqual(controller.state["prs"]["123"]["status"], "reconciled")
             self.assertEqual(controller.state["prs"]["123"].get("blocker"), "GitHub mergeable=CONFLICTING")
+
+    def test_eligible_pr_with_env_deferred_validation_skips_agent_cycle(self) -> None:
+        """An already-eligible PR whose supplementary local validation fails only
+        for an ENVIRONMENT reason (headless/memory E2E deferral, returncode=None)
+        must NOT burn an unnecessary Hermes cycle, and must be reported as an
+        environment deferral rather than a bogus source-code regression. It stays
+        below 100% (fail-closed) with an honest deferral a later run heals."""
+
+        class EnvDeferred(FakeController):
+            def validate(self, worktree: Path) -> dict[str, Any]:
+                return {
+                    "passed": False,
+                    "commands": [
+                        {
+                            "command": "xvfb-run -a npm run test:e2e",
+                            "returncode": None,
+                            "passed": False,
+                            "timedOut": False,
+                            "output": "Deferred under memory pressure (available=512MiB, swap-used=1024MiB); rerun when headroom is available",
+                        }
+                    ],
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = EnvDeferred(
+                root=root, pub_refs=root / "pub", state_path=root / "state.json", gate_values=[True, True]
+            )
+            result = c.process_pr(pr())
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertTrue(result.get("envDeferred"))
+        self.assertEqual(c.agent_calls, 0, "no Hermes cycle should run for an env-only validation deferral")
+        blocker = c.state["prs"]["123"]["blocker"]
+        self.assertIn("deferred", blocker)
+        self.assertNotIn("did not pass", blocker)
+
+    def test_validation_env_deferred_rejects_real_failure(self) -> None:
+        """The env-deferral classifier must distinguish a real (returncode!=0)
+        validation failure from an environment deferral, so the controller never
+        suppresses a genuine regression."""
+        no_failure = {"commands": [{"passed": True, "returncode": 0}]}
+        env_deferral = {"commands": [{"passed": False, "returncode": None}]}
+        real_failure = {"commands": [{"passed": False, "returncode": 1}]}
+        mixed = {"commands": [{"passed": True, "returncode": 0}, {"passed": False, "returncode": 1}]}
+        empty = {"commands": []}
+
+        self.assertFalse(ConvergenceController._validation_env_deferred(no_failure))
+        self.assertTrue(ConvergenceController._validation_env_deferred(env_deferral))
+        self.assertFalse(ConvergenceController._validation_env_deferred(real_failure))
+        self.assertFalse(ConvergenceController._validation_env_deferred(mixed))
+        self.assertFalse(ConvergenceController._validation_env_deferred(empty))
+
+    def test_digest_counts_live_inventory_not_results(self) -> None:
+        """The digest PR count is anchored to the LIVE in-scope inventory, so a
+        partial / reconcile-only / budget-paused run with an empty results set does
+        not report a misleading '0 PRs in scope' when the inventory has PRs."""
+
+        captured: dict[str, str] = {}
+
+        class Digester(ConvergenceController):
+            def notify_once(self, kind, current, head, message, detail):  # type: ignore[no-untyped-def]
+                captured["message"] = message
+                return {"sent": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = Digester(root=root, pub_refs=root / "pub", state_path=root / "state.json", run_budget_seconds=1500)
+            c.current_inventory = [pr(122), pr(123), pr(124)]
+            # No results, no persisted state -> previously this read as "0 PRs".
+            c._send_digest([], None)
+        self.assertIn("3 PRs in scope", captured["message"])
+        self.assertIn("#122 in-scope", captured["message"])
+        self.assertIn("#124 in-scope", captured["message"])
+
+    def test_digest_live_inventory_with_partial_results(self) -> None:
+        """With an inventory AND partial results, the count reflects the full
+        inventory and the recorded statuses show through (incl. the checkmark)."""
+
+        captured: dict[str, str] = {}
+
+        class Digester2(ConvergenceController):
+            def notify_once(self, kind, current, head, message, detail):  # type: ignore[no-untyped-def]
+                captured["message"] = message
+                return {"sent": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = Digester2(root=root, pub_refs=root / "pub", state_path=root / "state.json", run_budget_seconds=1500)
+            c.current_inventory = [pr(122), pr(123), pr(124)]
+            c._send_digest([{"number": 122, "status": "eligible100"}], None)
+        self.assertIn("3 PRs in scope", captured["message"])
+        self.assertIn("#122 eligible100:white_check_mark:", captured["message"])
+        self.assertIn("#123 in-scope", captured["message"])
 
 class DiscoveryPriorityTests(unittest.TestCase):
     def test_existing_pr_converges_before_discovery(self) -> None:
