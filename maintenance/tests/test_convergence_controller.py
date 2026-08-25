@@ -496,6 +496,31 @@ class ConvergenceControllerTests(unittest.TestCase):
         self.assertIn("#122 in-scope", captured["message"])
         self.assertIn("#124 in-scope", captured["message"])
 
+    def test_digest_truly_empty_inventory_still_reports_zero(self) -> None:
+        """A genuinely empty live inventory must still report 0 PRs — it must not
+        fall back to stale PRs lingering in persisted state (which would mask a
+        truly-empty repository and misreport the scope)."""
+
+        captured: dict[str, str] = {}
+
+        class Digester3(ConvergenceController):
+            def notify_once(self, kind, current, head, message, detail):  # type: ignore[no-untyped-def]
+                captured["message"] = message
+                return {"sent": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            c = Digester3(root=root, pub_refs=root / "pub", state_path=root / "state.json", run_budget_seconds=1500)
+            # Genuinely empty live inventory (no open in-scope PRs)...
+            c.current_inventory = []
+            # ...but stale persisted PRs remain from earlier runs.
+            c.record_pr(pr(122), status="eligible100")
+            c.record_pr(pr(130), status="eligible100")
+            c._send_digest([], None)
+        self.assertIn("0 PRs in scope", captured["message"])
+        self.assertNotIn("#122", captured["message"])
+        self.assertNotIn("#130", captured["message"])
+
     def test_digest_live_inventory_with_partial_results(self) -> None:
         """With an inventory AND partial results, the count reflects the full
         inventory and the recorded statuses show through (incl. the checkmark)."""
@@ -718,6 +743,18 @@ class DiscoveryPriorityTests(unittest.TestCase):
 
 
 class ValidationCommandTests(unittest.TestCase):
+    def _non_critical_controller(self, root: Path, pub_refs: Path, runner: Any) -> Any:
+        """Construct a controller whose memory-pressure gate reports non-critical so
+        the E2E xvfb wrap can be isolated deterministically. Without this, the tests
+        would silently defer E2E under host memory pressure (recording final
+        `returncode=None`) and never observe the wrap — flaky on a starved host."""
+
+        class NonCritical(ConvergenceController):
+            def _memory_pressure(self) -> dict[str, Any]:
+                return {"critical": False, "availableMb": 4096, "swapUsedMb": 0}
+
+        return NonCritical(root=root, pub_refs=pub_refs, runner=runner)
+
     def test_e2e_is_wrapped_in_xvfb_on_headless_host(self) -> None:
         # On a headless host (no DISPLAY), the E2E validation step launches a real
         # VS Code window and must run under a virtual framebuffer, otherwise it
@@ -728,7 +765,7 @@ class ValidationCommandTests(unittest.TestCase):
             seen.append(command)
             return CommandResult(0, "")
 
-        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner)
+        controller = self._non_critical_controller(Path("/tmp/x"), Path("/tmp/p"), runner)
         old_display = os.environ.get("DISPLAY")
         os.environ.pop("DISPLAY", None)
         try:
@@ -749,7 +786,7 @@ class ValidationCommandTests(unittest.TestCase):
             seen.append(command)
             return CommandResult(0, "")
 
-        controller = ConvergenceController(root=Path("/tmp/x"), pub_refs=Path("/tmp/p"), runner=runner)
+        controller = self._non_critical_controller(Path("/tmp/x"), Path("/tmp/p"), runner)
         old_display = os.environ.get("DISPLAY")
         os.environ["DISPLAY"] = ":99"
         try:

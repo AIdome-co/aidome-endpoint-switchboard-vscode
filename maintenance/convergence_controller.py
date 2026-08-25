@@ -1017,15 +1017,20 @@ class ConvergenceController:
         # partial, or budget-paused run must not report a misleading "0 PRs in
         # scope" while the known inventory still contains the PRs. The inventory is
         # made available on the instance so the digest keeps its stable 2-arg
-        # signature (test overrides depend on it).
-        inventory = getattr(self, "current_inventory", None) or []
-        numbers = [
-            int(p["number"])
-            for p in inventory
-            if isinstance(p, dict) and p.get("number") is not None
-        ]
-        if not numbers:
+        # signature (test overrides depend on it). Distinguish "never captured"
+        # (None -> fall back to recorded statuses for callers outside a run) from
+        # "genuinely empty live inventory" ([] -> report 0, not stale persisted
+        # PRs). Only the former may fall back to recorded statuses, so a truly
+        # empty repository still reports zero.
+        inventory = getattr(self, "current_inventory", None)
+        if inventory is None:
             numbers = sorted(resolved)
+        else:
+            numbers = [
+                int(p["number"])
+                for p in inventory
+                if isinstance(p, dict) and p.get("number") is not None
+            ]
 
         line_items: list[str] = []
         for number in sorted(numbers):
