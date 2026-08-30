@@ -174,23 +174,29 @@
       },
       "endpointSwitching": {
         "supported": true,
-        "tier": "A",
+        "tier": "B",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "vscode-settings",
-          "in-extension-ui"
+          "config-file",
+          "guided"
         ],
-        "settingKeyHints": [
-          "kilocode.apiProvider",
-          "kilocode.openaiApiKey",
-          "kilocode.openaiBaseUrl",
-          "kilocode.openaiModel",
-          "kilocode.useOpenRouter",
-          "kilocode.customProviderEndpoint"
+        "configFileHints": [
+          {
+            "path": "~/.config/kilo/kilo.jsonc (or KILO_CONFIG_DIR/KILO_CONFIG)",
+            "format": "jsonc",
+            "fields": [
+              "provider.aidome-gateway.name",
+              "provider.aidome-gateway.npm",
+              "provider.aidome-gateway.options.baseURL",
+              "provider.aidome-gateway.models"
+            ]
+          }
         ],
         "notes": [
-          "Kilo Code supports OpenAI Base URL config.",
-          "Treat settings keys as hints; confirm via contributes.configuration in the installed extension."
+          "Kilo Code 7.4+ loads native provider definitions from the global kilo.jsonc JSONC config and uses provider.<id>.options.baseURL plus provider.<id>.models.",
+          "The adapter discovers models from the OpenAI-compatible /models endpoint with the profile token from SecretStorage, but never writes that token into JSONC.",
+          "Existing provider models, auth references, headers, and unrelated providers/settings are preserved.",
+          "Runtime authentication remains a guided Kilo-native environment-reference or provider-auth step when the gateway requires a token, so the adapter does not claim full authentication automation."
         ]
       },
       "tlsVerification": {
@@ -199,8 +205,10 @@
         "notes": "No extension-specific TLS setting. Inherits VS Code's http.proxyStrictSSL."
       },
       "sources": [
-        "https://kilo.ai/docs/getting-started",
-        "https://kilo.ai/docs/ai-providers/openai-compatible"
+        "https://kilo.ai/docs/code-with-ai/agents/custom-models",
+        "https://kilo.ai/docs/ai-providers/openai-compatible",
+        "https://app.kilo.ai/config.json",
+        "https://github.com/Kilo-Org/kilocode/releases"
       ]
     },
     {
