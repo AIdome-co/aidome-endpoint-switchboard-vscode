@@ -233,7 +233,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
       assistantKey: 'continue',
       targetPath: '/tmp/continue-config.json',
       newValue: 'https://gateway.example.com/v1',
-      data: { format: 'json' },
+      data: { driver: 'yaml-model-array', format: 'jsonc' },
     });
 
     const result = await applier.applyPlan(makePlan([step]), 'profile');
@@ -256,7 +256,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
       assistantKey: 'openai-codex',
       targetPath: '/tmp/codex-config.toml',
       newValue: 'https://gateway.example.com/v1',
-      data: { format: 'toml' },
+      data: { driver: 'toml-table', format: 'toml', providerName: 'aidome', wireApi: 'responses' },
     });
 
     const result = await applier.applyPlan(makePlan([step]), 'profile');
@@ -264,7 +264,7 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.success).toBe(true);
     const written = mockSafeWriteFile.mock.calls.at(-1)?.[1];
     expect(written).toContain('model = "existing-model"');
-    expect(written).toContain('[providers.aidome]');
+    expect(written).toContain('[model_providers.aidome]');
     expect(written).toContain('base_url = "https://gateway.example.com/v1"');
   });
 

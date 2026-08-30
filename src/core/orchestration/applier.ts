@@ -11,15 +11,7 @@ import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
-import { buildClaudeCodeSettingsContent } from '../../adapters/claudeCode/claudeCodeConfigPatcher';
-
-interface ClaudeCodeConfigStepData extends Record<string, unknown> {
-  configBuilder?: string;
-  baseUrl?: string;
-  authRef?: string;
-  profileName?: string;
-  clearAuthWhenMissing?: boolean;
-}
+import { renderConfigFileContent } from '../providerConfig/drivers';
 
 /**
  * Result of applying a plan.
@@ -275,85 +267,50 @@ export class PlanApplier {
   }
 
   private async resolveConfigFileContent(step: PlanStep, fileExists: boolean): Promise<string> {
-    if (isClaudeCodeConfigStepData(step.data)) {
-      return await this.buildClaudeCodeConfigContent(step, fileExists, step.data);
-    }
-
     const existingContent = fileExists
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
 
-    if (step.assistantKey === 'continue') {
-      const { buildContinueConfigContent } = await import('../../adapters/continue/continueConfigPatcher');
-      return buildContinueConfigContent(step.newValue as string, existingContent);
+    const driver = step.data.driver;
+    if (typeof driver !== 'string') {
+      return typeof step.newValue === 'string'
+        ? step.newValue
+        : JSON.stringify(step.newValue, null, 2);
     }
 
-    if (step.assistantKey === 'openai-codex') {
-      const { buildCodexConfigContent } = await import('../../adapters/codex/codexConfigPatcher');
-      return buildCodexConfigContent(step.newValue as string, existingContent);
-    }
-
-    if (step.assistantKey === 'kilo-code') {
-      const { buildKiloConfigContent, discoverModels, buildModelEntries } = await import('../../adapters/kilocode/kiloConfigPatcher');
-
-      const kiloData = step.data as Record<string, unknown> | undefined;
-      const authRef = typeof kiloData?.authRef === 'string' && kiloData.authRef.trim().length > 0
-        ? kiloData.authRef.trim()
+    const baseUrl = typeof step.data.baseUrl === 'string'
+      ? step.data.baseUrl
+      : typeof step.newValue === 'string'
+        ? step.newValue
         : undefined;
-      const apiKey = authRef
-        ? await this.profileSecrets.getSecret(authRef)
-        : undefined;
-
-      // Discover models with the API key (unavailable during buildPlan)
-      let models = kiloData?.models as Record<string, { name: string }> | undefined;
-      if (!models || Object.keys(models).length === 0) {
-        const modelSlugs = await discoverModels(step.newValue as string, apiKey);
-        if (modelSlugs.length > 0) {
-          models = buildModelEntries(modelSlugs);
-        }
-      }
-
-      return buildKiloConfigContent(step.newValue as string, existingContent, apiKey, models);
+    if (!baseUrl) {
+      throw new Error(`Configuration driver ${driver} requires a baseUrl`);
     }
 
-    return typeof step.newValue === 'string'
-      ? step.newValue
-      : JSON.stringify(step.newValue, null, 2);
-  }
-
-  private async buildClaudeCodeConfigContent(
-    step: PlanStep,
-    fileExists: boolean,
-    data: ClaudeCodeConfigStepData
-  ): Promise<string> {
-    if (!step.targetPath) {
-      throw new Error('targetPath is required for edit-config-file');
-    }
-
-    if (typeof data.baseUrl !== 'string' || data.baseUrl.trim().length === 0) {
-      throw new Error('baseUrl is required for Claude Code config edits');
-    }
-
-    const existingContent = fileExists
-      ? await fs.readFile(step.targetPath, 'utf-8')
+    const authRef = typeof step.data.authRef === 'string' && step.data.authRef.trim().length > 0
+      ? step.data.authRef.trim()
       : undefined;
-    const authRef = typeof data.authRef === 'string' && data.authRef.trim().length > 0
-      ? data.authRef.trim()
-      : undefined;
-    const profileName = typeof data.profileName === 'string' && data.profileName.trim().length > 0
-      ? data.profileName.trim()
-      : 'the active profile';
-    const anthropicAuthToken = authRef
+    const secretPolicy = step.data.secretPolicy;
+    const secret = secretPolicy === 'target-persisted-at-apply' && authRef
       ? await this.profileSecrets.getSecret(authRef)
       : undefined;
 
-    if (!anthropicAuthToken && data.clearAuthWhenMissing === true) {
+    if (secretPolicy === 'target-persisted-at-apply' && !secret && step.data.clearAuthWhenMissing === true) {
+      const warningMessage = typeof step.data.missingSecretMessage === 'string' && step.data.missingSecretMessage.trim().length > 0
+        ? step.data.missingSecretMessage
+        : `Configuration credential was cleared for "${typeof step.data.profileName === 'string' ? step.data.profileName : 'the active profile'}" because no saved profile secret was found.`;
       void showWarning(
-        `Claude Code auth token was cleared for "${profileName}" because no saved profile secret was found.`
+        warningMessage
       );
     }
 
-    return buildClaudeCodeSettingsContent(data.baseUrl, existingContent, { anthropicAuthToken });
+    return renderConfigFileContent({
+      baseUrl,
+      existingContent,
+      format: typeof step.data.format === 'string' ? step.data.format as 'json' | 'jsonc' | 'yaml' | 'toml' : undefined,
+      options: step.data,
+      secret
+    });
   }
 
   /**
@@ -574,9 +531,4 @@ export class PlanApplier {
         break;
     }
   }
-}
-
-
-function isClaudeCodeConfigStepData(data: Record<string, unknown>): data is ClaudeCodeConfigStepData {
-  return data.configBuilder === 'claude-code-settings';
 }

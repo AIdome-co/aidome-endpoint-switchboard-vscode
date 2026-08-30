@@ -116,15 +116,17 @@ describe('CodexAdapter', () => {
       expect(editStep?.data.format).toBe('toml');
     });
 
-    it('should include set-env-var step for fallback', async () => {
+    it('should include guided process authentication instructions', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      const envStep = plan.steps.find(s => s.action === 'set-env-var');
-      expect(envStep).toBeDefined();
-      expect(envStep?.targetPath).toBe('OPENAI_BASE_URL');
-      expect(envStep?.newValue).toBe(mockProfile.baseUrl);
+      const guidedStep = plan.steps.find(s => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeDefined();
+      expect(guidedStep?.data.envVarName).toBe('OPENAI_API_KEY');
+      expect(guidedStep?.data.steps).toEqual(expect.arrayContaining([
+        expect.stringContaining('OPENAI_API_KEY')
+      ]));
     });
 
     it('should include verify-endpoint step', async () => {
@@ -141,9 +143,11 @@ describe('CodexAdapter', () => {
   describe('verify', () => {
     it('should return success when config file exists with provider config', async () => {
       const mockConfig = `
-[providers.aidome]
+model_provider = "aidome"
+
+[model_providers.aidome]
 base_url = "https://aidome.example.com/v1"
-api_key = "test-key"
+wire_api = "responses"
       `;
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(mockConfig);
 
@@ -172,7 +176,7 @@ some_setting = "value"
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('does not have provider base_url');
+      expect(result.message).toContain('valid selected Responses provider');
     });
 
     it('should handle errors gracefully', async () => {

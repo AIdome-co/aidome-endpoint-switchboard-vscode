@@ -4,24 +4,36 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Gets the Continue.dev config directory path.
  * @returns Config directory path
  */
 export function getContinueConfigDir(): string {
-  return path.join(os.homedir(), '.continue');
+  return process.env.CONTINUE_GLOBAL_DIR?.trim() || path.join(os.homedir(), '.continue');
 }
 
 /**
  * Gets the Continue.dev config file path.
- * Note: Continue.dev supports both JSON (config.json) and YAML (config.yaml)
- * formats. This adapter targets config.json for backward compatibility and
- * because the patcher uses JSON.parse/JSON.stringify.
+ * Continue.dev prefers config.yaml when it exists and retains config.json as
+ * a legacy target. The selected extension determines the typed driver format.
  * @returns Config file path
  */
 export function getContinueConfigPath(): string {
+  const configDir = getContinueConfigDir();
+  const yamlPath = path.join(configDir, 'config.yaml');
+  return fs.existsSync(yamlPath) ? yamlPath : path.join(configDir, 'config.json');
+}
+
+/** Returns the legacy Continue JSON configuration path. */
+export function getContinueJsonConfigPath(): string {
   return path.join(getContinueConfigDir(), 'config.json');
+}
+
+/** Returns the current Continue YAML configuration path. */
+export function getContinueYamlConfigPath(): string {
+  return path.join(getContinueConfigDir(), 'config.yaml');
 }
 
 /**

@@ -7,7 +7,8 @@ import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder'
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getContinueConfigPath } from './paths';
-import { readFileSafe } from '../../util/fsSafe';
+import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { parseContinueModels } from './continueConfigPatcher';
 
 /**
  * Continue.dev assistant adapter.
@@ -19,14 +20,16 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     const configPath = getContinueConfigPath();
     let plan = createPlan(profile.id, ['continue']);
 
-    plan = addStep(plan, {
-      action: 'backup-file',
-      description: 'Backup Continue.dev config file',
-      assistantKey: 'continue',
-      targetPath: configPath,
-      data: { configPath },
-      reversible: true
-    });
+    if (await fileExists(configPath)) {
+      plan = addStep(plan, {
+        action: 'backup-file',
+        description: 'Backup Continue.dev config file',
+        assistantKey: 'continue',
+        targetPath: configPath,
+        data: { configPath },
+        reversible: true
+      });
+    }
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -34,10 +37,12 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       assistantKey: 'continue',
       targetPath: configPath,
       newValue: profile.baseUrl,
-      data: { 
-        configPath, 
+      data: {
+        driver: 'yaml-model-array',
+        format: configPath.endsWith('.yaml') ? 'yaml' : 'jsonc',
+        configPath,
         profileId: profile.id,
-        baseUrl: profile.baseUrl 
+        baseUrl: profile.baseUrl
       },
       reversible: true
     });
@@ -65,32 +70,22 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
-    let config;
-    try {
-      config = JSON.parse(content);
-    } catch {
-      return {
-        success: false,
-        message: 'Continue.dev config file is not valid JSON',
-        details: { configPath }
-      };
-    }
-
-    const models = config.models || [];
-    const hasApiBase = models.some((m: { apiBase?: string }) => m.apiBase);
+    const format = configPath.endsWith('.yaml') ? 'yaml' : 'jsonc';
+    const models = parseContinueModels(content, format);
+    const hasApiBase = models.some((model) => typeof model.apiBase === 'string' && model.apiBase.trim().length > 0);
 
     if (!hasApiBase) {
       return {
         success: false,
         message: 'Continue.dev config does not have apiBase set',
-        details: { configPath, models }
+        details: { configPath, format, modelCount: models.length }
       };
     }
 
     return {
       success: true,
       message: 'Continue.dev configuration verified',
-      details: { configPath, models }
+      details: { configPath, format, modelCount: models.length }
     };
   }
 

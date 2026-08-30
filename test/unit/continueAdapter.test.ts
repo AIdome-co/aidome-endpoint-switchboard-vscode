@@ -84,6 +84,7 @@ describe('ContinueAdapter', () => {
 
   describe('buildPlan', () => {
     it('should create config-file steps that set the Continue apiBase', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.profileId).toBe(mockProfile.id);
@@ -133,16 +134,16 @@ describe('ContinueAdapter', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('verified');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
-      expect(result.details?.models).toHaveLength(1);
+      expect(result.details?.modelCount).toBe(1);
     });
 
-    it('should fail when the Continue config is invalid JSON', async () => {
+    it('should fail when the Continue config is invalid JSONC', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{not-valid-json');
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('not valid JSON');
+      expect(result.message).toContain('does not have apiBase');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
     });
 
@@ -153,7 +154,7 @@ describe('ContinueAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('apiBase');
-      expect(result.details?.models).toEqual([]);
+      expect(result.details?.modelCount).toBe(0);
     });
 
     it('should fail when models do not define apiBase', async () => {
@@ -171,7 +172,7 @@ describe('ContinueAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('apiBase');
-      expect(result.details?.models).toHaveLength(1);
+      expect(result.details?.modelCount).toBe(1);
     });
 
     it('should fail gracefully when reading the Continue config throws', async () => {

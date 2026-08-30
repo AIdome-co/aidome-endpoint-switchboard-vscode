@@ -159,29 +159,15 @@ describe('ClineAdapter', () => {
       expect(plan.steps.some((step) => step.action === 'set-vscode-setting')).toBe(false);
       expect(plan.steps.some((step) => step.action === 'verify-endpoint')).toBe(true);
 
-      const providers = JSON.parse(String(editSteps[0].newValue)) as {
-        providers: Record<string, { settings?: Record<string, unknown> }>;
-        modes: Record<string, unknown>;
-        lastUsedProvider: string;
-      };
-      expect(providers.providers.anthropic.settings?.apiKey).toBe('keep-this-provider');
-      expect(providers.providers['openai-compatible'].settings).toMatchObject({
-        provider: 'openai-compatible',
-        baseUrl: mockProfile.baseUrl,
-        apiKey: 'keep-this-key',
-        model: 'keep-this-model'
-      });
-      expect(providers.modes.voiceInput).toEqual({ providerId: 'anthropic', modelId: 'claude' });
-      expect(providers.lastUsedProvider).toBe('anthropic');
-
-      const globalState = JSON.parse(String(editSteps[1].newValue)) as Record<string, unknown>;
-      expect(globalState).toMatchObject({
-        unrelatedSetting: true,
-        openAiBaseUrl: mockProfile.baseUrl,
-        planModeApiProvider: 'openai',
-        actModeApiProvider: 'openai',
-        actModeOpenAiModelId: 'keep-this-model'
-      });
+      expect(editSteps[0].newValue).toBe(mockProfile.baseUrl);
+      expect(editSteps[0].data.driver).toBe('json-object');
+      expect(editSteps[0].data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'baseUrl'], source: 'baseUrl' })
+      ]));
+      expect(editSteps[1].newValue).toBe(mockProfile.baseUrl);
+      expect(editSteps[1].data.driver).toBe('json-object');
+      expect(JSON.stringify(plan)).not.toContain('keep-this-provider');
+      expect(JSON.stringify(plan)).not.toContain('keep-this-key');
     });
 
     it('follows the VS Code host path even when the CLI-only provider path override is set', async () => {
@@ -203,28 +189,22 @@ describe('ClineAdapter', () => {
 
       expect(plan.steps.filter((step) => step.action === 'backup-file')).toHaveLength(0);
       expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(2);
-      expect(JSON.parse(String(plan.steps[0].newValue))).toMatchObject({
-        version: 1,
-        providers: {
-          'openai-compatible': {
-            settings: {
-              provider: 'openai-compatible',
-              baseUrl: mockProfile.baseUrl
-            }
-          }
-        }
-      });
+      expect(plan.steps[0].newValue).toBe(mockProfile.baseUrl);
+      expect(plan.steps[0].data.driver).toBe('json-object');
+      expect(plan.steps[0].data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['version'], value: 1 })
+      ]));
     });
 
-    it('recovers from malformed or unsupported native JSON using a schema-valid replacement', async () => {
+    it('does not read native files or embed their content while building a plan', async () => {
       mockReadFileSafe.mockResolvedValue('{not-json');
 
       const plan = await adapter.buildPlan(mockProfile);
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      expect(() => JSON.parse(String(editSteps[0].newValue))).not.toThrow();
-      expect(() => JSON.parse(String(editSteps[1].newValue))).not.toThrow();
-      expect(JSON.parse(String(editSteps[0].newValue)).version).toBe(1);
+      expect(editSteps).toHaveLength(2);
+      expect(editSteps.every((step) => step.newValue === mockProfile.baseUrl)).toBe(true);
+      expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
 
     it('rejects unsafe or unsupported endpoint URLs before reading native files', async () => {

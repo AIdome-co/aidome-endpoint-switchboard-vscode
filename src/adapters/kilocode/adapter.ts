@@ -53,14 +53,19 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       targetPath: configPath,
       newValue: profile.baseUrl,
       data: {
-        configBuilder: 'kilo-config',
+        driver: 'jsonc-provider-map',
+        mapPath: ['provider'],
+        providerId: 'aidome-gateway',
+        providerSlug: 'aidome-gateway',
+        defaults: {
+          name: 'AIdome Gateway',
+          npm: '@ai-sdk/openai-compatible'
+        },
+        baseUrlPath: ['options', 'baseURL'],
         configPath: configPath,
         profileId: profile.id,
         baseUrl: profile.baseUrl,
-        authRef: profile.name,
-        profileName: profile.name,
         format: 'jsonc',
-        providerSlug: 'aidome-gateway',
         models
       },
       reversible: true
