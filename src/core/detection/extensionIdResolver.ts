@@ -42,10 +42,21 @@ export interface RegistryValidationResult {
   isValid: boolean;
 }
 
+/** Options controlling the strictness of registry validation. */
+export interface RegistryValidationOptions {
+  /**
+   * Treat marketplace unavailability as a validation error instead of allowing
+   * the runtime offline fallback.
+   */
+  requireMarketplace?: boolean;
+}
+
 /**
  * Resolves canonical marketplace extension IDs for assistant detection.
  */
 export class ExtensionIdResolver {
+  private readonly resolutionCache = new Map<string, Promise<ExtensionIdResolution>>();
+
   constructor(private readonly client: MarketplaceClient = new MarketplaceClient()) {}
 
   /**
@@ -61,7 +72,27 @@ export class ExtensionIdResolver {
    * @param entry The assistant registry entry.
    */
   async resolveForAssistant(entry: AssistantEntry): Promise<ExtensionIdResolution> {
-    const declaredIds = entry.detection.vscodeExtensionIds ?? [];
+    const declaredIds = [...(entry.detection.vscodeExtensionIds ?? [])];
+    const cacheKey = JSON.stringify([entry.key, entry.displayName, declaredIds]);
+    const cached = this.resolutionCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = this.resolveForAssistantUncached(entry, declaredIds);
+    this.resolutionCache.set(cacheKey, pending);
+    void pending.catch(() => {
+      if (this.resolutionCache.get(cacheKey) === pending) {
+        this.resolutionCache.delete(cacheKey);
+      }
+    });
+    return pending;
+  }
+
+  private async resolveForAssistantUncached(
+    entry: AssistantEntry,
+    declaredIds: string[]
+  ): Promise<ExtensionIdResolution> {
     const base = {
       assistantKey: entry.key,
       displayName: entry.displayName,
@@ -111,7 +142,8 @@ export class ExtensionIdResolver {
    * detection, returning a report suitable for a CI/build gate.
    */
   async validateRegistry(
-    assistants: AssistantEntry[]
+    assistants: AssistantEntry[],
+    options: RegistryValidationOptions = {}
   ): Promise<RegistryValidationResult> {
     const resolutions: ExtensionIdResolution[] = [];
     const warnings: string[] = [];
@@ -140,6 +172,12 @@ export class ExtensionIdResolver {
           warnings.push(
             `Assistant '${entry.key}': marketplace unreachable; could not validate IDs. Declared ID(s) used as-is.`
           );
+          if (options.requireMarketplace) {
+            errors.push(
+              `Assistant '${entry.key}': marketplace was unavailable, so declared extension ID(s) ` +
+              `(${resolution.declaredIds.join(', ') || 'none'}) could not be validated.`
+            );
+          }
           break;
         case 'unresolvable':
           errors.push(

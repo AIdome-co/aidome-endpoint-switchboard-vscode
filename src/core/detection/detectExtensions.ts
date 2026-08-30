@@ -90,27 +90,33 @@ export async function detectExtensions(
   registry: AssistantRegistry,
   resolver: ExtensionIdResolver = getDefaultResolver()
 ): Promise<DetectedAssistant[]> {
-  const detected: DetectedAssistant[] = [];
   const allExtensions = getAllExtensions();
   const logger = Logger.getInstance().scoped('Detection');
   
   logger.info(`Scanning ${allExtensions.length} VS Code extensions: ${allExtensions.map(e => e.id).join(', ')}`);
 
-  for (const entry of registry.assistants) {
+  const detectionResults = await Promise.all(registry.assistants.map(async (entry) => {
     const extensionIds = entry.detection.vscodeExtensionIds || [];
     logger.debug(`Checking registry entry: ${entry.key} against ${extensionIds.length} extension ID(s)`);
 
     // Fast path: match declared IDs directly against installed extensions.
     const declaredMatch = matchExtension(entry, extensionIds, allExtensions);
     if (declaredMatch) {
-      detected.push(declaredMatch);
-      continue;
+      return declaredMatch;
     }
 
     // Fallback path: a declared ID did not match an installed extension. Ask the
     // resolver for the canonical ID(s) (resolved from the market when the
     // declared ID is stale), and try those before declaring the assistant absent.
-    const resolution = await resolver.resolveForAssistant(entry);
+    let resolution;
+    try {
+      resolution = await resolver.resolveForAssistant(entry);
+    } catch (error) {
+      logger.warning(
+        `Could not resolve extension ID(s) for ${entry.key}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return undefined;
+    }
     const resolvedIds = resolution.resolvedIds.some(id => extensionIds.includes(id))
       ? extensionIds
       : resolution.resolvedIds.filter(id => !extensionIds.includes(id));
@@ -119,13 +125,14 @@ export async function detectExtensions(
       logger.debug(`No declared ID matched for ${entry.key}; trying resolved ID(s) via ${resolution.status}: ${resolvedIds.join(', ')}`);
       const resolvedMatch = matchExtension(entry, resolvedIds, allExtensions);
       if (resolvedMatch) {
-        detected.push(resolvedMatch);
-        continue;
+        return resolvedMatch;
       }
     }
-  }
-  
-  return detected;
+
+    return undefined;
+  }));
+
+  return detectionResults.filter((result): result is DetectedAssistant => result !== undefined);
 }
 
 /**

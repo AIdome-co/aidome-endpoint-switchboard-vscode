@@ -53,10 +53,26 @@ const UNRECOVERABLE_STATUS_HEADERS = {
   'User-Agent': 'AIdome-Switchboard-VSCode/1.0'
 } as const;
 
+/** Runtime options for the marketplace client. */
+export interface MarketplaceClientOptions {
+  /** Request timeout in milliseconds. */
+  timeoutMs?: number;
+  /** Number of retries after the initial request. */
+  retries?: number;
+}
+
 /**
  * Client for the VS Code marketplace gallery query API.
  */
 export class MarketplaceClient {
+  private readonly timeoutMs: number;
+  private readonly retries: number;
+
+  constructor(options: MarketplaceClientOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? 3000;
+    this.retries = options.retries ?? 0;
+  }
+
   /**
    * Looks up an extension by its fully qualified marketplace ID.
    * @param id Extension ID in `publisher.extensionName` form.
@@ -97,8 +113,8 @@ export class MarketplaceClient {
           filters: [{ criteria, pageNumber: 1, pageSize }],
           flags: 914
         },
-        timeout: 5000,
-        retries: 1
+        timeout: this.timeoutMs,
+        retries: this.retries
       });
     } catch (error) {
       throw new MarketplaceUnavailableError(

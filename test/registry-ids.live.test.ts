@@ -15,6 +15,7 @@ import { readFileSync } from 'fs';
 import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 import { ExtensionIdResolver } from '../src/core/detection/extensionIdResolver';
+import { MarketplaceClient } from '../src/core/detection/marketplace';
 import type { AssistantRegistry } from '../src/core/registry/registryTypes';
 
 // http.ts -> runtimeSettings imports `vscode` at module load. Provide a minimal
@@ -33,8 +34,8 @@ describe('registry extension IDs resolve on the marketplace (live)', () => {
     const extensionAssistants = registry.assistants
       .filter((a) => (a.detection.vscodeExtensionIds ?? []).length > 0);
 
-    const resolver = new ExtensionIdResolver();
-    const report = await resolver.validateRegistry(extensionAssistants);
+    const resolver = new ExtensionIdResolver(new MarketplaceClient({ timeoutMs: 5000, retries: 1 }));
+    const report = await resolver.validateRegistry(extensionAssistants, { requireMarketplace: true });
 
     for (const warning of report.warnings) {
       process.stdout.write(`[validate:registry] WARN  ${warning}\n`);

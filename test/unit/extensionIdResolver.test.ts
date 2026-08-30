@@ -48,6 +48,28 @@ describe('ExtensionIdResolver.resolveForAssistant', () => {
     expect(result.resolvedIds).toEqual(['valid.extension']);
   });
 
+  it('caches in-flight and completed resolutions for the same assistant signature', async () => {
+    const getExtensionById = vi.fn(async () => ({
+      id: 'valid.extension',
+      displayName: 'Valid',
+      extensionName: 'extension',
+      version: '1.0.0'
+    }));
+    const client = makeClient({ getExtensionById });
+    const resolver = new ExtensionIdResolver(client);
+    const entry = makeEntry({ detection: { vscodeExtensionIds: ['valid.extension'] } });
+
+    const [first, second] = await Promise.all([
+      resolver.resolveForAssistant(entry),
+      resolver.resolveForAssistant(entry)
+    ]);
+    const third = await resolver.resolveForAssistant(entry);
+
+    expect(first).toEqual(second);
+    expect(second).toEqual(third);
+    expect(getExtensionById).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves the canonical ID from the market when the declared ID is stale', async () => {
     const client = makeClient({
       getExtensionById: async () => undefined,
@@ -125,6 +147,20 @@ describe('ExtensionIdResolver.validateRegistry', () => {
     expect(result.isValid).toBe(true);
     expect(result.errors).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes('codegpt'))).toBe(true);
+  });
+
+  it('fails strict validation when the marketplace is unavailable', async () => {
+    const client = makeClient({
+      getExtensionById: async () => {
+        throw new MarketplaceUnavailableError('down');
+      },
+    });
+    const resolver = new ExtensionIdResolver(client);
+
+    const result = await resolver.validateRegistry([makeEntry()], { requireMarketplace: true });
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((error) => error.includes('marketplace was unavailable'))).toBe(true);
   });
 
   it('fails the gate when an assistant is unresolvable', async () => {

@@ -82,6 +82,23 @@ describe('MarketplaceClient', () => {
     expect(results[0].id).toBe('DanielSanMedium.dscodegpt');
   });
 
+  it('uses the configured timeout and retry policy', async () => {
+    mockHttpRequest.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: galleryExtensions([]),
+    } as any);
+
+    const client = new MarketplaceClient({ timeoutMs: 1200, retries: 2 });
+    await client.getExtensionById('does-not.exist');
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ timeout: 1200, retries: 2 })
+    );
+  });
+
   it('skips malformed entries without a publisher or extension name', async () => {
     mockHttpRequest.mockResolvedValue({
       status: 200,
