@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Updated Hermes maintenance to run twice daily at 12:00 and 19:00 Asia/Jerusalem, deliver actionable results to Telegram, bootstrap validation dependencies, and enforce the dedicated worktree at runtime.
 - Hardened maintenance convergence with a deterministic PR gate, bounded Codex/reviewer comment fix loop, provider-reference refreshes for new gaps, timeout-safe upstream synchronization, and a dedicated verified Hermes worktree.
 - Expanded maintenance PR scope to process existing `fix/*` branches and review Dependabot branches read-only.
+- Made AnythingLLM verification distinguish desktop-app detection from the required manual provider configuration.
 - Upgraded CI and release workflows to Node.js 24.19.0 LTS.
 - Patched transitive development dependencies for known security advisories and locked the safe `diff` and `serialize-javascript` versions.
 - Updated the VS Code extension test runner to resolve current macOS app executables and pinned CI to Node.js 22, restoring Extension Development Host tests after VS Code removed the legacy `Electron` executable path.

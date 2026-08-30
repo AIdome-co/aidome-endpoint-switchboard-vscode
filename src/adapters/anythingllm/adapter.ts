@@ -9,6 +9,7 @@ import { AssistantAdapter, VerificationResult } from '../AssistantAdapter';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { Logger } from '../../util/log';
+import { validateUrl } from '../../core/profiles/profileValidator';
 import * as os from 'os';
 import * as path from 'path';
 import { fileExists } from '../../util/fsSafe';
@@ -67,6 +68,10 @@ export class AnythingLlmAdapter implements AssistantAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('AnythingLLM endpoint URL is invalid or uses an unsupported scheme');
+    }
+
     let plan = createPlan(profile.id, ['anythingllm']);
 
     const configGuidanceData = {
@@ -122,13 +127,15 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     const detected = await this.detect();
     
     return {
-      success: true,
+      success: false,
       message: detected 
-        ? 'AnythingLLM detected. Configuration must be done in the AnythingLLM app (Tier B).' 
-        : 'AnythingLLM not auto-detected. If installed, configure it manually using the guided steps.',
+        ? 'AnythingLLM detected, but configuration must be completed and verified in the AnythingLLM app (Tier B).'
+        : 'AnythingLLM was not detected. If it is installed, configure it manually using the guided steps.',
       details: { 
-        detected: detected,
+        detected,
         tier: 'B',
+        configurationStatus: detected ? 'manual-configuration-required' : 'not-detected',
+        supportedProvider: 'Generic OpenAI / OpenAI Compatible',
         note: 'AnythingLLM is a desktop application. Configuration is done through its UI, not VS Code settings.',
         detectionPaths: this.getDetectionPaths()
       }
