@@ -95,8 +95,17 @@ describe('TabnineAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('tabnine');
       expect(mainGuidance.data.limitation).toBe('proprietary-protocol');
       expect(mainGuidance.data.tier).toBe('C');
+      expect(mainGuidance.data.configurationType).toBe('in-extension-ui');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Set server URL');
+    });
+
+    it('should reject an invalid or unsafe endpoint URL before producing a plan', async () => {
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'file:///etc/passwd' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
     });
   });
 
@@ -111,16 +120,19 @@ describe('TabnineAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should return success when extension is installed', async () => {
+    it('should not claim configuration success when extension is only installed', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('installed');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.limitation).toContain('proprietary');
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+      expect(result.details?.enterpriseServerSupported).toBe(true);
+      expect(result.details?.verification).toBe('manual-request-required');
     });
 
     it('should handle errors gracefully', async () => {

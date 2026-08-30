@@ -72,7 +72,7 @@ This document tracks everything completed to date and everything remaining befor
 | 8 | **Claude Code** | **claude-code** | **B** | **~/.claude/settings.json + VS Code settings** | **Done** |
 | 9 | GitHub Copilot | github-copilot | B | VS Code settings (debug.overrideProxyUrl) | Done |
 | 10 | Gemini CLI | gemini-cli | C | Detection + limitation explanation | Done |
-| 11 | Tabnine | tabnine | C | Detection + proprietary protocol explanation | Done |
+| 11 | Tabnine | tabnine | C | Detection + Enterprise manual server URL setup guidance (status not auto-verified) | Done |
 
 ### 1.3 Enterprise Features (Complete)
 
@@ -378,7 +378,7 @@ This document tracks everything completed to date and everything remaining befor
 | CodeGPT | Yes | Done (Tier B) | VS Code settings with guided fallback |
 | AnythingLLM | Yes | Done (Tier B) | Guided Generic OpenAI provider setup |
 | Gemini CLI | No | Done (Tier C) | No base URL override — info only |
-| Tabnine | No | Done (Tier C) | Proprietary protocol — info only |
+| Tabnine | No | Done (Tier C) | Enterprise server URL manual setup guidance — status not auto-verified |
 | Windsurf/Codeium | Partial | Not started | YAML config — not yet implemented |
 | Amazon Q | No | Not started | AWS IAM only |
 | JetBrains AI | No | Not started | JetBrains-managed — no custom endpoint |
