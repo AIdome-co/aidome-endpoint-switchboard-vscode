@@ -1,6 +1,6 @@
 {
   "$schemaVersion": "0.1.0",
-  "updatedAt": "2026-05-21",
+  "updatedAt": "2026-08-29",
   "dialectCatalog": {
     "openai.chat_completions": "OpenAI-style /v1/chat/completions",
     "openai.responses": "OpenAI-style /v1/responses",
@@ -125,25 +125,15 @@
         ]
       },
       "endpointSwitching": {
-        "supported": true,
-        "tier": "A",
+        "supported": false,
+        "tier": "C",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "vscode-settings",
-          "in-extension-ui"
-        ],
-        "settingKeyHints": [
-          "roo-cline.apiProvider",
-          "roo-cline.openAiBaseUrl",
-          "roo-cline.openAiModelId",
-          "roo-cline.useOpenRouter",
-          "roo-cline.anthropicApiKey",
-          "roo-cline.geminiApiKey"
+          "guided-only"
         ],
         "notes": [
           "⚠️ DEFUNCT: Roo Code shut down on May 15, 2026. The extension and documentation are no longer maintained. Community fork 'ZooCode' exists but uses a different extension ID.",
-          "Roo Code is a fork-family of the Cline-style agent and exposes explicit VS Code settings keys.",
-          "Exact keys may evolve; keep a scan-and-verify path."
+          "Switchboard does not write the retired roo-cline settings. A supported fork requires a separate descriptor and fresh evidence."
         ]
       },
       "tlsVerification": {
@@ -177,20 +167,22 @@
         "tier": "A",
         "preferredGatewayFrontDoor": "openai.chat_completions",
         "configurationModes": [
-          "vscode-settings",
+          "config-file",
           "in-extension-ui"
         ],
-        "settingKeyHints": [
-          "kilocode.apiProvider",
-          "kilocode.openaiApiKey",
-          "kilocode.openaiBaseUrl",
-          "kilocode.openaiModel",
-          "kilocode.useOpenRouter",
-          "kilocode.customProviderEndpoint"
+        "configFileHints": [
+          {
+            "path": "KILO_CONFIG or KILO_CONFIG_DIR candidate",
+            "format": "jsonc",
+            "fields": [
+              "provider.<providerId>.options.baseURL",
+              "provider.<providerId>.models"
+            ]
+          }
         ],
         "notes": [
-          "Kilo Code supports OpenAI Base URL config.",
-          "Treat settings keys as hints; confirm via contributes.configuration in the installed extension."
+          "Kilo Code stores custom providers in a JSONC provider map and stores credentials through its auth API.",
+          "Provider candidates and auth ownership remain dedicated adapter policy; never serialize a profile secret into the config file."
         ]
       },
       "tlsVerification": {
@@ -230,8 +222,8 @@
         ],
         "configFileHints": [
           {
-            "path": "~/.continue/config.json",
-            "format": "json",
+            "path": "<CONTINUE_GLOBAL_DIR>/config.yaml or config.json",
+            "format": "yaml",
             "fields": [
               "models[].provider",
               "models[].apiBase",
@@ -242,9 +234,8 @@
           }
         ],
         "notes": [
-          "Continue uses a JSON config file (~/.continue/config.json) where OpenAI's base can be set via apiBase.",
-          "Your extension should back up the file and edit via JSON-aware tooling.",
-          "Continue.dev also supports config.yaml but the adapter currently targets config.json for backward compatibility."
+          "Continue uses config.yaml when present and retains config.json as a legacy target; OpenAI-compatible models use models[].apiBase.",
+          "The adapter backs up existing files and uses YAML/JSONC-aware rendering while preserving unrelated model fields."
         ]
       },
       "tlsVerification": {
@@ -356,20 +347,18 @@
             "format": "toml",
             "fields": [
               "model_provider",
-              "model",
-              "providers.<name>.base_url",
-              "providers.<name>.api_key",
-              "providers.<name>.wire_api"
+              "model_providers.<name>.base_url",
+              "model_providers.<name>.env_key",
+              "model_providers.<name>.wire_api"
             ]
           }
         ],
         "envVarHints": [
-          "OPENAI_API_KEY",
-          "OPENAI_BASE_URL"
+          "OPENAI_API_KEY"
         ],
         "notes": [
-          "Codex supports provider base_url and 'wire_api' (responses vs chat).",
-          "For AIdome: implement OpenAI-compatible Responses API for best fidelity."
+          "Codex providers are selected with model_provider and defined under model_providers.<name>.",
+          "AIdome uses the Responses wire_api and env_key = OPENAI_API_KEY; the profile credential remains in SecretStorage and process authentication is guided."
         ]
       },
       "tlsVerification": {
@@ -397,14 +386,14 @@
         ]
       },
       "endpointSwitching": {
-        "supported": false,
+        "supported": "partially",
         "tier": "C",
         "configurationModes": [
           "guided-only"
         ],
         "notes": [
-          "Official Gemini CLI does not present a general 'base_url' override.",
-          "Prefer tools that support OpenAI-compatible endpoints and let AIdome talk to Gemini upstream."
+          "Gemini CLI supports gateway routing through GOOGLE_GEMINI_BASE_URL in the process environment.",
+          "Switchboard provides guidance only because it cannot modify or verify the environment of an already running CLI parent process."
         ]
       },
       "tlsVerification": {
@@ -440,15 +429,11 @@
           "in-extension-ui",
           "guided"
         ],
-        "settingKeyHints": [
-          "codegpt.*provider*",
-          "codegpt.*apiUrl*",
-          "codegpt.*baseUrl*"
-        ],
         "notes": [
-          "⚠️ MARKETPLACE STATUS: CodeGPT.codegpt returned HTTP 404 on the VS Code Marketplace as of 2026-05-21. The extension may have been removed or renamed. Verify availability before relying on this adapter.",
-          "CodeGPT supports local providers and entering an API URL for Ollama/other OpenAI-compatible local servers.",
-          "Automation should either deep-link users into CodeGPT model panel steps, or set settings if keys exist and are discoverable."
+          "CodeGPT's current model-management UI supports managed providers, BYOK providers, and local OpenAI-compatible providers.",
+          "Local providers such as Ollama and LM Studio accept an API URL from the Manage my AI Models panel.",
+          "The extension's model-management UI is version-dependent; Switchboard guides users through that panel and does not mutate arbitrary discovered settings.",
+          "The legacy source checkout in pub-refs/codegpt does not represent every setting exposed by current CodeGPT releases."
         ]
       },
       "tlsVerification": {
@@ -484,7 +469,7 @@
         ],
         "notes": [
           "AnythingLLM supports a 'Generic OpenAI' provider pattern for OpenAI-compatible gateways via Base URL.",
-          "VS Code extension can include a 'Copy settings' step for AnythingLLM users."
+          "Switchboard provides setup guidance and separates application detection from endpoint verification."
         ]
       },
       "tlsVerification": {
@@ -510,7 +495,7 @@
         "alsoPossible": []
       },
       "endpointSwitching": {
-        "supported": "enterprise-server-only",
+        "supported": false,
         "tier": "C",
         "configurationModes": [
           "in-extension-ui",

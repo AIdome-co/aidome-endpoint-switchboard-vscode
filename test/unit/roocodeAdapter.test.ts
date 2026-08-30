@@ -1,36 +1,18 @@
-/**
- * Unit tests for Roo Code adapter.
- */
+/** Unit tests for the retired Roo Code adapter. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RooCodeAdapter } from '../../src/adapters/roocode/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 
-const mockExtension = {
-  packageJSON: {}
-};
-
-const mockConfig = {
-  get: vi.fn(),
-  update: vi.fn()
-};
+const mockExtension = { packageJSON: {} };
 
 vi.mock('vscode', () => ({
-  extensions: {
-    getExtension: vi.fn()
-  },
-  workspace: {
-    getConfiguration: vi.fn(() => mockConfig)
-  }
+  extensions: { getExtension: vi.fn() }
 }));
 
 vi.mock('../../src/util/log', () => ({
   Logger: {
-    getInstance: () => ({
-      error: vi.fn(),
-      warning: vi.fn(),
-      info: vi.fn(),
-    })
+    getInstance: () => ({ error: vi.fn(), warning: vi.fn(), info: vi.fn() })
   }
 }));
 
@@ -49,129 +31,51 @@ describe('RooCodeAdapter', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-
     vi.clearAllMocks();
-    mockConfig.get.mockReturnValue(undefined);
   });
 
-  describe('detect', () => {
-    it('should return true when Roo Code is installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
+  it('detects the retired extension without treating it as supported', async () => {
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(true);
-      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('RooVeterinaryInc.roo-cline');
-    });
-
-    it('should return false when Roo Code is not installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
-    });
-
-    it('should return false when extension lookup throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('extension lookup failed');
-      });
-
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+    await expect(adapter.detect()).resolves.toBe(true);
+    await expect(adapter.verify()).resolves.toMatchObject({
+      success: false,
+      details: { extension: true, configurationStatus: 'unsupported' }
     });
   });
 
-  describe('buildPlan', () => {
-    it('should configure Roo Code to use the OpenAI-compatible gateway settings', async () => {
-      const plan = await adapter.buildPlan(mockProfile);
+  it('builds guidance only and never writes guessed Roo settings', async () => {
+    const plan = await adapter.buildPlan(mockProfile);
 
-      expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.assistantKeys).toContain('roo-code');
-      expect(plan.steps).toHaveLength(2);
-
-      const baseUrlStep = plan.steps.find(step => step.targetPath === 'roo-cline.openAiBaseUrl');
-      expect(baseUrlStep).toBeDefined();
-      expect(baseUrlStep?.newValue).toBe(mockProfile.baseUrl);
-      expect(baseUrlStep?.data.settingKey).toBe('roo-cline.openAiBaseUrl');
-
-      const providerStep = plan.steps.find(step => step.targetPath === 'roo-cline.apiProvider');
-      expect(providerStep).toBeDefined();
-      expect(providerStep?.newValue).toBe('openai');
-      expect(providerStep?.data.value).toBe('openai');
-    });
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].action).toBe('show-guided-steps');
+    expect(plan.steps[0].targetPath).toBeUndefined();
+    expect(plan.steps[0].data.limitation).toBe('retired-upstream');
+    expect(plan.steps[0].data.baseUrl).toBe(mockProfile.baseUrl);
   });
 
-  describe('verify', () => {
-    it('should succeed when openAiBaseUrl is configured', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'roo-cline.openAiBaseUrl') {
-          return 'https://aidome.example.com/v1';
-        }
-        if (key === 'roo-cline.apiProvider') {
-          return 'openai';
-        }
-        return undefined;
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('verified');
-      expect(result.details?.baseUrl).toBe('https://aidome.example.com/v1');
-      expect(result.details?.apiProvider).toBe('openai');
-      expect(result.details?.configured).toBe(true);
-    });
-
-    it('should fail when openAiBaseUrl is missing', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'roo-cline.apiProvider') {
-          return 'openai';
-        }
-        return undefined;
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('openAiBaseUrl');
-      expect(result.details?.apiProvider).toBe('openai');
-    });
-
-    it('should fail gracefully when configuration access throws', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.workspace, 'getConfiguration').mockImplementationOnce(() => {
-        throw new Error('configuration unavailable');
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('Error verifying Roo Code config');
-    });
+  it('rejects unsafe endpoint URLs before building guidance', async () => {
+    await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+      .rejects.toThrow('unsupported scheme');
   });
 
-  describe('apply', () => {
-    it('should resolve without mutating the plan', async () => {
-      const plan = await adapter.buildPlan(mockProfile);
+  it('reports a missing retired extension', async () => {
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
 
-      await expect(adapter.apply(plan)).resolves.toBeUndefined();
-    });
+    const result = await adapter.verify();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('not installed');
+    expect(result.details?.configurationStatus).toBe('unsupported');
   });
 
-  describe('getDisplayName', () => {
-    it('should return the Roo Code display name', () => {
-      expect(adapter.getDisplayName()).toBe('Roo Code');
-    });
+  it('leaves execution to the shared plan applier', async () => {
+    await expect(adapter.apply(await adapter.buildPlan(mockProfile))).resolves.toBeUndefined();
   });
 
-  describe('getTier', () => {
-    it('should return tier A', () => {
-      expect(adapter.getTier()).toBe('A');
-    });
+  it('reports its display name and tier', () => {
+    expect(adapter.getDisplayName()).toBe('Roo Code');
+    expect(adapter.getTier()).toBe('C');
   });
 });

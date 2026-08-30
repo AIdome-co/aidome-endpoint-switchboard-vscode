@@ -131,7 +131,7 @@ describe('GitHubCopilotAdapter', () => {
       expect(proxyStep!.reversible).toBe(true);
 
       const newValue = proxyStep!.newValue as Record<string, unknown>;
-      expect(newValue['debug.overrideProxyUrl']).toBe(mockProfile.baseUrl);
+      expect((newValue.debug as Record<string, unknown>)['overrideProxyUrl']).toBe(mockProfile.baseUrl);
     });
 
     it('should preserve existing advanced settings when adding proxy URL', async () => {
@@ -148,11 +148,11 @@ describe('GitHubCopilotAdapter', () => {
       const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
       const newValue = proxyStep!.newValue as Record<string, unknown>;
       expect(newValue['someOtherKey']).toBe('someValue');
-      expect(newValue['debug.overrideProxyUrl']).toBe(mockProfile.baseUrl);
+      expect((newValue.debug as Record<string, unknown>)['overrideProxyUrl']).toBe(mockProfile.baseUrl);
     });
 
     it('should capture the old advanced value for rollback', async () => {
-      const existingAdvanced = { 'debug.overrideProxyUrl': 'https://old.example.com' };
+      const existingAdvanced = { debug: { overrideProxyUrl: 'https://old.example.com' } };
       mockConfig.get.mockImplementation((key: string) => {
         if (key === 'github.copilot.advanced') {
           return existingAdvanced;
@@ -192,7 +192,7 @@ describe('GitHubCopilotAdapter', () => {
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
       mockConfig.get.mockImplementation((key: string) => {
         if (key === 'github.copilot.advanced') {
-          return { 'debug.overrideProxyUrl': 'https://aidome.example.com/v1' };
+          return { debug: { overrideProxyUrl: 'https://aidome.example.com/v1' } };
         }
         return undefined;
       });

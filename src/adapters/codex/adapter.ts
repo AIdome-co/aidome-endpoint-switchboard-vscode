@@ -2,12 +2,12 @@
  * Adapter for OpenAI Codex CLI.
  *
  * ⚠️ RISK: OpenAI Codex CLI now ships from the Rust codex-rs codebase.
- * The config.toml schema and provider configuration format may have changed
- * significantly from the original Node.js version.  The adapter patches
- * config.toml with a `[providers.aidome]` section and sets OPENAI_BASE_URL as
- * an env-var fallback.  After major Codex CLI updates, re-verify that the
- * config.toml structure is still supported by the Rust binary.
- * Verified against: openai/codex v0.124.0 repository as of 2026-04-24.
+ * The config.toml schema and provider configuration format are owned by the
+ * Rust codex-rs implementation. The adapter uses the current
+ * `model_providers.<name>` table with the Responses wire API and keeps process
+ * authentication as guided environment setup.
+ * Verified against the synchronized openai/codex reference recorded in the
+ * provider descriptor.
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
@@ -17,6 +17,8 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath } from './codexConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { parse as parseToml } from 'smol-toml';
+import { validateUrl } from '../../core/profiles/profileValidator';
 
 /**
  * OpenAI Codex CLI adapter.
@@ -59,24 +61,31 @@ export class CodexAdapter extends BaseExtensionAdapter {
         configPath, 
         profileId: profile.id,
         baseUrl: profile.baseUrl,
+        driver: 'toml-table',
         format: 'toml',
         providerName: 'aidome',
-        wireApi: 'responses'
+        wireApi: 'responses',
+        envKey: 'OPENAI_API_KEY'
       },
       reversible: true
     });
 
     plan = addStep(plan, {
-      action: 'set-env-var',
-      description: 'Set OPENAI_BASE_URL environment variable (fallback)',
+      action: 'show-guided-steps',
+      description: 'Provide Codex process authentication guidance',
       assistantKey: 'openai-codex',
-      targetPath: 'OPENAI_BASE_URL',
-      newValue: profile.baseUrl,
-      data: { 
-        envVar: 'OPENAI_BASE_URL',
-        value: profile.baseUrl 
+      data: {
+        message: 'Codex reads the configured provider credentials from the process environment.',
+        steps: [
+          'Set OPENAI_API_KEY in the environment that launches Codex if the gateway requires authentication.',
+          'Restart Codex after changing the environment.',
+          'Switchboard keeps the profile credential in SecretStorage and never writes it to config.toml.'
+        ],
+        envVarName: 'OPENAI_API_KEY',
+        tier: 'A',
+        optional: true
       },
-      reversible: true
+      reversible: false
     });
 
     plan = addStep(plan, {
@@ -102,21 +111,43 @@ export class CodexAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const hasProviderConfig = content.includes('[providers.') && 
-                              (content.includes('base_url') || content.includes('base-url'));
+    let config: {
+      model_provider?: unknown;
+      model_providers?: Record<string, { base_url?: unknown; wire_api?: unknown }>;
+    };
+    try {
+      config = parseToml(content) as typeof config;
+    } catch {
+      return {
+        success: false,
+        message: 'Codex config file is not valid TOML',
+        details: { configPath }
+      };
+    }
+
+    const providerName = config.model_provider;
+    const provider = typeof providerName === 'string'
+      ? config.model_providers?.[providerName]
+      : undefined;
+    const configuredBaseUrl = provider?.base_url;
+    const hasProviderConfig = typeof providerName === 'string'
+      && providerName.length > 0
+      && typeof configuredBaseUrl === 'string'
+      && validateUrl(configuredBaseUrl)
+      && provider?.wire_api === 'responses';
 
     if (!hasProviderConfig) {
       return {
         success: false,
-        message: 'Codex config does not have provider base_url configured',
-        details: { configPath }
+        message: 'Codex config does not have a valid selected Responses provider',
+        details: { configPath, selectedProvider: providerName ?? null }
       };
     }
 
     return {
       success: true,
       message: 'Codex configuration verified',
-      details: { configPath }
+      details: { configPath, provider: providerName, baseUrl: configuredBaseUrl, wireApi: provider?.wire_api }
     };
   }
 

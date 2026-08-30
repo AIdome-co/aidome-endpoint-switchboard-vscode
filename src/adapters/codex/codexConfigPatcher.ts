@@ -9,8 +9,9 @@ import { expandTilde } from '../../util/paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 
 interface CodexProvider {
+  name?: string;
   base_url?: string;
-  api_key?: string;
+  env_key?: string;
   wire_api?: string;
   [key: string]: unknown;
 }
@@ -18,7 +19,7 @@ interface CodexProvider {
 interface CodexConfig {
   model_provider?: string;
   model?: string;
-  providers?: Record<string, CodexProvider>;
+  model_providers?: Record<string, CodexProvider>;
   [key: string]: unknown;
 }
 
@@ -68,25 +69,23 @@ export function buildCodexConfigContent(
     config = {};
   }
 
-  // Initialize providers section if it doesn't exist
-  if (!config.providers) {
-    config.providers = {};
+  // Current Codex uses model_providers for user-defined providers.
+  if (!config.model_providers) {
+    config.model_providers = {};
   }
 
   // Configure AIdome provider
-  config.providers.aidome = {
+  const existingProvider = config.model_providers.aidome ?? {};
+  config.model_providers.aidome = {
+    ...existingProvider,
+    name: typeof existingProvider.name === 'string' ? existingProvider.name : 'aidome',
     base_url: baseUrl,
-    wire_api: 'responses' // OpenAI Responses API (Codex's preferred wire format)
-    // Note: API key is stored in SecretStorage, not in config file
+    wire_api: 'responses',
+    env_key: typeof existingProvider.env_key === 'string' ? existingProvider.env_key : 'OPENAI_API_KEY'
   };
 
   // Set AIdome as the default model provider
   config.model_provider = 'aidome';
-
-  // Set a default model if not already set
-  if (!config.model) {
-    config.model = 'gpt-4';
-  }
 
   // Convert back to TOML and write
   return stringify(config);

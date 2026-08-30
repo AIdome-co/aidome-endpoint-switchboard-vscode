@@ -5,7 +5,8 @@
  * setting. The native OpenAI-compatible provider lives in providers.json and
  * active provider/base-URL state lives in globalState.json.
  *
- * Upstream evidence: cline/cline 8bbdde2 (2026-08-14), apps/vscode package
+ * Upstream evidence: synchronized cline/cline reference recorded in the
+ * provider descriptor, apps/vscode package
  * configuration, provider-migration.ts, model-catalog/store.ts, and
  * cline-session-factory.ts. See CHANGELOG.md for the research links.
  */
@@ -19,8 +20,6 @@ import { sanitizeUrl, validateUrl } from '../../core/profiles/profileValidator';
 import {
   CLINE_LEGACY_PROVIDER_ID,
   CLINE_PROVIDER_ID,
-  buildGlobalStateContent,
-  buildProviderSettingsContent,
   getClineConfigPaths,
   parseJsonObjectForVerification
 } from './clineConfigPatcher';
@@ -56,11 +55,6 @@ export class ClineAdapter extends BaseExtensionAdapter {
     }
 
     const paths = getClineConfigPaths();
-    const [providerSettingsContent, globalStateContent] = await Promise.all([
-      readFileSafe(paths.providerSettingsPath),
-      readFileSafe(paths.globalStatePath)
-    ]);
-    const timestamp = new Date().toISOString();
     let plan = createPlan(profile.id, ['cline']);
 
     // PlanApplier also backs up edit-config-file steps immediately before
@@ -82,14 +76,23 @@ export class ClineAdapter extends BaseExtensionAdapter {
       description: `Set Cline OpenAI-compatible endpoint to ${sanitizeUrl(profile.baseUrl)}`,
       assistantKey: 'cline',
       targetPath: paths.providerSettingsPath,
-      newValue: buildProviderSettingsContent(profile.baseUrl, providerSettingsContent, timestamp),
+      newValue: profile.baseUrl,
       data: {
+        driver: 'json-object',
         configPath: paths.providerSettingsPath,
         configType: 'cline-provider-settings',
         providerId: CLINE_PROVIDER_ID,
         profileId: profile.id,
         baseUrl: profile.baseUrl,
-        format: 'json'
+        format: 'json',
+        patches: [
+          { path: ['version'], value: 1 },
+          { path: ['modes'], value: {}, setWhenMissing: true },
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'provider'], value: CLINE_PROVIDER_ID },
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'baseUrl'], source: 'baseUrl' },
+          { path: ['providers', CLINE_PROVIDER_ID, 'updatedAt'], source: 'timestamp', setWhenMissing: true },
+          { path: ['providers', CLINE_PROVIDER_ID, 'tokenSource'], value: 'manual', setWhenMissing: true }
+        ]
       },
       reversible: true
     });
@@ -110,14 +113,20 @@ export class ClineAdapter extends BaseExtensionAdapter {
       description: 'Select Cline OpenAI-compatible provider',
       assistantKey: 'cline',
       targetPath: paths.globalStatePath,
-      newValue: buildGlobalStateContent(profile.baseUrl, globalStateContent),
+      newValue: profile.baseUrl,
       data: {
+        driver: 'json-object',
         configPath: paths.globalStatePath,
         configType: 'cline-global-state',
         providerId: CLINE_LEGACY_PROVIDER_ID,
         profileId: profile.id,
         baseUrl: profile.baseUrl,
-        format: 'json'
+        format: 'json',
+        patches: [
+          { path: ['openAiBaseUrl'], source: 'baseUrl' },
+          { path: ['planModeApiProvider'], value: CLINE_LEGACY_PROVIDER_ID },
+          { path: ['actModeApiProvider'], value: CLINE_LEGACY_PROVIDER_ID }
+        ]
       },
       reversible: true
     });

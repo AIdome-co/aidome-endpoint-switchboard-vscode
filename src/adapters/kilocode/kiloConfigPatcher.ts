@@ -6,34 +6,11 @@
 import * as os from 'os';
 import * as path from 'path';
 import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
-import { parseJsonc, safeParseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-
-interface KiloProviderOptions {
-  baseURL: string;
-  headers?: Record<string, string>;
-  [key: string]: unknown;
-}
+import { renderConfigFileContent } from '../../core/providerConfig/drivers';
 
 interface KiloProviderModel {
   name: string;
-  [key: string]: unknown;
-}
-
-interface KiloProvider {
-  name: string;
-  npm: string;
-  options: KiloProviderOptions;
-  env?: string[];
-  models?: Record<string, KiloProviderModel>;
-  [key: string]: unknown;
-}
-
-interface KiloConfig {
-  $schema?: string;
-  provider?: Record<string, KiloProvider>;
-  disabled_providers?: string[];
-  permission?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -130,63 +107,33 @@ export function buildModelEntries(modelSlugs: string[]): Record<string, KiloProv
  * Builds Kilo Code config content with an AIdome Gateway provider entry.
  * @param baseUrl The AIdome Gateway base URL
  * @param existingContent Existing config content (JSONC)
- * @param apiKey Optional API key (stored as OPENAI_API_KEY env var)
+ * @param _apiKey Deprecated compatibility parameter. Secrets are never written
+ * to Kilo config; Kilo manages authentication through its own auth store.
  * @param models Optional models to configure (auto-discovered or user-provided)
  * @returns Patched config content as JSON
  */
 export function buildKiloConfigContent(
   baseUrl: string,
   existingContent?: string,
-  apiKey?: string,
+  _apiKey?: string,
   models?: Record<string, KiloProviderModel>
 ): string {
-  let config: KiloConfig = {};
-
-  if (existingContent) {
-    const parsed = safeParseJsonc<KiloConfig>(existingContent);
-    if (parsed) {
-      config = parsed;
-    }
-  }
-
-  // Initialize provider section if it doesn't exist
-  if (!config.provider) {
-    config.provider = {};
-  }
-
-  // Add or update the AIdome Gateway provider entry
-  const existingProvider = config.provider[AIDOME_PROVIDER_SLUG];
-  if (existingProvider) {
-    // Update only the baseURL, preserving existing name, headers, models, etc.
-    existingProvider.options = existingProvider.options || {};
-    existingProvider.options.baseURL = baseUrl;
-
-    // Override models if explicitly provided (auto-discovered or from user)
-    if (models && Object.keys(models).length > 0) {
-      existingProvider.models = models;
-    }
-
-    // Set env var for API key if provided
-    if (apiKey) {
-      const existingEnv = existingProvider.env as string[] | undefined;
-      const env = existingEnv ? [...existingEnv] : [];
-      const filtered = env.filter((e) => !e.startsWith('OPENAI_API_KEY='));
-      filtered.push(`OPENAI_API_KEY=${apiKey}`);
-      existingProvider.env = filtered;
-    }
-  } else {
-    config.provider[AIDOME_PROVIDER_SLUG] = {
-      name: 'AIdome Gateway',
-      npm: AI_SDK_OPENAI_COMPATIBLE,
-      options: {
-        baseURL: baseUrl
+  return renderConfigFileContent({
+    baseUrl,
+    existingContent,
+    format: 'jsonc',
+    options: {
+      driver: 'jsonc-provider-map',
+      mapPath: ['provider'],
+      providerId: AIDOME_PROVIDER_SLUG,
+      defaults: {
+        name: 'AIdome Gateway',
+        npm: AI_SDK_OPENAI_COMPATIBLE
       },
-      models: (models && Object.keys(models).length > 0) ? models : undefined,
-      ...(apiKey ? { env: [`OPENAI_API_KEY=${apiKey}`] } : {})
-    };
-  }
-
-  return stringifyJsonc(config);
+      baseUrlPath: ['options', 'baseURL'],
+      models
+    }
+  });
 }
 
 /**

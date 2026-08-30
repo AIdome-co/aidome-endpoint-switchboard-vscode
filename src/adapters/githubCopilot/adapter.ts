@@ -26,16 +26,19 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
+import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+import { mergeObjectSetting, readObjectSetting } from '../../core/providerConfig/vscodeSettingDriver';
 
 /** VS Code setting key for the proxy override object. */
-const ADVANCED_SETTING_KEY = 'github.copilot.advanced';
+const DESCRIPTOR = getProviderConfigDescriptor('github-copilot');
+const ADVANCED_SETTING_KEY = DESCRIPTOR?.targets[0]?.settingKey ?? 'github.copilot.advanced';
 
 /**
  * Nested property within `github.copilot.advanced` that sets the proxy URL.
  * Legacy key — maps to `internal.completionsUrl` in the Copilot Chat extension
  * source.  Routes all Copilot REST traffic through the configured URL.
  */
-const PROXY_URL_PROPERTY = 'debug.overrideProxyUrl';
+const PROXY_URL_PROPERTY = DESCRIPTOR?.fields[0]?.path ?? 'debug.overrideProxyUrl';
 
 /**
  * GitHub Copilot assistant adapter.
@@ -65,10 +68,7 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
 
     const currentAdvanced =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
-    const newAdvanced: Record<string, unknown> = {
-      ...currentAdvanced,
-      [PROXY_URL_PROPERTY]: profile.baseUrl,
-    };
+    const newAdvanced = mergeObjectSetting(currentAdvanced, PROXY_URL_PROPERTY.split('.'), profile.baseUrl);
 
     plan = addStep(plan, {
       action: 'set-vscode-setting',
@@ -81,6 +81,8 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
         settingKey: ADVANCED_SETTING_KEY,
         value: newAdvanced,
         method: 'proxy-override',
+        driver: 'vscode-setting',
+        descriptorKey: 'github-copilot',
       },
       reversible: true,
     });
@@ -107,9 +109,9 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
 
     const advancedSettings =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
-    const proxyUrl = advancedSettings[PROXY_URL_PROPERTY];
+    const proxyUrl = readObjectSetting(advancedSettings, PROXY_URL_PROPERTY.split('.'));
 
-    const isConfigured = !!proxyUrl;
+    const isConfigured = typeof proxyUrl === 'string' && proxyUrl.trim().length > 0;
 
     return {
       success: isConfigured,

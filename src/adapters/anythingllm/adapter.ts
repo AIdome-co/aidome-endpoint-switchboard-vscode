@@ -12,6 +12,9 @@ import { Logger } from '../../util/log';
 import * as os from 'os';
 import * as path from 'path';
 import { fileExists } from '../../util/fsSafe';
+import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+
+const DESCRIPTOR = getProviderConfigDescriptor('anythingllm');
 
 /**
  * AnythingLLM adapter.
@@ -82,7 +85,7 @@ export class AnythingLlmAdapter implements AssistantAdapter {
         'Save the configuration'
       ],
       baseUrl: profile.baseUrl,
-      tier: 'B',
+      tier: DESCRIPTOR?.tier ?? 'B',
       configurationType: 'desktop-app-ui'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
@@ -122,13 +125,14 @@ export class AnythingLlmAdapter implements AssistantAdapter {
     const detected = await this.detect();
     
     return {
-      success: true,
+      success: false,
       message: detected 
-        ? 'AnythingLLM detected. Configuration must be done in the AnythingLLM app (Tier B).' 
+        ? 'AnythingLLM detected, but endpoint configuration must be verified in the AnythingLLM app'
         : 'AnythingLLM not auto-detected. If installed, configure it manually using the guided steps.',
       details: { 
         detected: detected,
-        tier: 'B',
+        tier: DESCRIPTOR?.tier ?? 'B',
+        configurationStatus: 'manual-configuration-required',
         note: 'AnythingLLM is a desktop application. Configuration is done through its UI, not VS Code settings.',
         detectionPaths: this.getDetectionPaths()
       }
@@ -140,6 +144,6 @@ export class AnythingLlmAdapter implements AssistantAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'B';
+    return DESCRIPTOR?.tier ?? 'B';
   }
 }

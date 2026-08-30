@@ -54,7 +54,7 @@ describe('Codex Config Patcher', () => {
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
       expect(writtenContent).toContain(`base_url = "${mockProfile.baseUrl}"`);
       expect(writtenContent).toContain('wire_api = "responses"');
       expect(writtenContent).toContain('model_provider = "aidome"');
@@ -65,7 +65,7 @@ describe('Codex Config Patcher', () => {
 model_provider = "openai"
 model = "gpt-3.5-turbo"
 
-[providers.openai]
+[model_providers.openai]
 base_url = "https://api.openai.com/v1"
 `;
       
@@ -77,20 +77,20 @@ base_url = "https://api.openai.com/v1"
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
       expect(writtenContent).toContain(`base_url = "${mockProfile.baseUrl}"`);
       expect(writtenContent).toContain('model_provider = "aidome"');
-      expect(writtenContent).toContain('[providers.openai]'); // Should preserve existing provider
+      expect(writtenContent).toContain('[model_providers.openai]'); // Should preserve existing provider
     });
 
-    it('should set default model if not present', async () => {
+    it('should not invent a model when one is not present', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
       await patchCodexConfig(mockProfile, '/path/to/config.toml');
 
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
-      expect(writtenContent).toContain('model = "gpt-4"');
+      expect(writtenContent).not.toContain('model = "gpt-4"');
     });
 
     it('should preserve existing model', async () => {
@@ -118,7 +118,7 @@ model = "custom-model"
 
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
     });
 
 
@@ -133,7 +133,7 @@ model = "custom-model"
 
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
     });
 
     it('should set wire_api to responses', async () => {
