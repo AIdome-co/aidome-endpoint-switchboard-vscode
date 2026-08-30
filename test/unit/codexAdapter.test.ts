@@ -1,5 +1,5 @@
 /**
- * Unit tests for Codex adapter.
+ * Unit tests for the OpenAI Codex adapter.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,16 +10,13 @@ import * as fsSafe from '../../src/util/fsSafe';
 
 vi.mock('vscode', () => ({
   workspace: {
-    getConfiguration: vi.fn(() => ({
-      get: vi.fn()
-    }))
+    getConfiguration: vi.fn(() => ({ get: vi.fn() }))
   },
   window: {
     showWarningMessage: vi.fn()
   }
 }));
 
-// Mock the modules
 vi.mock('../../src/core/detection/detectCLIs');
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/log', () => ({
@@ -49,111 +46,103 @@ describe('CodexAdapter', () => {
   });
 
   describe('detect', () => {
-    it('should return true when codex CLI is detected', async () => {
+    it('returns true when the Codex CLI is detected', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(true);
+      await expect(adapter.detect()).resolves.toBe(true);
       expect(detectCLIs.detectCli).toHaveBeenCalledWith('codex');
     });
 
-    it('should return false when codex CLI is not detected', async () => {
+    it('returns false when the Codex CLI is not detected', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(false);
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+      await expect(adapter.detect()).resolves.toBe(false);
     });
 
-    it('should return false on error', async () => {
+    it('returns false when CLI detection fails', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockRejectedValue(new Error('Test error'));
 
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+      await expect(adapter.detect()).resolves.toBe(false);
     });
   });
 
   describe('buildPlan', () => {
-    it('should create a plan with backup step when config exists', async () => {
+    it('creates a reversible config plan with a backup for an existing file', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      expect(plan).toBeDefined();
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('openai-codex');
-      expect(plan.steps.length).toBeGreaterThan(0);
-      
-      // Should have backup step
-      const backupStep = plan.steps.find(s => s.action === 'backup-file');
-      expect(backupStep).toBeDefined();
-      expect(backupStep?.assistantKey).toBe('openai-codex');
-    });
+      expect(plan.steps.find(step => step.action === 'backup-file')).toBeDefined();
 
-    it('should create a plan without backup step when config does not exist', async () => {
-      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan).toBeDefined();
-      expect(plan.profileId).toBe(mockProfile.id);
-      
-      // Should not have backup step
-      const backupStep = plan.steps.find(s => s.action === 'backup-file');
-      expect(backupStep).toBeUndefined();
-    });
-
-    it('should include edit-config-file step', async () => {
-      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const editStep = plan.steps.find(s => s.action === 'edit-config-file');
-      expect(editStep).toBeDefined();
+      const editStep = plan.steps.find(step => step.action === 'edit-config-file');
       expect(editStep?.newValue).toBe(mockProfile.baseUrl);
-      expect(editStep?.data.format).toBe('toml');
+      expect(editStep?.data).toMatchObject({
+        format: 'toml',
+        providerName: 'aidome',
+        wireApi: 'responses'
+      });
+      expect(plan.steps.find(step => step.action === 'set-env-var')).toBeUndefined();
     });
 
-    it('should include set-env-var step for fallback', async () => {
+    it('does not add a redundant backup step for a missing file', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      const envStep = plan.steps.find(s => s.action === 'set-env-var');
-      expect(envStep).toBeDefined();
-      expect(envStep?.targetPath).toBe('OPENAI_BASE_URL');
-      expect(envStep?.newValue).toBe(mockProfile.baseUrl);
+      expect(plan.steps.find(step => step.action === 'backup-file')).toBeUndefined();
+      expect(plan.steps.find(step => step.action === 'edit-config-file')).toBeDefined();
     });
 
-    it('should include verify-endpoint step', async () => {
+    it('adds environment-key guidance without placing a secret in plan data', async () => {
+      mockProfile.authRef = 'profile-secret-reference';
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const plan = await adapter.buildPlan(mockProfile);
 
-      const verifyStep = plan.steps.find(s => s.action === 'verify-endpoint');
-      expect(verifyStep).toBeDefined();
-      expect(verifyStep?.assistantKey).toBe('openai-codex');
+      const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+      expect(editStep?.data.authEnvVar).toBe('OPENAI_API_KEY');
+      expect(JSON.stringify(plan)).not.toContain('profile-secret-reference');
+
+      const guidanceStep = plan.steps.find(step => step.action === 'show-guided-steps');
+      expect(guidanceStep?.data.envVarName).toBe('OPENAI_API_KEY');
+      expect(guidanceStep?.data.steps).toEqual([
+        'Set OPENAI_API_KEY in the environment used to launch Codex.',
+        'Codex will read that variable for the aidome provider; Switchboard keeps the saved profile secret in SecretStorage and does not write it to config.toml.',
+        'Restart Codex or VS Code after changing the environment so the process can read the variable.'
+      ]);
+    });
+
+    it('rejects unsafe endpoint URLs before creating a plan', async () => {
+      mockProfile.baseUrl = 'javascript:alert(1)';
+
+      await expect(adapter.buildPlan(mockProfile)).rejects.toThrow('base URL');
     });
   });
 
   describe('verify', () => {
-    it('should return success when config file exists with provider config', async () => {
+    it('succeeds only for the selected AIdome Responses provider', async () => {
       const mockConfig = `
-[providers.aidome]
+model = "existing-model"
+model_provider = "aidome"
+
+[model_providers.aidome]
+name = "AIdome Gateway"
 base_url = "https://aidome.example.com/v1"
-api_key = "test-key"
-      `;
+wire_api = "responses"
+env_key = "OPENAI_API_KEY"
+`;
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(mockConfig);
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(true);
       expect(result.message).toContain('verified');
+      expect(result.details).toMatchObject({ provider: 'aidome', wireApi: 'responses' });
     });
 
-    it('should return failure when config file does not exist', async () => {
+    it('fails when the config file does not exist', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
 
       const result = await adapter.verify();
@@ -162,38 +151,138 @@ api_key = "test-key"
       expect(result.message).toContain('not found');
     });
 
-    it('should return failure when config file exists but has no provider config', async () => {
-      const mockConfig = `
-[general]
-some_setting = "value"
-      `;
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(mockConfig);
+    it('fails for malformed TOML', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('this is not valid TOML {{[');
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('does not have provider base_url');
+      expect(result.message).toContain('not valid TOML');
     });
 
-    it('should handle errors gracefully', async () => {
-      vi.spyOn(fsSafe, 'readFileSafe').mockRejectedValue(new Error('Read error'));
+    it('fails for the legacy unsupported providers table', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[providers.aidome]
+name = "AIdome Gateway"
+base_url = "https://aidome.example.com/v1"
+`);
 
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Error verifying');
+      expect(result.message).toContain('model_providers');
+    });
+
+    it('fails when another provider is active', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "other"
+[model_providers.aidome]
+name = "AIdome Gateway"
+base_url = "https://aidome.example.com/v1"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not select');
+    });
+
+    it('fails when the selected provider is missing or uses an unsupported wire API', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.aidome]
+name = "AIdome Gateway"
+base_url = "https://aidome.example.com/v1"
+wire_api = "chat"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Responses API');
+    });
+
+    it('fails when the selected provider uses unsupported plaintext api_key auth', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.aidome]
+name = "AIdome Gateway"
+base_url = "https://aidome.example.com/v1"
+api_key = "legacy-plaintext-key"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('use env_key');
+    });
+
+    it('fails when the selected provider base URL is unsafe', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.aidome]
+name = "AIdome Gateway"
+base_url = "file:///tmp/secret"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('invalid base_url');
+    });
+
+    it('fails when the config root is not a TOML table', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('["not", "a", "table"]');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid TOML');
+    });
+
+    it('fails when model_providers is not a table', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+model_providers = "not a table"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not have a model_providers table');
+    });
+
+    it('fails when the AIdome provider entry is missing', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.other]
+name = "Other provider"
+base_url = "https://other.example.com/v1"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not have an AIdome provider entry');
+    });
+
+    it('fails when the AIdome provider is missing its name', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(`
+model_provider = "aidome"
+[model_providers.aidome]
+base_url = "https://aidome.example.com/v1"
+`);
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('missing its required name');
     });
   });
 
-  describe('getDisplayName', () => {
-    it('should return correct display name', () => {
-      expect(adapter.getDisplayName()).toBe('OpenAI Codex (CLI / IDE)');
-    });
-  });
-
-  describe('getTier', () => {
-    it('should return tier A', () => {
-      expect(adapter.getTier()).toBe('A');
-    });
+  it('reports the Codex display name and Tier A support', () => {
+    expect(adapter.getDisplayName()).toBe('OpenAI Codex (CLI / IDE)');
+    expect(adapter.getTier()).toBe('A');
   });
 });
