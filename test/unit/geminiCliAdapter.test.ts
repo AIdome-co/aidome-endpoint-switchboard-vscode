@@ -2,7 +2,7 @@
  * Unit tests for Gemini CLI adapter.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GeminiCliAdapter } from '../../src/adapters/geminiCli/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
@@ -32,6 +32,8 @@ vi.mock('../../src/util/log', () => ({
 describe('GeminiCliAdapter', () => {
   let adapter: GeminiCliAdapter;
   let mockProfile: EndpointProfile;
+  let originalGeminiBaseUrl: string | undefined;
+  let originalVertexBaseUrl: string | undefined;
 
   beforeEach(() => {
     adapter = new GeminiCliAdapter();
@@ -43,6 +45,17 @@ describe('GeminiCliAdapter', () => {
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+    originalGeminiBaseUrl = process.env['GOOGLE_GEMINI_BASE_URL'];
+    originalVertexBaseUrl = process.env['GOOGLE_VERTEX_BASE_URL'];
+    delete process.env['GOOGLE_GEMINI_BASE_URL'];
+    delete process.env['GOOGLE_VERTEX_BASE_URL'];
+  });
+
+  afterEach(() => {
+    if (originalGeminiBaseUrl === undefined) delete process.env['GOOGLE_GEMINI_BASE_URL'];
+    else process.env['GOOGLE_GEMINI_BASE_URL'] = originalGeminiBaseUrl;
+    if (originalVertexBaseUrl === undefined) delete process.env['GOOGLE_VERTEX_BASE_URL'];
+    else process.env['GOOGLE_VERTEX_BASE_URL'] = originalVertexBaseUrl;
   });
 
   describe('detect', () => {
@@ -90,10 +103,12 @@ describe('GeminiCliAdapter', () => {
       
       const mainGuidance = guidedSteps[0];
       expect(mainGuidance.assistantKey).toBe('gemini-cli');
-      expect(mainGuidance.data.limitation).toBe('no-base-url-override');
+      expect(mainGuidance.data.limitation).toBe('environment-variable-configuration-required');
       expect(mainGuidance.data.tier).toBe('C');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('GOOGLE_GEMINI_BASE_URL');
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('GOOGLE_VERTEX_BASE_URL');
     });
 
     it('should include base URL in guidance', async () => {
@@ -101,6 +116,25 @@ describe('GeminiCliAdapter', () => {
 
       const guidedStep = plan.steps[0];
       expect(guidedStep.data.baseUrl).toBe(mockProfile.baseUrl);
+    });
+
+    it('should reject a base URL using a dangerous or unsupported scheme', async () => {
+      const unsafeSchemes = [
+        'javascript:alert(1)',
+        'data:text/plain;base64,SGVsbG8=',
+        'file:///etc/passwd',
+        'ftp://example.com'
+      ];
+
+      for (const url of unsafeSchemes) {
+        const unsafeProfile = { ...mockProfile, baseUrl: url };
+        await expect(adapter.buildPlan(unsafeProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+      }
+    });
+
+    it('should reject a plain http endpoint that is not localhost', async () => {
+      const httpProfile = { ...mockProfile, baseUrl: 'http://gateway.example.com/v1' };
+      await expect(adapter.buildPlan(httpProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
     });
   });
 
@@ -114,15 +148,59 @@ describe('GeminiCliAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should return success when CLI is detected', async () => {
+    it('should require a gateway environment variable when CLI is only detected', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('installed');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.cli).toBe(true);
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+      expect(result.details?.supportedEnvironmentVariables).toEqual([
+        'GOOGLE_GEMINI_BASE_URL',
+        'GOOGLE_VERTEX_BASE_URL'
+      ]);
+    });
+
+    it('should verify a configured gateway environment variable without exposing its value', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_GEMINI_BASE_URL'] = 'https://gateway.example.com/v1beta';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('environment-variable-configured');
+      expect(result.details?.configuredEnvironmentVariables).toEqual(['GOOGLE_GEMINI_BASE_URL']);
+      expect(JSON.stringify(result.details)).not.toContain('gateway.example.com');
+    });
+
+    it('should verify a Vertex AI gateway environment variable without exposing its value', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_VERTEX_BASE_URL'] = 'https://vertex.example.com/v1';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('environment-variable-configured');
+      expect(result.details?.configuredEnvironmentVariables).toEqual(['GOOGLE_VERTEX_BASE_URL']);
+      expect(JSON.stringify(result.details)).not.toContain('vertex.example.com');
+    });
+
+    it('should report both supported environment variables when both are configured', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_GEMINI_BASE_URL'] = 'https://gemini.example.com/v1beta';
+      process.env['GOOGLE_VERTEX_BASE_URL'] = 'https://vertex.example.com/v1';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('environment-variable-configured');
+      expect(result.details?.configuredEnvironmentVariables).toEqual([
+        'GOOGLE_GEMINI_BASE_URL',
+        'GOOGLE_VERTEX_BASE_URL'
+      ]);
     });
 
     it('should handle errors gracefully', async () => {

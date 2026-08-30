@@ -70,7 +70,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | AnythingLLM | Desktop App | B — Guided | 📋 Guided | OpenAI Chat |
 | Claude Code | CLI + Extension | A — Full | ✅ Yes | Anthropic Messages |
 | GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
-| Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
+| Gemini CLI | CLI | C — Guided | 📋 Guided | Google Gemini |
 | Tabnine | VS Code Extension | C — Info | ℹ️ Info Only | Proprietary |
 
 Claude Code gateway routing:
