@@ -81,7 +81,7 @@ export class AssistantsTreeProvider implements vscode.TreeDataProvider<Assistant
       );
 
       // Detect actually installed extensions
-      const detectedExtensions = detectExtensions(registry);
+      const detectedExtensions = await detectExtensions(registry);
       const installedKeys = new Set(detectedExtensions.map(d => d.assistantKey));
 
       return registry.assistants.map(assistant => {

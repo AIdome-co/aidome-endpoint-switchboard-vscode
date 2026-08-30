@@ -65,6 +65,10 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Validate registry extension IDs against the VS Code Marketplace
+        run: npm run validate:registry
+        if: runner.os == 'Linux'
+
       - name: Run E2E tests (Extension Development Host)
         run: xvfb-run -a npm run test:e2e
         if: runner.os == 'Linux'
