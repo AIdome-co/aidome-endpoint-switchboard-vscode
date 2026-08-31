@@ -1002,20 +1002,41 @@ class ConvergenceController:
         """
         if self.dry_run:
             return
-        resolved: dict[Any, str] = {}
+        resolved: dict[int, str] = {}
         for item in results:
             if isinstance(item, dict) and item.get("number") is not None:
-                resolved[item["number"]] = str(item.get("status", "unknown"))
+                resolved[int(item["number"])] = str(item.get("status", "unknown"))
         # Fill in the persisted status for any PR not covered by this run's results
         # so the digest reflects the full in-scope picture, not just this run.
         for number, entry in self.state.get("prs", {}).items():
-            if isinstance(entry, dict) and entry.get("status") and number not in resolved:
+            if isinstance(entry, dict) and entry.get("status") and int(number) not in resolved:
                 resolved[int(number)] = str(entry["status"])
 
+        # Anchor the PR count to the LIVE in-scope inventory used for this run, not
+        # to whatever subset happened to be recorded this run. A reconcile-only,
+        # partial, or budget-paused run must not report a misleading "0 PRs in
+        # scope" while the known inventory still contains the PRs. The inventory is
+        # made available on the instance so the digest keeps its stable 2-arg
+        # signature (test overrides depend on it). Distinguish "never captured"
+        # (None -> fall back to recorded statuses for callers outside a run) from
+        # "genuinely empty live inventory" ([] -> report 0, not stale persisted
+        # PRs). Only the former may fall back to recorded statuses, so a truly
+        # empty repository still reports zero.
+        inventory = getattr(self, "current_inventory", None)
+        if inventory is None:
+            numbers = sorted(resolved)
+        else:
+            numbers = [
+                int(p["number"])
+                for p in inventory
+                if isinstance(p, dict) and p.get("number") is not None
+            ]
+
         line_items: list[str] = []
-        for number in sorted(resolved):
-            flag = ":white_check_mark:" if resolved[number] == "eligible100" else ""
-            line_items.append(f"#{number} {resolved[number]}{flag}")
+        for number in sorted(numbers):
+            status = resolved.get(number, "in-scope")
+            flag = ":white_check_mark:" if status == "eligible100" else ""
+            line_items.append(f"#{number} {status}{flag}")
         discovery_line = ""
         if discovery:
             dstatus = str(discovery.get("status", ""))
@@ -1026,7 +1047,7 @@ class ConvergenceController:
             elif dstatus == "planned":
                 discovery_line = "\nDiscovery planned (dry run)."
         message = (
-            f"Switchboard maintenance digest — {len(line_items)} PRs in scope.\n"
+            f"Switchboard maintenance digest — {len(numbers)} PRs in scope.\n"
             + "\n".join(line_items)
             + discovery_line
         )
@@ -1068,6 +1089,22 @@ class ConvergenceController:
         self.state["scheduler"]["updatedAt"] = utc_now()
         if not self.dry_run:
             save_state(self.state_path, self.state)
+
+    @staticmethod
+    def _validation_env_deferred(validation: dict[str, Any]) -> bool:
+        """Whether validation failed only because of environment deferrals.
+
+        An environment deferral is recorded with ``returncode=None`` (e.g. the
+        headless E2E suite postponed under memory pressure / no display). A real
+        failure has a non-None return code. Distinguishing the two lets the
+        controller avoid burning a Hermes cycle on an un-fixable environment while
+        never hiding a genuine source-code regression.
+        """
+        commands = validation.get("commands") or []
+        if not commands:
+            return False
+        failed = [cmd for cmd in commands if not cmd.get("passed")]
+        return bool(failed) and all(cmd.get("returncode") is None for cmd in failed)
 
     def process_pr(self, pr: dict[str, Any]) -> dict[str, Any]:
         number = int(pr["number"])
@@ -1170,6 +1207,37 @@ class ConvergenceController:
                         push=final_push,
                     )
                     return {"number": number, "status": "eligible100", "gate": refreshed_gate, "cycles": cycles}
+                # The deterministic gate + GitHub CI already certify this head, but
+                # supplementary local validation was deferred for an ENVIRONMENT
+                # reason (headless E2E under memory pressure / no display) — NOT a
+                # source-code regression. Do not burn a Hermes cycle (it cannot fix
+                # the environment) and do not report a bogus code regression: keep
+                # the PR below 100% (fail-closed) with an honest environment
+                # deferral that a later run heals once headroom is available.
+                if (
+                    refreshed_gate.get("eligible100")
+                    and str(refreshed.get("headRefOid", "")) == head_before
+                    and self._validation_env_deferred(final_validation)
+                ):
+                    detail = (
+                        "controller validation deferred: environment unavailable "
+                        "(headless/memory); rerun when headroom exists"
+                    )
+                    self.record_pr(
+                        refreshed,
+                        status="blocked",
+                        lastHead=head_before,
+                        blocker=json.dumps([detail], ensure_ascii=True),
+                        validation=final_validation,
+                        validationEnvOnly=True,
+                    )
+                    return {
+                        "number": number,
+                        "status": "blocked",
+                        "gate": refreshed_gate,
+                        "cycles": cycles,
+                        "envDeferred": True,
+                    }
                 last_gate = dict(refreshed_gate)
                 reasons = list(last_gate.get("reasons", []))
                 if not final_validation.get("passed"):
@@ -1285,8 +1353,19 @@ class ConvergenceController:
         # empty blocker as no blocker).
         if not (gate or {}).get("reasons"):
             values["blocker"] = ""
+        # The deterministic gate is the source of truth: when reconciliation finds
+        # the current head already eligible, mirror that in durable state (instead
+        # of leaving a generic "reconciled") so the digest checkmark and any
+        # downstream consumer read the PR as genuinely 100%.
+        if (gate or {}).get("eligible100"):
+            values["status"] = "eligible100"
         self.record_pr(current, **values)
-        return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
+        return {
+            "number": int(pr["number"]),
+            "status": values["status"],
+            "head": current.get("headRefOid"),
+            "gate": gate,
+        }
 
     def _run_status(self, results: list[dict[str, Any]], discovery: dict[str, Any]) -> str:
         """Classify the run.
@@ -1368,6 +1447,10 @@ class ConvergenceController:
                 inventory = [pr for pr in inventory if int(pr["number"]) == only_pr]
                 if not inventory:
                     raise ControllerError(f"PR #{only_pr} was not returned by the in-scope PR inventory")
+            # Anchor the per-run digest to the LIVE in-scope inventory used this run
+            # so partial/reconcile-only/budget-paused runs cannot under-report the
+            # PR count from a transient or empty results set.
+            self.current_inventory = list(inventory)
             if self.dry_run:
                 discovery = {"status": "planned"}
                 results = [
