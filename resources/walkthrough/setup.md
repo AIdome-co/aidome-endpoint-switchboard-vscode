@@ -10,6 +10,6 @@ The setup wizard guides you through:
 
 ## Tips
 
-- Tier A assistants (Continue, Cline, Roo Code, Kilo Code, Codex) are fully automated
+- Tier A assistants (Continue, Cline, Kilo Code, Codex) are fully automated; Roo Code is Tier C guided setup
 - Tier B/C assistants provide guided instructions
 - All changes can be undone via "AIdome: Reset Switchboard"

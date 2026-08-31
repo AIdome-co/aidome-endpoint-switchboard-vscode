@@ -30,7 +30,7 @@ Use this checklist before asking developers to run the Setup Wizard:
 |-----------|-------------------|-------|
 | Continue.dev | Tier A — auto-configure | Patches `~/.continue/config.json` |
 | Cline | Tier A — auto-configure | Sets VS Code settings |
-| Roo Code | Tier A — auto-configure | Sets VS Code settings |
+| Roo Code | Tier C — guided setup | Configure OpenAI Compatible or OpenAI in Roo Code's settings UI; endpoint routing is not exposed as a writable VS Code setting |
 | Kilo Code | Tier A — auto-configure | Sets VS Code settings |
 | Codex CLI | Tier A — auto-configure | Patches `~/.codex/config.toml` or env vars |
 | Claude Code | Tier A — auto-configure | Rewrites Claude Code user settings and gateway bearer token; requires an Anthropic Messages-compatible gateway front door for `ANTHROPIC_BASE_URL`; raw OpenAI Chat Completions endpoints need gateway translation |
@@ -111,7 +111,8 @@ If individual assistants also reject TLS connections, configure them separately:
 | Claude Code | `ANTHROPIC_DISABLE_TLS_VERIFY=true` (TLS only; gateway routing uses `ANTHROPIC_BASE_URL`) |
 | Codex CLI | `CODEX_CA_CERTIFICATE=/path/to/ca.pem` |
 | AnythingLLM | `NODE_TLS_REJECT_UNAUTHORIZED=0` |
-| VS Code extensions (Cline, Roo Code, Kilo Code, CodeGPT, Copilot, Tabnine) | `"http.proxyStrictSSL": false` in settings |
+| VS Code extensions (Cline, Kilo Code, CodeGPT, Copilot, Tabnine) | `"http.proxyStrictSSL": false` in settings |
+| Roo Code | No provider-endpoint TLS override is exposed; use a trusted system CA and verify the gateway request manually |
 | Gemini CLI | No TLS control available |
 
 ### Remote Development
