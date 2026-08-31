@@ -35,13 +35,13 @@
           "proxy-override"
         ],
         "settingKeyHints": [
-          "github.copilot.advanced"
+          "github.copilot.advanced.debug.overrideProxyUrl"
         ],
         "notes": [
-          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic \u2014 inline completions and chat \u2014 through the gateway.",
-          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API but is stable across current releases.",
-          "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
-          "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting that may break in future releases; users should be aware it may change or be removed in future Copilot updates."
+          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl, the legacy setting still consumed by current Copilot Chat source, to route Copilot completion and chat API traffic that uses the proxy endpoint through the gateway.",
+          "The debug.overrideProxyUrl key is undocumented and internal. The former microsoft/vscode-copilot-chat repository was archived after active development moved into microsoft/vscode; the adapter keeps a guided settings.json fallback when the setting is not registered by the installed Copilot build.",
+          "VS Code supports BYOK and a Custom Endpoint provider as a separate chat feature. This adapter does not configure BYOK provider records, chatLanguageModels.json, model metadata, or API keys; users must configure those through VS Code's Language Models UI when needed.",
+          "Tier B because the proxy override is an undocumented internal setting that may change or be removed, and BYOK is intentionally outside this adapter's automatic endpoint-switching scope."
         ]
       },
       "tlsVerification": {
@@ -51,7 +51,11 @@
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot",
-        "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat"
+        "https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat",
+        "https://github.com/microsoft/vscode-copilot-chat",
+        "https://github.com/microsoft/vscode",
+        "https://docs.github.com/en/copilot/concepts/network-settings",
+        "https://code.visualstudio.com/docs/agent-customization/language-models"
       ]
     },
     {
