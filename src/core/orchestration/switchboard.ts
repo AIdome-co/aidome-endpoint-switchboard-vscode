@@ -54,7 +54,7 @@ export class Switchboard {
     const timer = startTimer();
 
     // Detect extensions
-    const assistants = detectExtensions(this.registry);
+    const assistants = await detectExtensions(this.registry);
     this.logger.info(`Detected ${assistants.length} extension(s)`);
 
     // Detect CLIs with retry for transient process-spawn failures

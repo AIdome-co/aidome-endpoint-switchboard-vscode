@@ -1270,13 +1270,22 @@ class ConvergenceController:
 
         current = self.current_pr(int(pr["number"]))
         gate = self.wait_for_gate(int(pr["number"]))
-        self.record_pr(
-            current,
-            status="reconciled",
-            lastHead=str(current.get("headRefOid", "")),
-            lastGate=gate,
-            reconcileOnly=True,
-        )
+        # When the fresh gate has no blocking reasons (clean / eligible100), clear
+        # any stale `blocker` diagnostic string so reconciled-clean PRs don't keep
+        # reporting long-resolved failures (e.g. transient SSH fetch errors) from
+        # an earlier run. The blocker only reflects the *current* live gate.
+        values: dict[str, Any] = {
+            "status": "reconciled",
+            "lastHead": str(current.get("headRefOid", "")),
+            "lastGate": gate,
+            "reconcileOnly": True,
+        }
+        # record_pr() does item.update(values) — writing "" overwrites the stale
+        # string (it does not delete the key, but the digest/consumers treat an
+        # empty blocker as no blocker).
+        if not (gate or {}).get("reasons"):
+            values["blocker"] = ""
+        self.record_pr(current, **values)
         return {"number": int(pr["number"]), "status": "reconciled", "head": current.get("headRefOid"), "gate": gate}
 
     def _run_status(self, results: list[dict[str, Any]], discovery: dict[str, Any]) -> str:

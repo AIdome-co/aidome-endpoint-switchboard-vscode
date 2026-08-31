@@ -391,6 +391,36 @@ class ConvergenceControllerTests(unittest.TestCase):
             self.assertEqual(controller.state["prs"]["123"]["lastHead"], "a" * 40)
             self.assertEqual(controller.agent_calls, 0)
 
+    def test_reconcile_clean_gate_clears_stale_blocker(self) -> None:
+        """A PR that reconciles to a clean gate (no reasons) must not keep reporting
+        a stale `blocker` string from an older run (e.g. a transient SSH fetch error
+        that long since resolved). The blocker must reflect the current live gate."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = FakeController(root=root, pub_refs=root / "pub", state_path=root / "state.json", gate_values=[True])
+            # Pre-seed a stale blocker, as an earlier failed run would have left.
+            controller.record_pr(pr(), status="failed", blocker="Could not fetch PR #123: Connection closed by ... port 22")
+            self.assertEqual(controller.state["prs"]["123"]["blocker"], "Could not fetch PR #123: Connection closed by ... port 22")
+
+            controller.reconcile_pr(pr())
+
+            # The fresh gate is eligible100 with empty reasons -> stale blocker cleared.
+            self.assertEqual(controller.state["prs"]["123"]["status"], "reconciled")
+            self.assertEqual(controller.state["prs"]["123"].get("blocker", ""), "")
+
+    def test_reconcile_blocked_gate_preserves_blocker(self) -> None:
+        """A PR that reconciles to a STILL-blocked gate (has reasons) must keep its
+        blocking diagnostic (clearing it would hide a real, current blocker)."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = FakeController(root=root, pub_refs=root / "pub", state_path=root / "state.json", gate_values=[False])
+            controller.record_pr(pr(), status="blocked", blocker="GitHub mergeable=CONFLICTING")
+
+            controller.reconcile_pr(pr())
+
+            self.assertEqual(controller.state["prs"]["123"]["status"], "reconciled")
+            self.assertEqual(controller.state["prs"]["123"].get("blocker"), "GitHub mergeable=CONFLICTING")
+
 class DiscoveryPriorityTests(unittest.TestCase):
     def test_existing_pr_converges_before_discovery(self) -> None:
         class OrderedController(ConvergenceController):
