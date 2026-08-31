@@ -1,6 +1,6 @@
 /**
- * Proves config patchers still fall back to empty config when
- * the Logger is unavailable (import fails or getInstance throws).
+ * Proves config patchers remain safe when the Logger is unavailable
+ * (import fails or getInstance throws).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -61,11 +61,11 @@ describe('Config patchers — logger unavailable', () => {
     };
   });
 
-  it('Continue patcher falls back to empty config on malformed JSON', async () => {
+  it('Continue patcher does not replace malformed JSON', async () => {
     mockReadFileSafe.mockResolvedValue('{ this is not json !!!');
 
-    await expect(patchContinueConfig(profile, '/path/config.json')).resolves.not.toThrow();
-    expect(mockWriteFileAtomic).toHaveBeenCalled();
+    await expect(patchContinueConfig(profile, '/path/config.json')).rejects.toThrow();
+    expect(mockWriteFileAtomic).not.toHaveBeenCalled();
   });
 
   it('Codex patcher falls back to empty config on malformed TOML', async () => {
