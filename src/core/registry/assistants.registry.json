@@ -421,7 +421,7 @@
       "kind": "vscode-extension",
       "detection": {
         "vscodeExtensionIds": [
-          "CodeGPT.codegpt"
+          "DanielSanMedium.dscodegpt"
         ]
       },
       "dialect": {
@@ -446,9 +446,10 @@
           "codegpt.*baseUrl*"
         ],
         "notes": [
-          "⚠️ MARKETPLACE STATUS: CodeGPT.codegpt returned HTTP 404 on the VS Code Marketplace as of 2026-05-21. The extension may have been removed or renamed. Verify availability before relying on this adapter.",
-          "CodeGPT supports local providers and entering an API URL for Ollama/other OpenAI-compatible local servers.",
-          "Automation should either deep-link users into CodeGPT model panel steps, or set settings if keys exist and are discoverable."
+          "CodeGPT's current model-management UI supports managed providers, BYOK providers, and local OpenAI-compatible providers.",
+          "Local providers such as Ollama and LM Studio accept an API URL from the Manage my AI Models panel.",
+          "The extension's contributed settings are version-dependent; automation must use discovered settings only and otherwise guide users through the model-management panel.",
+          "The legacy source checkout in pub-refs/codegpt does not represent every setting exposed by current CodeGPT releases."
         ]
       },
       "tlsVerification": {
@@ -457,7 +458,9 @@
         "notes": "CodeGPT has no extension-specific TLS toggle. Inherits VS Code's http.proxyStrictSSL."
       },
       "sources": [
-        "https://www.codegpt.co/docs"
+        "https://www.codegpt.co/docs/model-management",
+        "https://www.codegpt.co/docs/local-models",
+        "https://www.codegpt.co/docs/api-keys"
       ]
     },
     {
