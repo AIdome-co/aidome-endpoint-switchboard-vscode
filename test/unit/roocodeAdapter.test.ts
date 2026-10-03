@@ -79,3 +79,35 @@ describe('RooCodeAdapter', () => {
     expect(adapter.getTier()).toBe('C');
   });
 });
+
+describe('RooCodeAdapter with missing descriptor', () => {
+  it('falls back to tier C and conservative guidance when the descriptor is unavailable', async () => {
+    vi.resetModules();
+    vi.doMock('../../src/core/providerConfig/descriptors', () => ({
+      getProviderConfigDescriptor: () => undefined
+    }));
+    const { RooCodeAdapter: FallbackAdapter } = await import('../../src/adapters/roocode/adapter');
+    const fallback = new FallbackAdapter();
+
+    expect(fallback.getTier()).toBe('C');
+    const profile: EndpointProfile = {
+      id: 'fallback-profile',
+      name: 'Fallback Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const plan = await fallback.buildPlan(profile);
+    expect(plan.steps[0].data.tier).toBe('C');
+
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
+    const result = await fallback.verify();
+    expect(result.details?.tier).toBe('C');
+
+    vi.doUnmock('../../src/core/providerConfig/descriptors');
+    vi.resetModules();
+  });
+});

@@ -104,6 +104,24 @@ describe('ContinueAdapter', () => {
       expect(verifyStep).toBeDefined();
       expect(verifyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
     });
+
+    it('should skip the backup step when the config file does not exist', async () => {
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.find(step => step.action === 'backup-file')).toBeUndefined();
+      expect(plan.steps).toHaveLength(2);
+      expect(plan.steps.find(step => step.action === 'edit-config-file')).toBeDefined();
+    });
+
+    it('should declare the yaml format when the config path is a YAML file', async () => {
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+      expect(editStep?.data.format).toBe('yaml');
+    });
   });
 
   describe('verify', () => {
@@ -173,6 +191,29 @@ describe('ContinueAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('apiBase');
       expect(result.details?.modelCount).toBe(1);
+    });
+
+    it('should parse YAML config for a .yaml path', async () => {
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+        'name: AIdome Gateway\nmodels:\n  - name: gpt-4o-mini\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n'
+      );
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.format).toBe('yaml');
+      expect(result.details?.modelCount).toBe(1);
+    });
+
+    it('should fail YAML config without apiBase', async () => {
+      vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('name: AIdome Gateway\nmodels:\n  - name: gpt-4o-mini\n');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.format).toBe('yaml');
     });
 
     it('should fail gracefully when reading the Continue config throws', async () => {
