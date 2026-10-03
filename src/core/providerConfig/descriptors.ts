@@ -238,7 +238,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     reload: 'restart-process',
     discovery: { extensionIds: ['anthropic.claude-code'], cliCommands: ['claude'], environmentOverrides: ['CLAUDE_CONFIG_DIR'], notes: ['Public upstream evidence is documentation/changelog-derived.'] },
     verification: { requiredFields: ['env.ANTHROPIC_BASE_URL', 'env.ANTHROPIC_AUTH_TOKEN'], exactUrlMatch: true, selectedProviderRequired: false, protocolRequired: true, notes: ['Token is written only at apply time because Claude consumes the settings contract.'] },
-    drift: { sourceSymbols: ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'], failClosedOnMissingEvidence: false, notes: ['Runtime source is not present in the public checkout.'] },
+    drift: { sourceSymbols: ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'], failClosedOnMissingEvidence: true, notes: ['Runtime source is not present in the public checkout.', 'When the documented evidence disappears, automatic configuration fails closed (downgrade to guided) rather than silently continuing.'] },
     versionEvidence: evidence('https://github.com/anthropics/claude-code.git', 'f1af9b1f4b1fd4c776135381606edada82ef638e', 'medium', ['.devcontainer/devcontainer.json', 'CHANGELOG.md']),
     limitations: ['Exact runtime/version behavior must be maintained from documentation evidence.']
   },
