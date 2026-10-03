@@ -81,7 +81,7 @@ describe('CodexAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('should create a plan with backup step when config exists', async () => {
+    it('should create an edit step with backupRequired metadata and no duplicate backup step', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
 
       const plan = await adapter.buildPlan(mockProfile);
@@ -90,11 +90,14 @@ describe('CodexAdapter', () => {
       expect(plan.profileId).toBe(mockProfile.id);
       expect(plan.assistantKeys).toContain('openai-codex');
       expect(plan.steps.length).toBeGreaterThan(0);
-      
-      // Should have backup step
+
+      // The applier creates the backup automatically for edit-config-file;
+      // the plan declares backupRequired instead of a duplicate mutation.
       const backupStep = plan.steps.find(s => s.action === 'backup-file');
-      expect(backupStep).toBeDefined();
-      expect(backupStep?.assistantKey).toBe('openai-codex');
+      expect(backupStep).toBeUndefined();
+      const editStep = plan.steps.find(s => s.action === 'edit-config-file');
+      expect(editStep).toBeDefined();
+      expect(editStep?.data.backupRequired).toBe(true);
     });
 
     it('should create a plan without backup step when config does not exist', async () => {

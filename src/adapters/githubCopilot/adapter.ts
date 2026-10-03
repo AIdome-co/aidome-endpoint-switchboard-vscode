@@ -44,10 +44,12 @@ import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder'
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
 import { readObjectSetting } from '../../core/providerConfig/vscodeSettingDriver';
 
 /** VS Code setting key for the proxy override object. */
-const DESCRIPTOR = getProviderConfigDescriptor('github-copilot');
+const DESCRIPTOR = getProviderConfigDescriptor('github-copilot')
+  ?? (() => { throw new Error('GitHub Copilot provider descriptor is missing'); })();
 
 /**
  * Preferred flat-style setting key. Upstream reads
@@ -86,37 +88,22 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    // Copilot consumes the URL as a proxy endpoint verbatim. No /v1 suffix or
-    // other OpenAI normalization is applied — the profile URL IS the proxy URL.
-    const baseUrl = profile.baseUrl;
-    this.expectedProxyUrl = baseUrl;
-    let plan = createPlan(profile.id, ['github-copilot']);
-
     const config = vscode.workspace.getConfiguration();
 
+    // Guided fallback is a provider-specific hook: the Custom Endpoint UI
+    // guidance text is Copilot-specific and cannot be derived from the
+    // descriptor generically.
     if (!supportsLegacyProxySetting(config)) {
       return addGuidedConfigurationPlan(profile);
     }
 
-    const currentValue = config.get<unknown>(FLAT_SETTING_KEY);
-
-    plan = addStep(plan, {
-      action: 'set-vscode-setting',
-      description: `Set GitHub Copilot proxy override URL to ${baseUrl}`,
-      assistantKey: 'github-copilot',
-      targetPath: FLAT_SETTING_KEY,
-      oldValue: currentValue,
-      newValue: baseUrl,
-      data: {
-        settingKey: FLAT_SETTING_KEY,
-        value: baseUrl,
-        method: 'proxy-override',
-        driver: 'vscode-setting',
-        descriptorKey: 'github-copilot',
-        expectedProxyUrl: baseUrl,
-      },
-      reversible: true,
+    const { plan } = buildProviderConfigPlan(DESCRIPTOR, {
+      profile,
+      resolvedTargetPaths: { 'copilot-advanced': FLAT_SETTING_KEY },
     });
+
+    // Exact-match verification uses the URL this plan is about to write.
+    this.expectedProxyUrl = profile.baseUrl;
 
     return plan;
   }

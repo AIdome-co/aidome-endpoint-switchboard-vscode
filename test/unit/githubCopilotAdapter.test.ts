@@ -164,18 +164,15 @@ describe('GitHubCopilotAdapter', () => {
       expect(mockConfig.get).not.toHaveBeenCalledWith('github.copilot.advanced');
     });
 
-    it('should capture the old flat value for rollback', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.advanced.debug.overrideProxyUrl') {
-          return 'https://old.example.com';
-        }
-        return undefined;
-      });
-
+    it('lets the applier capture the old flat value for rollback at apply time', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
+      // The engine does not read VS Code state; applyVSCodeSetting records
+      // the previous value into the applied step for rollback.
       const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
-      expect(proxyStep!.oldValue).toBe('https://old.example.com');
+      expect(proxyStep).toBeDefined();
+      expect(proxyStep!.oldValue).toBeUndefined();
+      expect(proxyStep!.reversible).toBe(true);
     });
 
     it('should provide Custom Endpoint guidance when the legacy setting is unregistered', async () => {

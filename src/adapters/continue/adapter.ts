@@ -1,15 +1,27 @@
 /**
  * Adapter for Continue.dev assistant.
+ *
+ * Thin wrapper around the ProviderConfigEngine: the descriptor's declarative
+ * plan operations define the model-array mutation; the adapter only resolves
+ * the active config path (YAML primary, legacy JSONC fallback) — an allowed
+ * unusual-target hook.
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getContinueConfigPath } from './paths';
-import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { readFileSafe } from '../../util/fsSafe';
 import { parseContinueModels } from './continueConfigPatcher';
+import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
 import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import {
+  getProviderConfigDescriptor,
+} from '../../core/providerConfig/descriptors';
+import { AIDOME_MODEL_IDENTITY } from '../../core/providerConfig/types';
+
+const DESCRIPTOR = getProviderConfigDescriptor('continue');
 
 /**
  * Continue.dev assistant adapter.
@@ -17,47 +29,29 @@ import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 export class ContinueAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = 'Continue.continue';
 
+  /** Profile URL expected by the most recent buildPlan, for exact verification. */
+  private expectedBaseUrl: string | undefined;
+
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getContinueConfigPath();
-    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
-    let plan = createPlan(profile.id, ['continue']);
-
-    if (await fileExists(configPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Continue.dev config file',
-        assistantKey: 'continue',
-        targetPath: configPath,
-        data: { configPath },
-        reversible: true
-      });
+    if (!DESCRIPTOR) {
+      throw new Error('Continue provider descriptor is missing');
     }
 
-    plan = addStep(plan, {
-      action: 'edit-config-file',
-      description: `Set Continue.dev apiBase to ${baseUrl}`,
-      assistantKey: 'continue',
-      targetPath: configPath,
-      newValue: baseUrl,
-      data: {
-        driver: 'yaml-model-array',
-        format: configPath.endsWith('.yaml') ? 'yaml' : 'jsonc',
-        configPath,
-        profileId: profile.id,
-        baseUrl
-      },
-      reversible: true
+    const targetId = configPath.endsWith('.yaml') ? 'continue-primary-yaml' : 'continue-legacy-json';
+    const { plan } = buildProviderConfigPlan(DESCRIPTOR, {
+      profile,
+      resolvedTargetPaths: { [targetId]: configPath },
     });
+    this.expectedBaseUrl = profile.baseUrl;
 
-    plan = addStep(plan, {
+    return addStep(plan, {
       action: 'verify-endpoint',
       description: 'Verify Continue.dev configuration',
       assistantKey: 'continue',
-      data: { baseUrl },
+      data: { baseUrl: profile.baseUrl },
       reversible: false
     });
-
-    return plan;
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
@@ -72,22 +66,61 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // Profile-aware verification: the Switchboard-managed entry
+    // (identity: AIdome Gateway) must exist AND its apiBase must exactly
+    // match the expected profile URL. "Some model has apiBase" is not a
+    // pass — that would false-positive on unrelated user models.
     const format = configPath.endsWith('.yaml') ? 'yaml' : 'jsonc';
     const models = parseContinueModels(content, format);
-    const hasApiBase = models.some((model) => typeof model.apiBase === 'string' && model.apiBase.trim().length > 0);
+    const managed = models.find(model =>
+      model.title === AIDOME_MODEL_IDENTITY || model.name === AIDOME_MODEL_IDENTITY
+    );
 
-    if (!hasApiBase) {
+    if (!managed) {
       return {
         success: false,
-        message: 'Continue.dev config does not have apiBase set',
+        message: `Continue.dev config has no ${AIDOME_MODEL_IDENTITY} model entry`,
         details: { configPath, format, modelCount: models.length }
+      };
+    }
+
+    const managedApiBase = typeof managed.apiBase === 'string' ? managed.apiBase : undefined;
+    if (managedApiBase === undefined) {
+      return {
+        success: false,
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entry has no apiBase configured`,
+        details: { configPath, format, modelCount: models.length }
+      };
+    }
+
+    const expectedBaseUrl = this.expectedBaseUrl !== undefined
+      ? normalizeOpenAiBaseUrl(this.expectedBaseUrl)
+      : undefined;
+    if (expectedBaseUrl === undefined) {
+      return {
+        success: false,
+        message: 'Continue.dev apiBase is set, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
+        details: { configPath, format, modelCount: models.length, managedApiBase }
+      };
+    }
+
+    if (managedApiBase !== expectedBaseUrl) {
+      return {
+        success: false,
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} apiBase (${managedApiBase}) does not match the expected profile URL (${expectedBaseUrl})`,
+        details: { configPath, format, modelCount: models.length, managedApiBase, expectedBaseUrl }
       };
     }
 
     return {
       success: true,
       message: 'Continue.dev configuration verified',
-      details: { configPath, format, modelCount: models.length }
+      details: {
+        configPath,
+        format,
+        modelCount: models.length,
+        managedEntry: { apiBase: managedApiBase, provider: managed.provider }
+      }
     };
   }
 

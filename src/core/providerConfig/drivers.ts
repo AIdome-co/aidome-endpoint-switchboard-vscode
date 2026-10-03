@@ -49,6 +49,13 @@ export interface ModelArrayDriverData {
   modelPath?: string;
   provider?: string;
   useResponsesApi?: boolean;
+  /**
+   * Stable Switchboard-managed entry identity. Only the entry whose
+   * name/title equals this value (or, failing that, whose apiBase equals the
+   * gateway URL) is ever mutated — an unrelated user OpenAI model is never
+   * rewritten just because it shares the provider name.
+   */
+  identity?: string;
 }
 
 /** Data accepted by the Codex TOML driver. */
@@ -218,7 +225,7 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const provider = data.provider?.trim() || 'openai';
 
   if (data.format === 'yaml') {
-    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi);
+    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi, data.identity);
   }
 
   if (request.existingContent !== undefined && isValidJsonc(request.existingContent)) {
@@ -228,8 +235,7 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const parsed = request.existingContent ? parseJsonObject(request.existingContent, 'jsonc') : {};
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
-  const matching = models.find(model => model.apiBase === request.baseUrl)
-    ?? models.find(model => model.provider === provider);
+  const matching = findManagedModel(models, request.baseUrl, data.identity, modelPath);
 
   if (matching) {
     matching.provider = provider;
@@ -263,9 +269,7 @@ function renderJsoncModelArray(
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
   const existingModels = Array.isArray(root.models) ? root.models : [];
-  const matchingIndex = existingModels.findIndex(model =>
-    isRecord(model) && (model.apiBase === request.baseUrl || model.provider === provider)
-  );
+  const matchingIndex = findManagedModelIndex(existingModels, request.baseUrl, data.identity, modelPath);
   let output = request.existingContent ?? '{}';
 
   if (matchingIndex >= 0) {
@@ -297,7 +301,8 @@ function renderYamlModelArray(
   request: ConfigDriverRequest,
   modelPath: string,
   provider: string,
-  useResponsesApi?: boolean
+  useResponsesApi?: boolean,
+  identity?: string
 ): string {
   const document = parseDocument(request.existingContent || '');
 
@@ -315,7 +320,7 @@ function renderYamlModelArray(
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
-  const index = models.findIndex(model => model.apiBase === request.baseUrl || model.provider === provider);
+  const index = findManagedModelIndex(models, request.baseUrl, identity, modelPath);
 
   if (index >= 0) {
     const current = models[index];
@@ -381,6 +386,40 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
   output.model_provider = providerName;
 
   return stringifyToml(output);
+}
+
+/**
+ * Finds the Switchboard-managed model entry: identity-field match first
+ * (name/title), then the entry whose apiBase equals the gateway URL (an
+ * entry previously written by Switchboard). NEVER matches by provider name —
+ * an unrelated user OpenAI model must not be rewritten.
+ */
+function findManagedModel(
+  models: Record<string, unknown>[],
+  baseUrl: string,
+  identity: string | undefined,
+  modelPath: string
+): Record<string, unknown> | undefined {
+  const index = findManagedModelIndex(models, baseUrl, identity, modelPath);
+  return index >= 0 ? models[index] : undefined;
+}
+
+function findManagedModelIndex(
+  models: unknown[],
+  baseUrl: string,
+  identity: string | undefined,
+  modelPath: string
+): number {
+  const identityValue = identity ?? modelPath;
+  if (identityValue.length > 0) {
+    const byIdentity = models.findIndex(model =>
+      isRecord(model) && (model.name === identityValue || model.title === identityValue)
+    );
+    if (byIdentity >= 0) {
+      return byIdentity;
+    }
+  }
+  return models.findIndex(model => isRecord(model) && model.apiBase === baseUrl);
 }
 
 function parseJsonObject(

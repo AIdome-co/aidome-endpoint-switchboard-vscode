@@ -115,25 +115,51 @@ describe('configuration drivers', () => {
     expect(output).toContain('Existing provider comment');
   });
 
-  it('patches Continue YAML model arrays while preserving model fields', () => {
+  it('patches only the AIdome-managed YAML model entry and preserves unrelated models', () => {
     const output = renderConfigFileContent({
       baseUrl: BASE_URL,
-      existingContent: '# Continue settings\nmodels:\n  - name: Existing\n    provider: openai\n    model: existing-model\n    requestOptions:\n      timeout: 10000\ncustom: true\n',
+      existingContent: '# Continue settings\nmodels:\n  - name: UserOwnOpenAI\n    provider: openai\n    model: gpt-4o\n    apiBase: https://api.openai.com/v1\ncustom: true\n',
       format: 'yaml',
       options: {
         driver: 'yaml-model-array',
         format: 'yaml',
-        provider: 'openai'
+        provider: 'openai',
+        identity: 'AIdome Gateway'
       }
     });
 
     const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
-    const model = (parsed.models as Array<Record<string, unknown>>)[0];
-    expect(model.apiBase).toBe(BASE_URL);
-    expect(model.model).toBe('existing-model');
-    expect((model.requestOptions as Record<string, unknown>).timeout).toBe(10000);
+    const models = parsed.models as Array<Record<string, unknown>>;
+    // The user's own OpenAI entry is untouched.
+    expect(models[0]).toMatchObject({
+      name: 'UserOwnOpenAI',
+      model: 'gpt-4o',
+      apiBase: 'https://api.openai.com/v1'
+    });
     expect(parsed.custom).toBe(true);
     expect(output).toContain('Continue settings');
+    // The AIdome entry is appended with the gateway URL.
+    const managed = models.find(model => model.title === 'AIdome Gateway');
+    expect(managed).toMatchObject({ provider: 'openai', apiBase: BASE_URL });
+  });
+
+  it('updates the previously managed entry instead of appending duplicates', () => {
+    const output = renderConfigFileContent({
+      baseUrl: 'https://gateway.example.com/v1',
+      existingContent: 'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://stale.example.com/v1\n',
+      format: 'yaml',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'yaml',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+    const models = parsed.models as Array<Record<string, unknown>>;
+    expect(models).toHaveLength(1);
+    expect(models[0].apiBase).toBe('https://gateway.example.com/v1');
   });
 
   it('patches the current Codex TOML provider schema and preserves other providers', () => {

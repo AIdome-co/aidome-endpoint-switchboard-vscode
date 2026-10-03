@@ -1,6 +1,22 @@
 /** Provider configuration descriptors derived from the maintained provider manifest. */
 
-import { ProviderConfigDescriptor } from './types';
+import { AIDOME_MODEL_IDENTITY, DescriptorOperation, ProviderConfigDescriptor } from './types';
+
+function continueModelArrayOperation() {
+  return {
+    type: 'upsert-array-entry' as const,
+    path: ['models'],
+    identityField: 'title' as const,
+    identityValue: AIDOME_MODEL_IDENTITY,
+    fields: [
+      { path: ['name'], value: { type: 'literal' as const, value: AIDOME_MODEL_IDENTITY } },
+      { path: ['provider'], value: { type: 'literal' as const, value: 'openai' } },
+      { path: ['apiBase'], value: { type: 'profile-base-url' as const, normalize: 'openai-base-url' as const } }
+    ]
+  };
+}
+
+
 
 const EVIDENCE_DATE = '2026-08-29';
 
@@ -39,6 +55,13 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       requiredFor: ['github.copilot'],
       preserveUnknown: true
     }],
+    plan: [
+      {
+        targetId: 'copilot-advanced',
+        operations: [{ type: 'set' as const, path: [], value: { type: 'profile-base-url' as const } }],
+        stepData: { method: 'proxy-override' }
+      }
+    ],
     driver: 'vscode-setting',
     support: 'automatic',
     tier: 'B',
@@ -176,6 +199,17 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       { field: 'apiKey', path: 'models[].apiKey', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true },
       { field: 'protocol', path: 'models[].useResponsesApi', valueKind: 'array-entry', requiredFor: ['openai.responses'], preserveUnknown: true }
     ],
+    plan: [
+      {
+        targetId: 'continue-primary-yaml',
+        operations: [continueModelArrayOperation()],
+        stepData: { source: 'descriptor-plan' }
+      },
+      {
+        targetId: 'continue-legacy-json',
+        operations: [continueModelArrayOperation()]
+      }
+    ],
     driver: 'yaml-model-array',
     support: 'automatic',
     tier: 'A',
@@ -218,6 +252,25 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       { field: 'baseUrl', path: 'model_providers.<name>.base_url', valueKind: 'string', requiredFor: ['openai.responses'], preserveUnknown: true },
       { field: 'protocol', path: 'model_providers.<name>.wire_api', valueKind: 'string', requiredFor: ['openai.responses'] },
       { field: 'apiKey', path: 'model_providers.<name>.env_key', valueKind: 'string', requiredFor: ['openai.responses'], secret: true }
+    ],
+    plan: [
+      {
+        targetId: 'codex-config',
+        operations: [
+          {
+            type: 'upsert-map-entry' as const,
+            path: ['model_providers'],
+            entryKey: 'aidome',
+            fields: [
+              { path: ['base_url'], value: { type: 'profile-base-url' as const, normalize: 'openai-base-url' as const } },
+              { path: ['wire_api'], value: { type: 'literal' as const, value: 'responses' } },
+              { path: ['env_key'], value: { type: 'literal' as const, value: 'OPENAI_API_KEY' } }
+            ]
+          },
+          { type: 'set' as const, path: ['model'], value: { type: 'discovered-model' } }
+        ],
+        stepData: { source: 'descriptor-plan' }
+      }
     ],
     driver: 'toml-table',
     support: 'automatic',

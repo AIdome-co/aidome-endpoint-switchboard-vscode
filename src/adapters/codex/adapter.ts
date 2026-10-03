@@ -11,18 +11,21 @@
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { Plan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath } from './codexConfigPatcher';
-import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { readFileSafe } from '../../util/fsSafe';
 import { parse as parseToml } from 'smol-toml';
 import { validateUrl } from '../../core/profiles/profileValidator';
-import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
+import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
 import type { AdapterDependencies } from '../adapterDependencies';
+
+const DESCRIPTOR = getProviderConfigDescriptor('openai-codex');
 
 /**
  * OpenAI Codex CLI adapter.
@@ -45,41 +48,16 @@ export class CodexAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getCodexConfigPath();
-    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
     const models = await this.discoverModels(profile);
     const model = models[0]?.id;
-    let plan = createPlan(profile.id, ['openai-codex']);
-
-    const configExists = await fileExists(configPath);
-    if (configExists) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Codex config file',
-        assistantKey: 'openai-codex',
-        targetPath: configPath,
-        data: { configPath },
-        reversible: true
-      });
+    if (!DESCRIPTOR) {
+      throw new Error('OpenAI Codex provider descriptor is missing');
     }
 
-    plan = addStep(plan, {
-      action: 'edit-config-file',
-      description: `Set Codex provider to ${baseUrl}`,
-      assistantKey: 'openai-codex',
-      targetPath: configPath,
-      newValue: baseUrl,
-      data: { 
-        configPath, 
-        profileId: profile.id,
-        baseUrl,
-        driver: 'toml-table',
-        format: 'toml',
-        providerName: 'aidome',
-        wireApi: 'responses',
-        envKey: 'OPENAI_API_KEY',
-        ...(model ? { model } : {})
-      },
-      reversible: true
+    let { plan } = buildProviderConfigPlan(DESCRIPTOR, {
+      profile,
+      resolvedTargetPaths: { 'codex-config': configPath },
+      discoveredModels: model ? [model] : undefined,
     });
 
     plan = addStep(plan, {
@@ -104,7 +82,7 @@ export class CodexAdapter extends BaseExtensionAdapter {
       action: 'verify-endpoint',
       description: 'Verify Codex configuration',
       assistantKey: 'openai-codex',
-      data: { baseUrl },
+      data: { baseUrl: profile.baseUrl },
       reversible: false
     });
 

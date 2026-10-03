@@ -224,16 +224,16 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(mockRecordApply.mock.calls[0][0].steps[0].newValue).toBe('[redacted config-file content]');
   });
 
-  it('patches Continue config content instead of replacing it with the URL', async () => {
+  it('patches the Switchboard AIdome model entry and never rewrites an unrelated OpenAI model', async () => {
     const applier = new PlanApplier(fakeContext);
     mockAccess.mockResolvedValue(undefined);
-    mockReadFile.mockResolvedValue('{"models":[{"provider":"openai","model":"existing"}],"custom":true}');
+    mockReadFile.mockResolvedValue('{"models":[{"provider":"openai","model":"user-own-model","apiBase":"https://api.openai.com/v1"}],"custom":true}');
     const step = makeStep({
       action: 'edit-config-file',
       assistantKey: 'continue',
       targetPath: '/tmp/continue-config.json',
       newValue: 'https://gateway.example.com/v1',
-      data: { driver: 'yaml-model-array', format: 'jsonc' },
+      data: { driver: 'yaml-model-array', format: 'jsonc', identity: 'AIdome Gateway' },
     });
 
     const result = await applier.applyPlan(makePlan([step]), 'profile');
@@ -241,7 +241,15 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.success).toBe(true);
     const written = JSON.parse(mockSafeWriteFile.mock.calls.at(-1)?.[1]);
     expect(written.custom).toBe(true);
+    // The user's own OpenAI model is untouched.
     expect(written.models[0]).toMatchObject({
+      provider: 'openai',
+      model: 'user-own-model',
+      apiBase: 'https://api.openai.com/v1',
+    });
+    // A new stable AIdome Gateway entry is appended.
+    const managed = written.models.find((model: Record<string, unknown>) => model.title === 'AIdome Gateway');
+    expect(managed).toMatchObject({
       provider: 'openai',
       apiBase: 'https://gateway.example.com/v1',
     });
