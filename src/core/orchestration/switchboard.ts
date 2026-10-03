@@ -159,10 +159,26 @@ export class Switchboard {
     
     if (result.appliedSteps.length > 0) {
       this.logger.info(`Applied ${result.appliedSteps.length} step(s) in ${timer.stop()}ms`);
-      
-      // Update mappings in profile store
+
+      // Guided output is NOT successful configuration: only assistants that
+      // received a real mutation (setting/file/env) get a mapping persisted.
+      // An assistant whose plan only displayed instructions stays unmapped.
+      const mutatedAssistants = new Set(
+        result.appliedSteps
+          .filter(step => step.action === 'set-vscode-setting'
+            || step.action === 'edit-config-file'
+            || step.action === 'set-env-var')
+          .map(step => step.assistantKey)
+      );
+
+      // Update mappings in profile store — one final mapping per assistant.
       const mappingFailures: string[] = [];
+      const mappedAssistants = new Set<string>();
       for (const step of result.appliedSteps) {
+        if (!mutatedAssistants.has(step.assistantKey) || mappedAssistants.has(step.assistantKey)) {
+          continue;
+        }
+        mappedAssistants.add(step.assistantKey);
         try {
           await this.profileStore.saveAssistantMapping({
             assistantKey: step.assistantKey,
