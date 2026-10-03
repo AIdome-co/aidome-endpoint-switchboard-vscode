@@ -108,24 +108,14 @@ function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
     return {};
   }
 
-  try {
-    const parsed = parseJsonc<unknown>(content);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as ClaudeCodeSettings;
-    }
-  } catch (error) {
-    // Fire-and-forget: log the parse failure without blocking the sync call path.
-    // Logging is best-effort; malformed settings must still fall back.
-    void import('../../util/log')
-      .then(({ Logger }) => {
-        Logger.getInstance().warning(
-          `Claude Code settings file is malformed, starting with empty settings: ${error instanceof Error ? error.message : String(error)}`
-        );
-      })
-      .catch(() => undefined);
+  // Fail closed: a malformed existing settings file must never be silently
+  // replaced with freshly generated partial settings. Abort the mutation so
+  // the original file is preserved and the failure is reported.
+  const parsed = parseJsonc<unknown>(content);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Claude Code settings document root must be a JSON object');
   }
-
-  return {};
+  return parsed as ClaudeCodeSettings;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

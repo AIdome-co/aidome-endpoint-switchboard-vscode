@@ -37,21 +37,12 @@ describe('Continue Config Patcher', () => {
     vi.clearAllMocks();
   });
 
-  it('should fall back to an empty config for malformed JSON when logging fails', async () => {
+  it('should fail closed on malformed JSON and never write', async () => {
     vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('{ malformed json');
     vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
-    vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
-      throw new Error('logger unavailable');
-    });
 
-    await expect(patchContinueConfig(mockProfile, '/path/to/config.json')).resolves.toBeUndefined();
-
-    expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-    const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-    const parsed = JSON.parse(writtenContent);
-    expect(parsed.models).toContainEqual(expect.objectContaining({
-      provider: 'openai',
-      apiBase: mockProfile.baseUrl
-    }));
+    await expect(patchContinueConfig(mockProfile, '/path/to/config.json'))
+      .rejects.toThrow('malformed existing configuration file');
+    expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
   });
 });

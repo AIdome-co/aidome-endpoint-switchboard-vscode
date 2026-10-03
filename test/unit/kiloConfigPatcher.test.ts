@@ -191,11 +191,10 @@ describe('Kilo Config Patcher', () => {
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe('https://gateway.example.com/v1');
     });
 
-    it('should handle invalid JSONC gracefully', () => {
-      // Should not throw, should create fresh config
-      const result = buildKiloConfigContent('https://gateway.example.com/v1', 'not valid json{{{');
-      const parsed = JSON.parse(result);
-      expect(parsed.provider['aidome-gateway'].options.baseURL).toBe('https://gateway.example.com/v1');
+    it('should fail closed on invalid JSONC', () => {
+      // Malformed existing config must never be replaced with a fresh one.
+      expect(() => buildKiloConfigContent('https://gateway.example.com/v1', 'not valid json{{{'))
+        .toThrow('malformed existing configuration file');
     });
   });
 

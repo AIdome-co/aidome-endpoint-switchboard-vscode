@@ -102,9 +102,13 @@ export function buildCodexConfigContent(
   if (existingContent) {
     try {
       config = parse(existingContent) as CodexConfig;
-    } catch {
-      // If parse fails, start with empty config
-      config = {};
+    } catch (error) {
+      // Fail closed: never replace a malformed user configuration with a
+      // regenerated partial file. Abort so the original file is preserved.
+      throw new Error(
+        `Codex cannot modify a malformed existing configuration file: ${error instanceof Error ? error.message : String(error)}. ` +
+        'Fix or remove ~/.codex/config.toml manually, then retry — the original file was left untouched.'
+      );
     }
   } else {
     config = {};

@@ -300,6 +300,18 @@ function renderYamlModelArray(
   useResponsesApi?: boolean
 ): string {
   const document = parseDocument(request.existingContent || '');
+
+  // Fail closed: report parser/document errors before modifying anything.
+  // The yaml library collects errors instead of throwing, so a malformed
+  // document would otherwise be silently re-serialized from partial content.
+  if (document.errors.length > 0) {
+    const first = document.errors[0];
+    throw new Error(
+      `YAML model-array driver cannot modify a malformed existing configuration file: ${first.message} (line ${first.linePos?.[0]?.line ?? '?'}, column ${first.linePos?.[0]?.col ?? '?'}). ` +
+      'Fix or remove the file manually, then retry — the original file was left untouched.'
+    );
+  }
+
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
@@ -335,8 +347,23 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
     throw new Error('Codex TOML driver requires a named provider and Responses wire API');
   }
 
-  const parsed = request.existingContent ? parseToml(request.existingContent) : {};
-  const output = isRecord(parsed) ? parsed : {};
+  // Fail closed: a malformed existing TOML file must never be silently
+  // replaced. parseToml throws on invalid content; wrap it with actionable
+  // guidance so the applier aborts and preserves the original file.
+  let parsed: Record<string, unknown>;
+  if (request.existingContent) {
+    try {
+      parsed = parseToml(request.existingContent);
+    } catch (error) {
+      throw new Error(
+        `Codex TOML driver cannot modify a malformed existing configuration file: ${error instanceof Error ? error.message : String(error)}. ` +
+        'Fix or remove the file manually, then retry — the original file was left untouched.'
+      );
+    }
+  } else {
+    parsed = {};
+  }
+  const output = parsed;
   const modelProviders = isRecord(output.model_providers) ? output.model_providers : {};
   const existingProvider = isRecord(modelProviders[providerName]) ? modelProviders[providerName] : {};
 
@@ -356,12 +383,30 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
   return stringifyToml(output);
 }
 
-function parseJsonObject(content: string, format: 'json' | 'jsonc' = 'jsonc'): Record<string, unknown> {
+function parseJsonObject(
+  content: string | undefined,
+  format: 'json' | 'jsonc' = 'jsonc',
+  driverName = 'JSON object driver'
+): Record<string, unknown> {
+  // A missing or empty file is a creation case and stays allowed.
+  if (content === undefined || content.trim().length === 0) {
+    return {};
+  }
+
+  // Fail closed: a malformed existing user configuration must never be
+  // silently replaced with a regenerated partial file. Abort the mutation;
+  // the caller leaves the original file untouched and reports guidance.
   try {
     const parsed = format === 'jsonc' ? parseJsonc<unknown>(content) : JSON.parse(content) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
+    if (!isRecord(parsed)) {
+      throw new Error(`document root is ${Array.isArray(parsed) ? 'an array' : typeof parsed}, expected an object`);
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(
+      `${driverName} cannot modify a malformed existing configuration file: ${error instanceof Error ? error.message : String(error)}. ` +
+      'Fix or remove the file manually, then retry — the original file was left untouched.'
+    );
   }
 }
 

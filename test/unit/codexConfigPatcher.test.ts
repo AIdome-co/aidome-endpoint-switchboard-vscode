@@ -128,33 +128,15 @@ model = "custom-model"
       expect(writtenContent).toContain('model = "custom-model"');
     });
 
-    it('should handle invalid TOML gracefully', async () => {
+    it('should fail closed on invalid TOML and never write', async () => {
       const invalidConfig = 'this is not valid TOML {{[';
       
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(invalidConfig);
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
-      // Should not throw, should create new config
-      await patchCodexConfig(mockProfile, '/path/to/config.toml');
-
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-      const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
-      expect(writtenContent).toContain('[model_providers.aidome]');
-    });
-
-
-    it('should fall back for malformed config when logging fails', async () => {
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('this is not valid TOML {{[');
-      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
-      vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
-        throw new Error('logger unavailable');
-      });
-
-      await expect(patchCodexConfig(mockProfile, '/path/to/config.toml')).resolves.toBeUndefined();
-
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-      const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-      expect(writtenContent).toContain('[model_providers.aidome]');
+      await expect(patchCodexConfig(mockProfile, '/path/to/config.toml'))
+        .rejects.toThrow('malformed existing configuration file');
+      expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
     });
 
     it('should set wire_api to responses', async () => {

@@ -112,11 +112,9 @@ describe('Claude Code Config Patcher', () => {
       });
     });
 
-    it('should handle invalid JSON gracefully', () => {
-      const updated = buildClaudeCodeSettingsContent(mockProfile, 'not valid json');
-      const parsed = JSON.parse(updated);
-
-      expect(parsed.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
+    it('should fail closed on invalid JSON instead of regenerating', () => {
+      expect(() => buildClaudeCodeSettingsContent(mockProfile, 'not valid json'))
+        .toThrow();
     });
 
     it('should write ANTHROPIC_AUTH_TOKEN when a managed profile secret is provided', () => {
@@ -202,18 +200,16 @@ describe('Claude Code Config Patcher', () => {
     });
 
 
-    it('should fall back for malformed config when logging fails', async () => {
+    it('should fail closed for malformed config even when logging fails', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('not valid json');
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
       vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
         throw new Error('logger unavailable');
       });
 
-      await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json')).resolves.toBeUndefined();
-
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-      const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-      expect(writtenContent).toContain('ANTHROPIC_BASE_URL');
+      await expect(patchClaudeCodeConfig(mockProfile, '/path/to/settings.json'))
+        .rejects.toThrow();
+      expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
     });
 
     it('should pass a managed Anthropic token through patchClaudeCodeConfig when provided', async () => {

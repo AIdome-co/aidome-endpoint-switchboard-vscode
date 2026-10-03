@@ -187,4 +187,126 @@ describe('configuration drivers', () => {
       }
     })).toThrow('invalid field path');
   });
+
+  describe('fail-closed on malformed existing configuration', () => {
+    it('aborts and never replaces a malformed existing JSON file', () => {
+      const malformed = '{ "broken": tru';
+
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: malformed,
+        format: 'json',
+        options: {
+          driver: 'json-object',
+          format: 'json',
+          patches: [{ path: ['env', 'BASE_URL'], source: 'baseUrl' }]
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('aborts and never replaces a malformed existing JSONC file', () => {
+      const malformed = '{\\n  // comment without a document end\\n  "broken":';
+
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: malformed,
+        format: 'jsonc',
+        options: {
+          driver: 'json-object',
+          format: 'jsonc',
+          patches: [{ path: ['env', 'BASE_URL'], source: 'baseUrl' }]
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('fails closed when a JSONC provider map hits malformed existing content', () => {
+      const malformed = '{ "provider": { "aidome-gateway": "oops';
+
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: malformed,
+        format: 'jsonc',
+        options: {
+          driver: 'jsonc-provider-map',
+          mapPath: ['provider'],
+          providerId: 'aidome-gateway',
+          defaults: { name: 'AIdome Gateway' },
+          baseUrlPath: ['options', 'baseURL']
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('fails closed when a JSONC model array hits malformed existing content', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [ "not-an-object" ',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai'
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('fails closed when a YAML document has parser errors', () => {
+      const malformed = 'models:\\n  - name: [unclosed\\n  - "bad';
+
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: malformed,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai'
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('fails closed when an existing TOML file cannot be parsed', () => {
+      const malformed = 'model = "broken\\n[model_providers.aidome';
+
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: malformed,
+        format: 'toml',
+        options: {
+          driver: 'toml-table',
+          providerName: 'aidome',
+          wireApi: 'responses',
+          envKey: 'OPENAI_API_KEY'
+        }
+      })).toThrow('malformed existing configuration file');
+    });
+
+    it('still allows creating a brand-new configuration file', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: undefined,
+        format: 'toml',
+        options: {
+          driver: 'toml-table',
+          providerName: 'aidome',
+          wireApi: 'responses',
+          envKey: 'OPENAI_API_KEY'
+        }
+      });
+
+      expect((parseToml(output) as Record<string, unknown>).model_provider).toBe('aidome');
+    });
+
+    it('rejects a non-object JSON document root', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '[1, 2, 3]',
+        format: 'json',
+        options: {
+          driver: 'json-object',
+          format: 'json',
+          patches: [{ path: ['a'], value: 1 }]
+        }
+      })).toThrow('expected an object');
+    });
+  });
 });
