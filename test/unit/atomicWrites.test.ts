@@ -21,12 +21,35 @@ const {
   mockShowErrorMessage,
   mockRecordApply,
   mockAppendLine,
+  renameFailure,
 } = vi.hoisted(() => ({
   mockShowWarningMessage: vi.fn(),
   mockShowErrorMessage: vi.fn(),
   mockRecordApply: vi.fn(),
   mockAppendLine: vi.fn(),
+  // Set to an Error by a test to fail the NEXT atomic rename (the
+  // temp-file->target rename boundary), independent of OS permission bits.
+  renameFailure: { error: null as Error | null },
 }));
+
+// Keep the real fs/promises, but inject a deterministic failure at the atomic
+// rename boundary when a test asks for it. This is cross-platform: unlike
+// chmod-based unwritable directories, it fails identically on Linux, macOS,
+// and Windows.
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return {
+    ...actual,
+    rename: (...args: Parameters<typeof actual.rename>) => {
+      if (renameFailure.error) {
+        // Sticky for the whole attempt loop: writeFileAtomic retries lock
+        // errors, so a one-shot rejection would be retried successfully.
+        return Promise.reject(renameFailure.error);
+      }
+      return actual.rename(...args);
+    },
+  };
+});
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -118,6 +141,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
+  renameFailure.error = null;
 });
 
 describe('atomic config-file writes (real filesystem)', () => {
@@ -148,25 +172,29 @@ describe('atomic config-file writes (real filesystem)', () => {
     expect(fs.readdirSync(tempDir).filter(f => f.includes('.backup.'))).toHaveLength(0);
   });
 
-  it('leaves the original file intact when the write cannot complete', async () => {
-    // Make the directory read-only so both backup and write fail; the step
-    // aborts and the original file must remain intact (no partial writes).
+  it('leaves the original file intact and cleans up temp artifacts when the atomic write fails', async () => {
+    // Fail the temp-file -> target rename at the atomic write boundary. This
+    // is deterministic on every OS — unlike POSIX chmod on the directory,
+    // which Windows does not honor reliably.
+    renameFailure.error = Object.assign(new Error('simulated atomic rename failure'), { code: 'EACCES' });
+
     const target = path.join(tempDir, 'config.json');
     const original = '{"keep": "me"}\n';
     fs.writeFileSync(target, original, 'utf-8');
-    fs.chmodSync(tempDir, 0o500);
 
-    try {
-      const applier = new PlanApplier({} as never);
-      const result = await applier.applyPlan(makePlan([makeConfigEditStep({})]), 'Test');
+    const applier = new PlanApplier({} as never);
+    const result = await applier.applyPlan(makePlan([makeConfigEditStep({})]), 'Test');
 
-      expect(result.success).toBe(false);
-      expect(result.failedSteps).toHaveLength(1);
-      // The original file is untouched — recoverable, not corrupted.
-      expect(fs.readFileSync(target, 'utf-8')).toBe(original);
-    } finally {
-      fs.chmodSync(tempDir, 0o700);
-    }
+    expect(result.success).toBe(false);
+    expect(result.failedSteps).toHaveLength(1);
+    // The original file remains byte-for-byte unchanged — no partial replacement.
+    expect(fs.readFileSync(target, 'utf-8')).toBe(original);
+    // A backup of the original exists for manual recovery.
+    const backups = fs.readdirSync(tempDir).filter(f => f.includes('.backup.'));
+    expect(backups).toHaveLength(1);
+    expect(fs.readFileSync(path.join(tempDir, backups[0]), 'utf-8')).toBe(original);
+    // The temporary artifact was cleaned up by the atomic write path.
+    expect(fs.readdirSync(tempDir).filter(f => f.includes('.tmp.'))).toHaveLength(0);
   });
 
   it('rolls back an applied edit from the backup when a later step fails', async () => {
