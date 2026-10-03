@@ -237,3 +237,50 @@ describe('atomic config-file writes (real filesystem)', () => {
     expect(recorded.steps[0].createdFile).toBe(true);
   });
 });
+
+describe('plan step payload validation (fail closed before mutation)', () => {
+  it('rejects a TOML edit step without a provider name', async () => {
+    const applier = new PlanApplier({} as never);
+    const result = await applier.applyPlan(makePlan([makeConfigEditStep({
+      targetPath: path.join(tempDir, 'codex.toml'),
+      data: { driver: 'toml-table', format: 'toml', wireApi: 'responses', baseUrl: 'https://gateway.example.com/v1' },
+    })]), 'Test');
+
+    expect(result.success).toBe(false);
+    expect(result.failedSteps[0].error).toContain('provider name');
+    expect(fs.existsSync(path.join(tempDir, 'codex.toml'))).toBe(false);
+  });
+
+  it('rejects an unsupported TOML wire API', async () => {
+    const applier = new PlanApplier({} as never);
+    const result = await applier.applyPlan(makePlan([makeConfigEditStep({
+      targetPath: path.join(tempDir, 'codex.toml'),
+      data: { driver: 'toml-table', format: 'toml', providerName: 'aidome', wireApi: 'chat', baseUrl: 'https://gateway.example.com/v1' },
+    })]), 'Test');
+
+    expect(result.success).toBe(false);
+    expect(result.failedSteps[0].error).toContain("must be 'responses'");
+  });
+
+  it('rejects a JSON object driver without a patches array', async () => {
+    const applier = new PlanApplier({} as never);
+    const result = await applier.applyPlan(makePlan([makeConfigEditStep({
+      targetPath: path.join(tempDir, 'cfg.json'),
+      data: { driver: 'json-object', format: 'json', baseUrl: 'https://gateway.example.com/v1' },
+    })]), 'Test');
+
+    expect(result.success).toBe(false);
+    expect(result.failedSteps[0].error).toContain('patches array');
+  });
+
+  it('rejects a provider-map driver without a provider ID', async () => {
+    const applier = new PlanApplier({} as never);
+    const result = await applier.applyPlan(makePlan([makeConfigEditStep({
+      targetPath: path.join(tempDir, 'kilo.jsonc'),
+      data: { driver: 'jsonc-provider-map', mapPath: ['provider'], baseUrlPath: ['options', 'baseURL'], defaults: {}, baseUrl: 'https://gateway.example.com/v1' },
+    })]), 'Test');
+
+    expect(result.success).toBe(false);
+    expect(result.failedSteps[0].error).toContain('provider ID');
+  });
+});

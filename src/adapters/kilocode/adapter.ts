@@ -14,7 +14,7 @@ import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
-import { getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
+import { resolveKiloConfigTarget, getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
@@ -25,9 +25,32 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = 'kilocode.kilo-code';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    const configPath = getKiloConfigPath();
+    const target = resolveKiloConfigTarget();
     const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
     let plan = createPlan(profile.id, ['kilo-code']);
+
+    // Fail closed: when Kilo's active configuration source cannot be
+    // determined safely, guide instead of guessing a path.
+    if (target.kind === 'guided') {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Kilo Code configuration guidance',
+        assistantKey: 'kilo-code',
+        data: {
+          message: target.reason,
+          steps: [
+            'Open Kilo Code and go to provider settings',
+            'Select or add the "AIdome Gateway" provider',
+            `Set the provider baseURL to ${baseUrl}`,
+            'Kilo manages provider credentials through its own auth store — configure them in Kilo Code'
+          ],
+          baseUrl,
+          limitation: 'ambiguous-config-source'
+        },
+        reversible: false
+      });
+    }
+    const configPath: string = target.path;
 
     // Try to auto-discover models from the gateway's /v1/models endpoint
     // Many OpenAI-compatible gateways serve model lists without auth
@@ -105,7 +128,15 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
-    const configPath = getKiloConfigPath();
+    const target = resolveKiloConfigTarget();
+    if (target.kind === 'guided') {
+      return {
+        success: false,
+        message: 'Kilo Code configuration source is ambiguous — configure it manually',
+        details: { reason: target.reason, configurationStatus: 'guided-required' }
+      };
+    }
+    const configPath = target.path;
     const content = await readFileSafe(configPath);
 
     if (!content) {

@@ -5,6 +5,10 @@
 
 import * as os from 'os';
 import * as path from 'path';
+
+function join(...parts: string[]): string {
+  return path.join(...parts);
+}
 import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { renderConfigFileContent } from '../../core/providerConfig/drivers';
@@ -21,30 +25,133 @@ const AIDOME_PROVIDER_SLUG = 'aidome-gateway';
 const AI_SDK_OPENAI_COMPATIBLE = '@ai-sdk/openai-compatible';
 
 /**
- * Gets the Kilo Code global config file path.
- * Matches Kilo's own globalConfigDir() resolution:
- *   $XDG_CONFIG_HOME/kilo/kilo.jsonc  (Linux)
- *   ~/.config/kilo/kilo.jsonc         (default Linux)
- *   ~/Library/Application Support/kilo/kilo.jsonc  (macOS)
- *   %APPDATA%/Kilo/kilo.jsonc         (Windows)
- * @returns Config file path
+ * Resolved Kilo Code configuration target.
+ *
+ * `kind: 'file'` is a safe writable target. `kind: 'guided'` means Kilo's
+ * configuration source cannot be determined safely (explicit content, or
+ * multiple legacy candidates) and Switchboard must guide instead of guessing.
  */
-export function getKiloConfigPath(): string {
-  const platform = os.platform();
-  let dir: string;
+export type KiloConfigTarget =
+  | { kind: 'file'; path: string; source: string }
+  | { kind: 'guided'; reason: string };
 
-  if (platform === 'win32') {
-    dir = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Kilo');
-  } else if (platform === 'darwin') {
-    dir = path.join(os.homedir(), 'Library', 'Application Support', 'kilo');
-  } else {
-    // Linux and others: XDG_CONFIG_HOME or ~/.config
-    const xdgConfig = process.env.XDG_CONFIG_HOME;
-    dir = xdgConfig ? path.join(xdgConfig, 'kilo') : path.join(os.homedir(), '.config', 'kilo');
+/**
+ * Resolves the active Kilo Code configuration target following Kilo's own
+ * precedence (packages/core/src/global.ts, config-file.ts):
+ *
+ *   1. KILO_CONFIG          — explicit file, wins outright
+ *   2. KILO_CONFIG_DIR      — explicit directory (kilo.jsonc, then kilo.json)
+ *   3. KILO_CONFIG_CONTENT  — content supplied via env: there may be no safe
+ *                             writable file target → guided
+ *   4. $XDG_CONFIG_HOME/kilo/kilo.jsonc | kilo.json   (all platforms — Kilo
+ *                             resolves the global dir via XDG, NOT
+ *                             platform AppData/Application Support paths)
+ *   5. ~/.config/kilo/kilo.jsonc | kilo.json
+ *   6. Legacy candidates: ~/.kilo, ~/.kilocode, ~/.opencode (kilo.jsonc /
+ *      kilo.json when present)
+ *
+ * If more than one existing candidate file is found at different levels the
+ * active source is ambiguous → guided. Project-local candidates are
+ * intentionally not considered: the extension host spans multiple projects
+ * and mutating one project's config for a global profile is unsafe.
+ *
+ * @param deps Injectable environment/FS for tests.
+ */
+export function resolveKiloConfigTarget(
+  deps: {
+    env?: NodeJS.ProcessEnv;
+    homedir?: () => string;
+    existsSync?: (path: string) => boolean;
+  } = {}
+): KiloConfigTarget {
+  const env = deps.env ?? process.env;
+  const home = deps.homedir?.() ?? os.homedir();
+  const exists = deps.existsSync ?? ((candidate: string) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require('fs').existsSync(candidate);
+    } catch {
+      return false;
+    }
+  });
+
+  const candidates = (dir: string): string[] => [
+    join(dir, 'kilo.jsonc'),
+    join(dir, 'kilo.json')
+  ];
+
+  // 1. KILO_CONFIG — explicit file
+  const explicitConfig = env.KILO_CONFIG?.trim();
+  if (explicitConfig) {
+    return { kind: 'file', path: explicitConfig, source: 'KILO_CONFIG' };
   }
 
-  // Kilo looks for kilo.jsonc first, then kilo.json
-  return path.join(dir, 'kilo.jsonc');
+  // 3. KILO_CONFIG_CONTENT — no safe writable target
+  const explicitContent = env.KILO_CONFIG_CONTENT?.trim();
+  if (explicitContent) {
+    return {
+      kind: 'guided',
+      reason: 'KILO_CONFIG_CONTENT supplies configuration directly; there may be no writable config file to patch safely.'
+    };
+  }
+
+  // 2. KILO_CONFIG_DIR — explicit directory
+  const explicitDir = env.KILO_CONFIG_DIR?.trim();
+  if (explicitDir) {
+    const existing = candidates(explicitDir).find(candidate => exists(candidate));
+    return { kind: 'file', path: existing ?? join(explicitDir, 'kilo.jsonc'), source: 'KILO_CONFIG_DIR' };
+  }
+
+  // 4. XDG_CONFIG_HOME/kilo — Kilo's global dir on ALL platforms
+  // 5. ~/.config/kilo — XDG default
+  // 6. Legacy candidate directories
+  const xdgConfig = env.XDG_CONFIG_HOME?.trim();
+  const searchLevels: Array<{ label: string; dirs: string[] }> = [
+    ...(xdgConfig ? [{ label: 'XDG_CONFIG_HOME', dirs: [join(xdgConfig, 'kilo')] }] : []),
+    { label: '~/.config/kilo', dirs: [join(home, '.config', 'kilo')] },
+    { label: '~/.kilo', dirs: [join(home, '.kilo')] },
+    { label: '~/.kilocode', dirs: [join(home, '.kilocode')] },
+    { label: '~/.opencode', dirs: [join(home, '.opencode')] }
+  ];
+
+  const found: Array<{ path: string; source: string }> = [];
+  for (const level of searchLevels) {
+    for (const dir of level.dirs) {
+      const existing = candidates(dir).find(candidate => exists(candidate));
+      if (existing) {
+        found.push({ path: existing, source: level.label });
+      }
+    }
+  }
+
+  if (found.length > 1) {
+    return {
+      kind: 'guided',
+      reason: `Multiple Kilo configuration files detected (${found.map(item => `${item.source}: ${item.path}`).join('; ')}); Switchboard cannot determine which one Kilo is actively using. Configure it manually or remove the stale candidates.`
+    };
+  }
+
+  if (found.length === 1) {
+    return { kind: 'file', path: found[0].path, source: found[0].source };
+  }
+
+  // Nothing exists yet: create at Kilo's default global location,
+  // honoring XDG_CONFIG_HOME when set.
+  const defaultDir = xdgConfig ? join(xdgConfig, 'kilo') : join(home, '.config', 'kilo');
+  return {
+    kind: 'file',
+    path: join(defaultDir, 'kilo.jsonc'),
+    source: 'default'
+  };
+}
+
+/**
+ * Convenience wrapper resolving the writable config path for the current
+ * process, or undefined when the target is guided.
+ */
+export function getKiloConfigPath(): string | undefined {
+  const target = resolveKiloConfigTarget();
+  return target.kind === 'file' ? target.path : undefined;
 }
 
 /**

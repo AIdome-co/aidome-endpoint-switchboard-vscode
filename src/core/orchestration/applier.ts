@@ -12,6 +12,7 @@ import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
+import { validateConfigFileStepData, validateSetEnvVarStepData } from './planStepData';
 
 /**
  * Result of applying a plan.
@@ -148,6 +149,21 @@ export class PlanApplier {
    */
   async applyStep(step: PlanStep): Promise<AppliedStep> {
     this.logger.debug(`Applying step ${step.id}: ${step.action}`);
+
+    // Fail closed on invalid step payloads BEFORE any mutation: malformed
+    // driver declarations and invalid combinations are rejected here with an
+    // actionable error instead of surfacing deep inside a driver.
+    if (step.action === 'edit-config-file') {
+      const validation = validateConfigFileStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
+    } else if (step.action === 'set-env-var') {
+      const validation = validateSetEnvVarStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
+    }
 
     const appliedStep: AppliedStep = {
       type: step.action,

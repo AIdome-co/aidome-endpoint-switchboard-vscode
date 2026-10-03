@@ -43,6 +43,11 @@ vi.mock('../../src/util/log', () => ({
 
 vi.mock('../../src/adapters/kilocode/kiloConfigPatcher', () => ({
   getKiloConfigPath: vi.fn(() => '/home/user/.config/kilo/kilo.jsonc'),
+  resolveKiloConfigTarget: vi.fn(() => ({
+    kind: 'file',
+    path: '/home/user/.config/kilo/kilo.jsonc',
+    source: 'default'
+  })),
   discoverModels: mockDiscoverModels,
   buildModelEntries: mockBuildModelEntries
 }));
@@ -278,5 +283,34 @@ describe('KiloCodeAdapter', () => {
         steps: []
       })).resolves.toBeUndefined();
     });
+  });
+});
+describe('KiloCodeAdapter with an ambiguous configuration source', () => {
+  it('guides instead of guessing when the config source cannot be determined', async () => {
+    const { resolveKiloConfigTarget } = await import('../../src/adapters/kilocode/kiloConfigPatcher');
+    vi.mocked(resolveKiloConfigTarget).mockReturnValue({
+      kind: 'guided',
+      reason: 'Multiple Kilo configuration files detected; configure manually.'
+    });
+
+    const localAdapter = new KiloCodeAdapter();
+    const localProfile: EndpointProfile = {
+      id: 'guided-profile',
+      name: 'Guided Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const plan = await localAdapter.buildPlan(localProfile);
+
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].action).toBe('show-guided-steps');
+    expect(plan.steps[0].data.limitation).toBe('ambiguous-config-source');
+
+    const result = await localAdapter.verify();
+    expect(result.success).toBe(false);
+    expect(result.details?.configurationStatus).toBe('guided-required');
   });
 });
