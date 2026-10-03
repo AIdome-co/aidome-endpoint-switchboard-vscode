@@ -9,6 +9,8 @@ import {
   resolveKiloConfigTarget,
   buildKiloConfigContent
 } from '../../src/adapters/kilocode/kiloConfigPatcher';
+import { renderConfigFileContent } from '../../src/core/providerConfig/drivers';
+import { normalizeOpenAiBaseUrl } from '../../src/core/providerConfig/endpointUrl';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
 
@@ -264,5 +266,75 @@ describe('Kilo Config Patcher', () => {
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe(mockProfile.baseUrl);
       expect(parsed.provider['other-provider'].options.baseURL).toBe('https://other.com');
     });
+  });
+});
+describe('Kilo normalization equivalence (HIGH-2 fix)', () => {
+  let written: string[] = [];
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    vi.spyOn(fsSafe, 'writeFileAtomic').mockImplementation(async (_p: string, content: string) => {
+      written.push(content);
+      return true;
+    });
+  });
+
+  const smokeProfile = (baseUrl: string): EndpointProfile => ({
+    id: 'norm-profile',
+    name: 'Norm Profile',
+    baseUrl,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+
+  it.each([
+    ['https://gw.example.com', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/v1', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/v1/', 'https://gw.example.com/v1']
+  ])('patcher normalizes %s exactly once to %s', async (input, expected) => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+    await patchKiloConfig(smokeProfile(input), '/path/kilo.jsonc');
+
+    const parsed = JSON.parse(written[0]);
+    expect(parsed.provider['aidome-gateway'].options.baseURL).toBe(expected);
+    expect(parsed.provider['aidome-gateway'].options.baseURL).not.toContain('/v1/v1');
+  });
+
+  it('patcher path and engine/applier path produce IDENTICAL baseURL for the same profile', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    const rawUrl = 'https://gw.example.com';
+
+    // Engine/adapter path: renderConfigFileContent with the normalized URL
+    // (what adapter buildPlan -> step.data.baseUrl feeds the driver).
+    const engineOutput = renderConfigFileContent({
+      baseUrl: normalizeOpenAiBaseUrl(rawUrl),
+      existingContent: undefined,
+      format: 'jsonc',
+      options: {
+        driver: 'jsonc-provider-map',
+        mapPath: ['provider'],
+        providerId: 'aidome-gateway',
+        defaults: { name: 'AIdome Gateway', npm: '@ai-sdk/openai-compatible' },
+        baseUrlPath: ['options', 'baseURL']
+      }
+    });
+
+    // Patcher path on the same (missing) file.
+    await patchKiloConfig(smokeProfile(rawUrl), '/path/kilo.jsonc');
+    const patcherOutput = written[0];
+
+    expect(JSON.parse(patcherOutput)).toEqual(JSON.parse(engineOutput));
+  });
+
+  it('reapply remains byte-idempotent after normalization', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+    await patchKiloConfig(smokeProfile('https://gw.example.com'), '/path/kilo.jsonc');
+    const first = written[0];
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(first);
+    await patchKiloConfig(smokeProfile('https://gw.example.com'), '/path/kilo.jsonc');
+    expect(written[1]).toBe(first);
   });
 });

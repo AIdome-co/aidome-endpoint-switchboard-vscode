@@ -17,9 +17,8 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath } from './codexConfigPatcher';
 import { readFileSafe } from '../../util/fsSafe';
-import { parse as parseToml } from 'smol-toml';
-import { validateUrl } from '../../core/profiles/profileValidator';
 import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
@@ -32,6 +31,9 @@ const DESCRIPTOR = getProviderConfigDescriptor('openai-codex');
  */
 export class CodexAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = '';
+
+  /** Profile URL expected by the most recent buildPlan, for exact verification. */
+  private expectedBaseUrl: string | undefined;
 
   constructor(private readonly dependencies: AdapterDependencies = {}) {
     super();
@@ -59,6 +61,7 @@ export class CodexAdapter extends BaseExtensionAdapter {
       resolvedTargetPaths: { 'codex-config': configPath },
       discoveredModels: model ? [model] : undefined,
     });
+    this.expectedBaseUrl = profile.baseUrl;
 
     plan = addStep(plan, {
       action: 'show-guided-steps',
@@ -113,43 +116,39 @@ export class CodexAdapter extends BaseExtensionAdapter {
       };
     }
 
-    let config: {
-      model_provider?: unknown;
-      model_providers?: Record<string, { base_url?: unknown; wire_api?: unknown }>;
-    };
-    try {
-      config = parseToml(content) as typeof config;
-    } catch {
+    // Fail closed when the expected profile URL is unknown: "some valid
+    // selected Responses provider exists" is NOT a verified state — the
+    // managed provider must match the assigned profile exactly.
+    if (this.expectedBaseUrl === undefined) {
       return {
         success: false,
-        message: 'Codex config file is not valid TOML',
+        message: 'Codex provider configuration exists, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
+        details: { configPath, exactUrlMatchVerified: false }
+      };
+    }
+
+    // Descriptor-driven, profile-aware verification via the shared engine
+    // layer: selection, exact base URL (normalized per descriptor), wire API,
+    // and required provider identity — path/field logic lives in the
+    // descriptor's plan operations, not here.
+    const document = parseConfigDocument(content, 'toml');
+    if (!document.ok) {
+      return {
+        success: false,
+        message: `Codex config file is not valid TOML: ${document.error}`,
         details: { configPath }
       };
     }
 
-    const providerName = config.model_provider;
-    const provider = typeof providerName === 'string'
-      ? config.model_providers?.[providerName]
-      : undefined;
-    const configuredBaseUrl = provider?.base_url;
-    const hasProviderConfig = typeof providerName === 'string'
-      && providerName.length > 0
-      && typeof configuredBaseUrl === 'string'
-      && validateUrl(configuredBaseUrl)
-      && provider?.wire_api === 'responses';
-
-    if (!hasProviderConfig) {
-      return {
-        success: false,
-        message: 'Codex config does not have a valid selected Responses provider',
-        details: { configPath, selectedProvider: providerName ?? null }
-      };
-    }
+    const result = verifyFileTarget(DESCRIPTOR!, {
+      parsed: document.parsed,
+      profileBaseUrl: this.expectedBaseUrl
+    });
 
     return {
-      success: true,
-      message: 'Codex configuration verified',
-      details: { configPath, provider: providerName, baseUrl: configuredBaseUrl, wireApi: provider?.wire_api }
+      success: result.success,
+      message: result.message,
+      details: { configPath, ...result.details }
     };
   }
 

@@ -171,50 +171,120 @@ describe('CodexAdapter', () => {
     });
   });
 
-  describe('verify', () => {
-    it('should return success when config file exists with provider config', async () => {
-      const mockConfig = `
-model_provider = "aidome"
+  describe('verify (profile-aware, descriptor-driven)', () => {
+    const EXACT_CONFIG = [
+      'model_provider = "aidome"',
+      '',
+      '[model_providers.aidome]',
+      'name = "aidome"',
+      'base_url = "https://aidome.example.com/v1"',
+      'wire_api = "responses"',
+      'env_key = "OPENAI_API_KEY"',
+      '',
+      '[model_providers.other]',
+      'name = "other"',
+      'base_url = "https://other.example/v1"',
+      'wire_api = "responses"',
+      ''
+    ].join('\n');
 
-[model_providers.aidome]
-base_url = "https://aidome.example.com/v1"
-wire_api = "responses"
-      `;
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(mockConfig);
+    async function applyThenVerify(config: string) {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (p: string) =>
+        p === '/tmp/continue-config.json' ? undefined : config
+      );
+      // buildPlan records the expected profile URL (fail-closed precondition).
+      await adapter.buildPlan(mockProfile);
+      return adapter.verify();
+    }
 
-      const result = await adapter.verify();
-
+    it('1. passes for the exact expected configuration', async () => {
+      const result = await applyThenVerify(EXACT_CONFIG);
       expect(result.success).toBe(true);
       expect(result.message).toContain('verified');
+      expect(result.details?.exactUrlMatchVerified ?? true).toBe(true);
     });
 
-    it('should return failure when config file does not exist', async () => {
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
-
-      const result = await adapter.verify();
-
+    it('2. fails when model_provider is changed away from the managed provider', async () => {
+      const result = await applyThenVerify(EXACT_CONFIG.replace('model_provider = "aidome"', 'model_provider = "openai"'));
       expect(result.success).toBe(false);
-      expect(result.message).toContain('not found');
+      expect(result.message).toContain('does not match the active profile');
     });
 
-    it('should return failure when config file exists but has no provider config', async () => {
-      const mockConfig = `
-[general]
-some_setting = "value"
-      `;
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(mockConfig);
-
-      const result = await adapter.verify();
-
+    it('3. fails when the managed base_url is changed to another valid URL', async () => {
+      const result = await applyThenVerify(
+        EXACT_CONFIG.replace('base_url = "https://aidome.example.com/v1"', 'base_url = "https://tampered.example.com/v1"')
+      );
       expect(result.success).toBe(false);
-      expect(result.message).toContain('valid selected Responses provider');
+      expect(result.message).toContain('does not match the active profile');
+    });
+
+    it('4. fails when wire_api is changed', async () => {
+      const result = await applyThenVerify(
+        EXACT_CONFIG.replace('[model_providers.aidome]\nname = "aidome"\nbase_url = "https://aidome.example.com/v1"\nwire_api = "responses"', '[model_providers.aidome]\nname = "aidome"\nbase_url = "https://aidome.example.com/v1"\nwire_api = "chat"')
+      );
+      expect(result.success).toBe(false);
+    });
+
+    it('5. fails when the managed provider entry is missing', async () => {
+      const result = await applyThenVerify(EXACT_CONFIG.replace(/[\s\S]*?\[model_providers\.aidome\][\s\S]*?(?=\[model_providers\.other\])/, '\n'));
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not match the active profile');
+    });
+
+    it('6. an unrelated valid Responses provider does NOT make verification pass', async () => {
+      // No managed entry at all; only a valid unrelated provider selected.
+      const result = await applyThenVerify(
+        'model_provider = "other"\n\n[model_providers.other]\nname = "other"\nbase_url = "https://other.example/v1"\nwire_api = "responses"\n'
+      );
+      expect(result.success).toBe(false);
+    });
+
+    it('7. unrelated providers/settings are preserved by apply and ignored by verification', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (p: string) =>
+        p === '/tmp/continue-config.json' ? undefined : EXACT_CONFIG
+      );
+      await adapter.buildPlan(mockProfile);
+      // EXACT_CONFIG contains the unrelated `other` provider; verification of
+      // the managed entry succeeded in test 1 despite its presence.
+      const result = await adapter.verify();
+      expect(result.success).toBe(true);
+      expect(JSON.stringify(result.details)).not.toContain('other.example');
+    });
+
+    it('8. fails closed when the expected profile URL is unknown', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(EXACT_CONFIG);
+      // No buildPlan: the adapter has no expected profile context.
+      const result = await adapter.verify();
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('apply a profile first');
+    });
+
+    it('8b. fails closed on malformed TOML', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('model = "broken\n[model_providers.aidome');
+      await adapter.buildPlan(mockProfile);
+      const result = await adapter.verify();
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid TOML');
+    });
+
+    it('9. successful reapply remains idempotent and verifies', async () => {
+      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (p: string) =>
+        p === '/tmp/continue-config.json' ? undefined : EXACT_CONFIG
+      );
+      const plan1 = await adapter.buildPlan(mockProfile);
+      const plan2 = await adapter.buildPlan(mockProfile);
+      // Same profile -> same step payload (no churn).
+      expect(plan1.steps.map(s => [s.action, s.targetPath, s.data.baseUrl, s.data.model ?? null]))
+        .toEqual(plan2.steps.map(s => [s.action, s.targetPath, s.data.baseUrl, s.data.model ?? null]));
+      const result = await adapter.verify();
+      expect(result.success).toBe(true);
     });
 
     it('should handle errors gracefully', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockRejectedValue(new Error('Read error'));
-
       const result = await adapter.verify();
-
       expect(result.success).toBe(false);
       expect(result.message).toContain('Error verifying');
     });

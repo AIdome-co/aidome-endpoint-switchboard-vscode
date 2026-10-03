@@ -12,6 +12,7 @@ function join(...parts: string[]): string {
 import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { renderConfigFileContent } from '../../core/providerConfig/drivers';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 interface KiloProviderModel {
   name: string;
@@ -254,6 +255,10 @@ export async function patchKiloConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
-  const updated = buildKiloConfigContent(profile.baseUrl, content);
+  // Single source of truth for Kilo URL normalization: the same
+  // normalizeOpenAiBaseUrl helper the descriptor/engine execution path uses
+  // (adapter buildPlan -> step.data.baseUrl). Both paths MUST produce the
+  // identical baseURL for the same profile.
+  const updated = buildKiloConfigContent(normalizeOpenAiBaseUrl(profile.baseUrl), content);
   await writeFileAtomic(configPath, updated);
 }
