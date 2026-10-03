@@ -103,3 +103,35 @@ describe('upstream evidence / drift validation', () => {
     expect(roo.support).toBe('unsupported');
   });
 });
+
+describe('per-capability support states', () => {
+  it('declares explicit per-field support for every automatically configured provider', () => {
+    for (const descriptor of descriptors) {
+      if (descriptor.support !== 'automatic') {
+        continue;
+      }
+      for (const field of descriptor.fields) {
+        const isCredential = field.secret === true;
+        // Credential fields in automatic providers must be automatic
+        // (target-persisted) or external — never silently automatic-by-default
+        // when the provider stores auth elsewhere.
+        if (isCredential && field.valueKind !== 'string') {
+          expect({ providerKey: descriptor.providerKey, field: field.field, support: field.support })
+            .toEqual({ providerKey: descriptor.providerKey, field: field.field, support: 'external' });
+        }
+      }
+    }
+  });
+
+  it('never marks a guided/unsupported provider field as automatic', () => {
+    for (const descriptor of descriptors) {
+      if (descriptor.support === 'automatic') {
+        continue;
+      }
+      for (const field of descriptor.fields) {
+        expect({ providerKey: descriptor.providerKey, field: field.path, support: field.support })
+          .not.toEqual({ providerKey: descriptor.providerKey, field: field.path, support: 'automatic' });
+      }
+    }
+  });
+});

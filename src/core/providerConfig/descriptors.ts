@@ -152,7 +152,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     displayName: 'Roo Code',
     dialects: [{ dialect: 'openai.chat_completions', preferred: true }],
     targets: [{ id: 'roo-retired', format: 'ui', driver: 'guided-ui', priority: 1, requiresGuidance: true }],
-    fields: [{ field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: false }],
+    fields: [{ field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: false, support: 'unsupported' }],
     driver: 'guided-ui',
     support: 'unsupported',
     tier: 'C',
@@ -172,7 +172,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     fields: [
       { field: 'baseUrl', path: 'provider.<providerId>.options.baseURL', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
       { field: 'model', path: 'provider.<providerId>.models', valueKind: 'object', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
-      { field: 'apiKey', path: 'Kilo auth store', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true }
+      { field: 'apiKey', path: 'Kilo auth store', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true, support: 'external' }
     ],
     driver: 'jsonc-provider-map',
     support: 'automatic',
@@ -196,7 +196,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     fields: [
       { field: 'provider', path: 'models[].provider', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
       { field: 'baseUrl', path: 'models[].apiBase', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
-      { field: 'apiKey', path: 'models[].apiKey', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true },
+      { field: 'apiKey', path: 'models[].apiKey', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true, support: 'external' },
       { field: 'protocol', path: 'models[].useResponsesApi', valueKind: 'array-entry', requiredFor: ['openai.responses'], preserveUnknown: true }
     ],
     plan: [
@@ -228,7 +228,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     targets: [{ id: 'claude-settings', format: 'json', driver: 'json-object', path: '<CLAUDE_CONFIG_DIR>/settings.json', priority: 1 }],
     fields: [
       { field: 'baseUrl', path: 'env.ANTHROPIC_BASE_URL', valueKind: 'string', requiredFor: ['anthropic.messages'], preserveUnknown: true },
-      { field: 'apiKey', path: 'env.ANTHROPIC_AUTH_TOKEN', valueKind: 'string', requiredFor: ['anthropic.messages'], secret: true },
+      { field: 'apiKey', path: 'env.ANTHROPIC_AUTH_TOKEN', valueKind: 'string', requiredFor: ['anthropic.messages'], secret: true, support: 'automatic' },
       { field: 'provider', path: 'env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY', valueKind: 'string', requiredFor: ['anthropic.messages'] }
     ],
     driver: 'json-object',
@@ -289,8 +289,8 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     dialects: [{ dialect: 'google.gemini.generate_content', preferred: true }],
     targets: [{ id: 'gemini-gateway-env', format: 'environment', driver: 'environment-binding', environmentVariables: ['GOOGLE_GEMINI_BASE_URL', 'GEMINI_API_KEY'], priority: 1, requiresGuidance: true }],
     fields: [
-      { field: 'baseUrl', path: 'GOOGLE_GEMINI_BASE_URL', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'] },
-      { field: 'apiKey', path: 'GEMINI_API_KEY', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], secret: true }
+      { field: 'baseUrl', path: 'GOOGLE_GEMINI_BASE_URL', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], support: 'guided' },
+      { field: 'apiKey', path: 'GEMINI_API_KEY', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], secret: true, support: 'guided' }
     ],
     driver: 'environment-binding',
     support: 'guided',
@@ -309,8 +309,8 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     dialects: [{ dialect: 'openai.chat_completions', preferred: true }],
     targets: [{ id: 'codegpt-ui', format: 'ui', driver: 'guided-ui', priority: 1, requiresGuidance: true }],
     fields: [
-      { field: 'baseUrl', path: 'Manage my AI Models', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'] },
-      { field: 'apiKey', path: 'Manage my AI Models', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true }
+      { field: 'baseUrl', path: 'Manage my AI Models', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], support: 'guided' },
+      { field: 'apiKey', path: 'Manage my AI Models', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true, support: 'guided' }
     ],
     driver: 'guided-ui',
     support: 'guided',
@@ -329,9 +329,9 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     dialects: [{ dialect: 'openai.chat_completions', preferred: true }],
     targets: [{ id: 'anythingllm-ui', format: 'ui', driver: 'guided-ui', priority: 1, requiresGuidance: true }],
     fields: [
-      { field: 'baseUrl', path: 'GenericOpenAiBasePath', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'] },
-      { field: 'model', path: 'GenericOpenAiModelPref', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'] },
-      { field: 'apiKey', path: 'GenericOpenAiApiKey', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true }
+      { field: 'baseUrl', path: 'GenericOpenAiBasePath', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], support: 'guided' },
+      { field: 'model', path: 'GenericOpenAiModelPref', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], support: 'guided' },
+      { field: 'apiKey', path: 'GenericOpenAiApiKey', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: true, support: 'guided' }
     ],
     driver: 'guided-ui',
     support: 'guided',
@@ -349,7 +349,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     displayName: 'Tabnine',
     dialects: [{ dialect: 'tabnine.proprietary', preferred: true }],
     targets: [{ id: 'tabnine-enterprise', format: 'ui', driver: 'guided-ui', settingKey: 'tabnineSelfHostedUpdater.serverUrl', priority: 1, requiresGuidance: true }],
-    fields: [{ field: 'baseUrl', path: 'tabnineSelfHostedUpdater.serverUrl', valueKind: 'ui-only', requiredFor: ['tabnine.proprietary'] }],
+    fields: [{ field: 'baseUrl', path: 'tabnineSelfHostedUpdater.serverUrl', valueKind: 'ui-only', requiredFor: ['tabnine.proprietary'], support: 'unsupported' }],
     driver: 'guided-ui',
     support: 'unsupported',
     tier: 'C',
