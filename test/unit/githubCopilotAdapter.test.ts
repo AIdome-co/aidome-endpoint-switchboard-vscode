@@ -129,15 +129,23 @@ describe('GitHubCopilotAdapter', () => {
         (s) => s.action === 'set-vscode-setting' && s.data['method'] === 'proxy-override'
       );
       expect(proxyStep).toBeDefined();
-      expect(proxyStep!.targetPath).toBe('github.copilot.advanced');
+      expect(proxyStep!.targetPath).toBe('github.copilot.advanced.debug.overrideProxyUrl');
       expect(proxyStep!.reversible).toBe(true);
-
-      const newValue = proxyStep!.newValue as Record<string, unknown>;
-      expect((newValue.debug as Record<string, unknown>)['overrideProxyUrl']).toBe(mockProfile.baseUrl);
+      expect(proxyStep!.newValue).toBe(mockProfile.baseUrl);
     });
 
-    it('should preserve existing advanced settings when adding proxy URL', async () => {
-      const existingAdvanced = { 'someOtherKey': 'someValue' };
+    it('should NOT normalize the proxy URL into an OpenAI /v1 base', async () => {
+      const plan = await adapter.buildPlan({
+        ...mockProfile,
+        baseUrl: 'https://gateway.example.com/proxy'
+      });
+
+      const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
+      expect(proxyStep!.newValue).toBe('https://gateway.example.com/proxy');
+    });
+
+    it('should preserve existing advanced object settings when writing the flat key', async () => {
+      const existingAdvanced = { 'debug.overrideProxyUrl': 'https://old.example.com', 'someOtherKey': 'someValue' };
       mockConfig.get.mockImplementation((key: string) => {
         if (key === 'github.copilot.advanced') {
           return existingAdvanced;
@@ -148,16 +156,18 @@ describe('GitHubCopilotAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
-      const newValue = proxyStep!.newValue as Record<string, unknown>;
-      expect(newValue['someOtherKey']).toBe('someValue');
-      expect((newValue.debug as Record<string, unknown>)['overrideProxyUrl']).toBe(mockProfile.baseUrl);
+      // Flat style writes a separate top-level key; the object's keys are untouched.
+      expect(proxyStep!.targetPath).toBe('github.copilot.advanced.debug.overrideProxyUrl');
+      expect(proxyStep!.oldValue).toBeUndefined();
+      expect(proxyStep!.newValue).toBe(mockProfile.baseUrl);
+      // The unrelated object keys are never rewritten by the flat style.
+      expect(mockConfig.get).not.toHaveBeenCalledWith('github.copilot.advanced');
     });
 
-    it('should capture the old advanced value for rollback', async () => {
-      const existingAdvanced = { debug: { overrideProxyUrl: 'https://old.example.com' } };
+    it('should capture the old flat value for rollback', async () => {
       mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.advanced') {
-          return existingAdvanced;
+        if (key === 'github.copilot.advanced.debug.overrideProxyUrl') {
+          return 'https://old.example.com';
         }
         return undefined;
       });
@@ -165,7 +175,7 @@ describe('GitHubCopilotAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
-      expect(proxyStep!.oldValue).toEqual(existingAdvanced);
+      expect(proxyStep!.oldValue).toBe('https://old.example.com');
     });
 
     it('should provide Custom Endpoint guidance when the legacy setting is unregistered', async () => {
@@ -202,12 +212,13 @@ describe('GitHubCopilotAdapter', () => {
       expect(result.details?.copilotChat).toBe(false);
     });
 
-    it('should return success when proxy override is configured', async () => {
+    it('should succeed with exact URL match after buildPlan (flat style)', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      await adapter.buildPlan(mockProfile);
       mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.advanced') {
-          return { debug: { overrideProxyUrl: 'https://aidome.example.com/v1' } };
+        if (key === 'github.copilot.advanced.debug.overrideProxyUrl') {
+          return mockProfile.baseUrl;
         }
         return undefined;
       });
@@ -217,7 +228,61 @@ describe('GitHubCopilotAdapter', () => {
       expect(result.success).toBe(true);
       expect(result.message).toContain('configured');
       expect(result.details?.proxyOverrideConfigured).toBe(true);
+      expect(result.details?.exactUrlMatchVerified).toBe(true);
       expect(result.details?.tier).toBe('B');
+    });
+
+    it('should read the legacy object style as ONE flat subkey and match exactly', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      await adapter.buildPlan(mockProfile);
+      mockConfig.get.mockImplementation((key: string) => {
+        if (key === 'github.copilot.advanced') {
+          return { 'debug.overrideProxyUrl': mockProfile.baseUrl, 'someOtherKey': 'kept' };
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.exactUrlMatchVerified).toBe(true);
+    });
+
+    it('should fail when the configured proxy URL does not match the expected profile URL', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      await adapter.buildPlan(mockProfile);
+      mockConfig.get.mockImplementation((key: string) => {
+        if (key === 'github.copilot.advanced.debug.overrideProxyUrl') {
+          return 'https://stale.example.com/v1';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not match');
+      expect(result.details?.exactUrlMatchVerified).toBe(false);
+      expect(result.details?.expectedProxyUrl).toBe(mockProfile.baseUrl);
+    });
+
+    it('should not claim exact verification when no profile has been applied', async () => {
+      const vscode = await import('vscode');
+      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+      mockConfig.get.mockImplementation((key: string) => {
+        if (key === 'github.copilot.advanced.debug.overrideProxyUrl') {
+          return 'https://someone-elses.example.com';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.proxyOverrideConfigured).toBe(true);
+      expect(result.details?.exactUrlMatchVerified).toBe(false);
     });
 
     it('should return not-configured when extension is installed but no settings are set', async () => {
@@ -238,12 +303,7 @@ describe('GitHubCopilotAdapter', () => {
       vi.spyOn(vscode.extensions, 'getExtension')
         .mockReturnValueOnce(mockExtension as any)
         .mockReturnValueOnce(undefined);
-      mockConfig.get.mockImplementation((key: string) => {
-        if (key === 'github.copilot.advanced') {
-          return { 'debug.overrideProxyUrl': 'https://aidome.example.com/v1' };
-        }
-        return undefined;
-      });
+      mockConfig.get.mockReturnValue(undefined);
 
       const result = await adapter.verify();
 

@@ -29,7 +29,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       id: 'copilot-advanced',
       format: 'vscode-settings',
       driver: 'vscode-setting',
-      settingKey: 'github.copilot.advanced',
+      settingKey: 'github.copilot.advanced.debug.overrideProxyUrl',
       priority: 1
     }],
     fields: [{
@@ -56,15 +56,21 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       notes: ['Remain Tier B because the override is an internal/legacy setting.']
     },
     drift: {
-      sourceSymbols: ['ConfigKey.DebugOverrideProxyUrl', 'advanced.debug.overrideProxyUrl'],
+      sourceSymbols: ['ConfigKey.Shared.DebugOverrideProxyUrl', 'advanced.debug.overrideProxyUrl', 'advancedSubKey'],
       failClosedOnMissingEvidence: true,
-      notes: ['Re-check upstream source after Copilot updates.']
+      notes: [
+        'Canonical current source is the ACTIVE Copilot implementation in microsoft/vscode (extensions/copilot), not the archived microsoft/vscode-copilot-chat repository.',
+        'Object-style fallback reads the advanced subkey as ONE flat key: advanced["debug.overrideProxyUrl"]; never the nested debug.overrideProxyUrl object form.'
+      ]
     },
     versionEvidence: evidence(
-      'https://github.com/microsoft/vscode-copilot-chat.git',
-      '5863f5a7088958050792b5dccbe8b46c6e13eccc',
-      'medium',
-      ['src/extension/completions-core/vscode-node/lib/src/config.ts', 'src/platform/configuration/common/configurationService.ts']
+      'https://github.com/microsoft/vscode.git',
+      'ee9c82e739d0b52261d9804317f83d14f71429aa',
+      'high',
+      [
+        'extensions/copilot/src/platform/configuration/vscode/configurationServiceImpl.ts',
+        'extensions/copilot/src/platform/configuration/common/configurationService.ts'
+      ]
     ),
     limitations: ['Undocumented internal setting may be removed or renamed.', 'Current Copilot releases may expose Custom Endpoint only through the language-model UI; the adapter then provides guided setup.']
   },
