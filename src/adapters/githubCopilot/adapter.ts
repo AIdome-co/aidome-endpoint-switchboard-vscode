@@ -28,6 +28,7 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import { mergeObjectSetting, readObjectSetting } from '../../core/providerConfig/vscodeSettingDriver';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 /** VS Code setting key for the proxy override object. */
 const DESCRIPTOR = getProviderConfigDescriptor('github-copilot');
@@ -62,17 +63,22 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
   }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
+    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
     let plan = createPlan(profile.id, ['github-copilot']);
 
     const config = vscode.workspace.getConfiguration();
 
+    if (!supportsLegacyProxySetting(config)) {
+      return addGuidedConfigurationPlan(profile);
+    }
+
     const currentAdvanced =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
-    const newAdvanced = mergeObjectSetting(currentAdvanced, PROXY_URL_PROPERTY.split('.'), profile.baseUrl);
+    const newAdvanced = mergeObjectSetting(currentAdvanced, PROXY_URL_PROPERTY.split('.'), baseUrl);
 
     plan = addStep(plan, {
       action: 'set-vscode-setting',
-      description: `Set GitHub Copilot proxy override URL to ${profile.baseUrl}`,
+      description: `Set GitHub Copilot proxy override URL to ${baseUrl}`,
       assistantKey: 'github-copilot',
       targetPath: ADVANCED_SETTING_KEY,
       oldValue: currentAdvanced,
@@ -107,6 +113,20 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
 
     const config = vscode.workspace.getConfiguration();
 
+    if (!supportsLegacyProxySetting(config)) {
+      return {
+        success: false,
+        message: 'GitHub Copilot is installed, but this version requires Custom Endpoint setup in the Copilot UI',
+        details: {
+          copilot: !!copilotExtension,
+          copilotChat: !!copilotChatExtension,
+          tier: 'B',
+          proxyOverrideConfigured: false,
+          requiresGuidedCustomEndpoint: true
+        }
+      };
+    }
+
     const advancedSettings =
       config.get<Record<string, unknown>>(ADVANCED_SETTING_KEY) ?? {};
     const proxyUrl = readObjectSetting(advancedSettings, PROXY_URL_PROPERTY.split('.'));
@@ -135,4 +155,41 @@ export class GitHubCopilotAdapter extends BaseExtensionAdapter {
   getTier(): 'A' | 'B' | 'C' {
     return 'B';
   }
+}
+
+function supportsLegacyProxySetting(config: vscode.WorkspaceConfiguration): boolean {
+  // Older test hosts and older Copilot releases do not expose inspect(). In
+  // that case retain the legacy path and let the setting update report any
+  // incompatibility. Current VS Code hosts expose inspect() and return
+  // undefined for the removed/unregistered key.
+  if (typeof config.inspect !== 'function') {
+    return true;
+  }
+  return config.inspect(ADVANCED_SETTING_KEY) !== undefined;
+}
+
+function addGuidedConfigurationPlan(profile: EndpointProfile): Plan {
+  const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
+  const plan = createPlan(profile.id, ['github-copilot']);
+  return addStep(plan, {
+    action: 'show-guided-steps',
+    description: 'Configure GitHub Copilot Custom Endpoint',
+    assistantKey: 'github-copilot',
+    data: {
+      message: 'This Copilot installation does not expose the legacy proxy setting.',
+      steps: [
+        'Open Chat: Manage Language Models from the Command Palette.',
+        'Add or select a Custom Endpoint and choose the API type supported by the AIdome profile.',
+        `Set the endpoint URL to ${baseUrl}.`,
+        'Choose a model returned by the gateway and enter the gateway token in Copilot’s secure UI.',
+        'Reload VS Code, then send a test chat message.'
+      ],
+      baseUrl,
+      tier: 'B',
+      limitation: 'The current Copilot extension manages custom endpoints through its language-model UI, not the removed github.copilot.advanced setting.',
+      configurationType: 'copilot-custom-endpoint-ui',
+      optional: false
+    },
+    reversible: false
+  });
 }

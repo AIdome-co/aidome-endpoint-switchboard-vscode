@@ -21,6 +21,7 @@ export interface ClineConfigPaths {
   dataDir: string;
   globalStatePath: string;
   providerSettingsPath: string;
+  modelCatalogPath: string;
 }
 
 /**
@@ -39,7 +40,8 @@ export function getClineConfigPaths(): ClineConfigPaths {
   return {
     dataDir,
     globalStatePath: path.join(dataDir, 'globalState.json'),
-    providerSettingsPath
+    providerSettingsPath,
+    modelCatalogPath: path.join(dataDir, 'settings', 'models.json')
   };
 }
 

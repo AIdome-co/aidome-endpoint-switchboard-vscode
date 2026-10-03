@@ -56,6 +56,41 @@ describe('configuration drivers', () => {
     expect(output).toContain('Keep this user note');
   });
 
+  it('merges discovered model catalog entries without dropping existing models', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: JSON.stringify({
+        providers: {
+          'openai-compatible': {
+            models: {
+              'existing-model': { id: 'existing-model', contextWindow: 64_000 }
+            }
+          }
+        }
+      }),
+      format: 'json',
+      options: {
+        driver: 'json-object',
+        format: 'json',
+        patches: [{
+          path: ['providers', 'openai-compatible', 'models'],
+          value: {
+            'gateway-model': { id: 'gateway-model', contextWindow: 128_000 }
+          },
+          mergeObject: true
+        }]
+      }
+    });
+
+    const parsed = JSON.parse(output) as {
+      providers: { 'openai-compatible': { models: Record<string, unknown> } }
+    };
+    expect(parsed.providers['openai-compatible'].models).toMatchObject({
+      'existing-model': { id: 'existing-model' },
+      'gateway-model': { id: 'gateway-model' }
+    });
+  });
+
   it('patches a JSONC provider map without serializing a profile secret', () => {
     const output = renderConfigFileContent({
       baseUrl: BASE_URL,
@@ -123,6 +158,22 @@ describe('configuration drivers', () => {
       wire_api: 'responses',
       env_key: 'OPENAI_API_KEY'
     });
+  });
+
+  it('updates the selected Codex model when discovery supplies one', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: 'model = "stale-model"\n',
+      format: 'toml',
+      options: {
+        driver: 'toml-table',
+        providerName: 'aidome',
+        wireApi: 'responses',
+        model: 'gateway-model'
+      }
+    });
+
+    expect((parseToml(output) as Record<string, unknown>).model).toBe('gateway-model');
   });
 
   it('rejects unsafe driver paths', () => {

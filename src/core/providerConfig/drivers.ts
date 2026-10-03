@@ -20,6 +20,8 @@ export interface JsonFieldPatch {
   removeWhenMissing?: boolean;
   /** Set only when the target field is absent, preserving an existing value. */
   setWhenMissing?: boolean;
+  /** Merge object values into an existing object instead of replacing it. */
+  mergeObject?: boolean;
 }
 
 /** Data accepted by the JSON object driver. */
@@ -55,6 +57,7 @@ export interface TomlTableDriverData {
   providerName: string;
   wireApi: 'responses';
   envKey?: string;
+  model?: string;
 }
 
 /** Union of file-driver plan data. */
@@ -117,7 +120,7 @@ function renderJsonObject(request: ConfigDriverRequest, data: JsonObjectDriverDa
     if (value === undefined && patch.removeWhenMissing) {
       deleteNestedValue(output, patch.path);
     } else if (value !== undefined) {
-      setNestedValue(output, patch.path, value);
+      setNestedValue(output, patch.path, mergePatchValue(output, patch.path, value, patch.mergeObject));
     }
   }
 
@@ -141,7 +144,11 @@ function renderJsoncObject(request: ConfigDriverRequest, data: JsonObjectDriverD
     if (value === undefined && !patch.removeWhenMissing) {
       continue;
     }
-    output = applyJsoncEdit(output, patch.path, value);
+    output = applyJsoncEdit(
+      output,
+      patch.path,
+      mergePatchValue(parseJsonc<unknown>(output), patch.path, value, patch.mergeObject)
+    );
   }
 
   for (const path of data.removePaths ?? []) {
@@ -340,6 +347,9 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
     wire_api: data.wireApi,
     ...(data.envKey ? { env_key: data.envKey } : {})
   };
+  if (typeof data.model === 'string' && data.model.trim().length > 0) {
+    output.model = data.model.trim();
+  }
   output.model_providers = modelProviders;
   output.model_provider = providerName;
 
@@ -363,6 +373,31 @@ function resolvePatchValue(request: ConfigDriverRequest, patch: JsonFieldPatch):
       : patch.source === 'timestamp'
         ? new Date().toISOString()
         : patch.value;
+}
+
+function mergePatchValue(
+  root: unknown,
+  path: string[],
+  value: unknown,
+  mergeObject: boolean | undefined
+): unknown {
+  if (!mergeObject || !isRecord(value)) {
+    return value;
+  }
+
+  const existing = getValueAtPath(root, path);
+  return isRecord(existing) ? { ...existing, ...value } : value;
+}
+
+function getValueAtPath(root: unknown, path: string[]): unknown {
+  let current = root;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
 }
 
 function applyJsoncEdit(content: string, path: (string | number)[], value: unknown): string {

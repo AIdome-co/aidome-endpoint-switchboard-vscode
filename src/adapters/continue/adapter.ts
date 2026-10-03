@@ -9,6 +9,7 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getContinueConfigPath } from './paths';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { parseContinueModels } from './continueConfigPatcher';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 /**
  * Continue.dev assistant adapter.
@@ -18,6 +19,7 @@ export class ContinueAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getContinueConfigPath();
+    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
     let plan = createPlan(profile.id, ['continue']);
 
     if (await fileExists(configPath)) {
@@ -33,16 +35,16 @@ export class ContinueAdapter extends BaseExtensionAdapter {
 
     plan = addStep(plan, {
       action: 'edit-config-file',
-      description: `Set Continue.dev apiBase to ${profile.baseUrl}`,
+      description: `Set Continue.dev apiBase to ${baseUrl}`,
       assistantKey: 'continue',
       targetPath: configPath,
-      newValue: profile.baseUrl,
+      newValue: baseUrl,
       data: {
         driver: 'yaml-model-array',
         format: configPath.endsWith('.yaml') ? 'yaml' : 'jsonc',
         configPath,
         profileId: profile.id,
-        baseUrl: profile.baseUrl
+        baseUrl
       },
       reversible: true
     });
@@ -51,7 +53,7 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       action: 'verify-endpoint',
       description: 'Verify Continue.dev configuration',
       assistantKey: 'continue',
-      data: { baseUrl: profile.baseUrl },
+      data: { baseUrl },
       reversible: false
     });
 

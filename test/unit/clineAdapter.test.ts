@@ -11,6 +11,7 @@ const {
   mockGetExtension,
   mockFileExists,
   mockReadFileSafe,
+  mockHttpRequest,
   mockLoggerError,
   mockLoggerInfo,
   mockLoggerWarning
@@ -18,6 +19,7 @@ const {
   mockGetExtension: vi.fn(),
   mockFileExists: vi.fn(),
   mockReadFileSafe: vi.fn(),
+  mockHttpRequest: vi.fn(),
   mockLoggerError: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn()
@@ -42,6 +44,10 @@ vi.mock('../../src/util/log', () => ({
 vi.mock('../../src/util/fsSafe', () => ({
   fileExists: mockFileExists,
   readFileSafe: mockReadFileSafe
+}));
+
+vi.mock('../../src/util/http', () => ({
+  httpRequest: mockHttpRequest
 }));
 
 describe('ClineAdapter', () => {
@@ -102,6 +108,7 @@ describe('ClineAdapter', () => {
         actModeOpenAiModelId: 'keep-this-model'
       });
     });
+    mockHttpRequest.mockReset();
     mockLoggerError.mockReset();
     mockLoggerInfo.mockReset();
     mockLoggerWarning.mockReset();
@@ -150,11 +157,12 @@ describe('ClineAdapter', () => {
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
       expect(plan.assistantKeys).toEqual(['cline']);
-      expect(editSteps).toHaveLength(2);
+      expect(editSteps).toHaveLength(3);
       const paths = getClineConfigPaths();
       expect(editSteps.map((step) => step.targetPath)).toEqual([
         paths.providerSettingsPath,
-        paths.globalStatePath
+        paths.globalStatePath,
+        paths.modelCatalogPath
       ]);
       expect(plan.steps.some((step) => step.action === 'set-vscode-setting')).toBe(false);
       expect(plan.steps.some((step) => step.action === 'verify-endpoint')).toBe(true);
@@ -188,7 +196,7 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.steps.filter((step) => step.action === 'backup-file')).toHaveLength(0);
-      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(2);
+      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(3);
       expect(plan.steps[0].newValue).toBe(mockProfile.baseUrl);
       expect(plan.steps[0].data.driver).toBe('json-object');
       expect(plan.steps[0].data.patches).toEqual(expect.arrayContaining([
@@ -202,7 +210,7 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      expect(editSteps).toHaveLength(2);
+      expect(editSteps).toHaveLength(3);
       expect(editSteps.every((step) => step.newValue === mockProfile.baseUrl)).toBe(true);
       expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
@@ -224,6 +232,40 @@ describe('ClineAdapter', () => {
 
       expect(endpointStep?.description).toContain('https://gateway.example.com/v1');
       expect(endpointStep?.description).not.toContain('do-not-display');
+    });
+
+    it('discovers the gateway model and propagates it without embedding the profile secret', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: { data: [{ id: 'anthropic/claude-haiku-4-5-20251001' }] }
+      });
+      const getSecret = vi.fn().mockResolvedValue('profile-secret');
+      const discoveredAdapter = new ClineAdapter({ profileSecrets: { getSecret } });
+      const profile = { ...mockProfile, authRef: 'profile-1', baseUrl: 'https://gateway.example.com' };
+
+      const plan = await discoveredAdapter.buildPlan(profile);
+      const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
+      const providersStep = editSteps.find((step) => step.targetPath?.endsWith('providers.json'))!;
+      const globalStep = editSteps.find((step) => step.targetPath?.endsWith('globalState.json'))!;
+      const modelsStep = editSteps.find((step) => step.targetPath?.endsWith('models.json'))!;
+
+      expect(mockHttpRequest).toHaveBeenCalledWith(
+        'https://gateway.example.com/v1/models',
+        expect.objectContaining({ headers: { Authorization: 'Bearer profile-secret' } })
+      );
+      expect(providersStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'model'], value: 'anthropic/claude-haiku-4-5-20251001' })
+      ]));
+      expect(globalStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['actModeOpenAiModelId'], value: 'anthropic/claude-haiku-4-5-20251001' })
+      ]));
+      expect(modelsStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'provider', 'baseUrl'], source: 'baseUrl' }),
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'models'], mergeObject: true })
+      ]));
+      expect(JSON.stringify(plan)).not.toContain('profile-secret');
     });
   });
 

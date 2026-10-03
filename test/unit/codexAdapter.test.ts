@@ -8,6 +8,8 @@ import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
 
+const mockHttpRequest = vi.hoisted(() => vi.fn());
+
 vi.mock('vscode', () => ({
   workspace: {
     getConfiguration: vi.fn(() => ({
@@ -22,6 +24,9 @@ vi.mock('vscode', () => ({
 // Mock the modules
 vi.mock('../../src/core/detection/detectCLIs');
 vi.mock('../../src/util/fsSafe');
+vi.mock('../../src/util/http', () => ({
+  httpRequest: mockHttpRequest
+}));
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: () => ({
@@ -137,6 +142,29 @@ describe('CodexAdapter', () => {
       const verifyStep = plan.steps.find(s => s.action === 'verify-endpoint');
       expect(verifyStep).toBeDefined();
       expect(verifyStep?.assistantKey).toBe('openai-codex');
+    });
+
+    it('should use a discovered gateway model while keeping the token out of the plan', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: { data: [{ id: 'anthropic/claude-haiku-4-5-20251001' }] }
+      });
+      const getSecret = vi.fn().mockResolvedValue('profile-secret');
+      const discoveredAdapter = new CodexAdapter({ profileSecrets: { getSecret } });
+      const profile = { ...mockProfile, authRef: 'test-profile', baseUrl: 'https://aidome.example.com' };
+
+      const plan = await discoveredAdapter.buildPlan(profile);
+      const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+
+      expect(editStep?.data.baseUrl).toBe('https://aidome.example.com/v1');
+      expect(editStep?.data.model).toBe('anthropic/claude-haiku-4-5-20251001');
+      expect(JSON.stringify(plan)).not.toContain('profile-secret');
+      expect(mockHttpRequest).toHaveBeenCalledWith(
+        'https://aidome.example.com/v1/models',
+        expect.objectContaining({ headers: { Authorization: 'Bearer profile-secret' } })
+      );
     });
   });
 

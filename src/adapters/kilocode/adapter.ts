@@ -16,6 +16,7 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 /**
  * Kilo Code assistant adapter.
@@ -25,11 +26,12 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getKiloConfigPath();
+    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
     let plan = createPlan(profile.id, ['kilo-code']);
 
     // Try to auto-discover models from the gateway's /v1/models endpoint
     // Many OpenAI-compatible gateways serve model lists without auth
-    const modelSlugs = await discoverModels(profile.baseUrl);
+    const modelSlugs = await discoverModels(baseUrl);
     const models = modelSlugs.length > 0
       ? buildModelEntries(modelSlugs)
       : undefined;
@@ -51,7 +53,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       description: `Add AIdome Gateway provider to Kilo Code`,
       assistantKey: 'kilo-code',
       targetPath: configPath,
-      newValue: profile.baseUrl,
+      newValue: baseUrl,
       data: {
         driver: 'jsonc-provider-map',
         mapPath: ['provider'],
@@ -64,7 +66,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
         baseUrlPath: ['options', 'baseURL'],
         configPath: configPath,
         profileId: profile.id,
-        baseUrl: profile.baseUrl,
+        baseUrl,
         format: 'jsonc',
         models
       },
@@ -85,7 +87,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
             `Add model(s) under "Models" (e.g. "gpt-4" or any model your gateway serves)`,
             `Save the provider configuration`
           ],
-          baseUrl: profile.baseUrl
+          baseUrl
         },
         reversible: false
       });
@@ -95,7 +97,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       action: 'verify-endpoint',
       description: 'Verify Kilo Code configuration',
       assistantKey: 'kilo-code',
-      data: { baseUrl: profile.baseUrl },
+      data: { baseUrl },
       reversible: false
     });
 

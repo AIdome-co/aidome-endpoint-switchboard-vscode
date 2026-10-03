@@ -19,12 +19,20 @@ import { getCodexConfigPath } from './codexConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { parse as parseToml } from 'smol-toml';
 import { validateUrl } from '../../core/profiles/profileValidator';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
+import type { AdapterDependencies } from '../adapterDependencies';
 
 /**
  * OpenAI Codex CLI adapter.
  */
 export class CodexAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = '';
+
+  constructor(private readonly dependencies: AdapterDependencies = {}) {
+    super();
+  }
 
   async detect(): Promise<boolean> {
     try {
@@ -37,6 +45,9 @@ export class CodexAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getCodexConfigPath();
+    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
+    const models = await this.discoverModels(profile);
+    const model = models[0]?.id;
     let plan = createPlan(profile.id, ['openai-codex']);
 
     const configExists = await fileExists(configPath);
@@ -53,19 +64,20 @@ export class CodexAdapter extends BaseExtensionAdapter {
 
     plan = addStep(plan, {
       action: 'edit-config-file',
-      description: `Set Codex provider to ${profile.baseUrl}`,
+      description: `Set Codex provider to ${baseUrl}`,
       assistantKey: 'openai-codex',
       targetPath: configPath,
-      newValue: profile.baseUrl,
+      newValue: baseUrl,
       data: { 
         configPath, 
         profileId: profile.id,
-        baseUrl: profile.baseUrl,
+        baseUrl,
         driver: 'toml-table',
         format: 'toml',
         providerName: 'aidome',
         wireApi: 'responses',
-        envKey: 'OPENAI_API_KEY'
+        envKey: 'OPENAI_API_KEY',
+        ...(model ? { model } : {})
       },
       reversible: true
     });
@@ -92,11 +104,23 @@ export class CodexAdapter extends BaseExtensionAdapter {
       action: 'verify-endpoint',
       description: 'Verify Codex configuration',
       assistantKey: 'openai-codex',
-      data: { baseUrl: profile.baseUrl },
+      data: { baseUrl },
       reversible: false
     });
 
     return plan;
+  }
+
+  private async discoverModels(profile: EndpointProfile): Promise<DiscoveredModel[]> {
+    const cached = getCachedOpenAiModels(profile);
+    if (cached.length > 0) {
+      return cached;
+    }
+
+    const token = profile.authRef && this.dependencies.profileSecrets
+      ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+      : undefined;
+    return discoverOpenAiModels(profile.baseUrl, token);
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {

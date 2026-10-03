@@ -66,7 +66,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       'medium',
       ['src/extension/completions-core/vscode-node/lib/src/config.ts', 'src/platform/configuration/common/configurationService.ts']
     ),
-    limitations: ['Undocumented internal setting may be removed or renamed.']
+    limitations: ['Undocumented internal setting may be removed or renamed.', 'Current Copilot releases may expose Custom Endpoint only through the language-model UI; the adapter then provides guided setup.']
   },
   {
     providerKey: 'cline',
@@ -79,10 +79,12 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     ],
     targets: [
       { id: 'cline-provider-settings', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/settings/providers.json', priority: 1 },
-      { id: 'cline-global-state', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/globalState.json', priority: 2 }
+      { id: 'cline-global-state', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/globalState.json', priority: 2 },
+      { id: 'cline-model-catalog', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/settings/models.json', priority: 3 }
     ],
     fields: [
       { field: 'baseUrl', path: 'providers.openai-compatible.settings.baseUrl', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
+      { field: 'model', path: 'providers.openai-compatible.settings.model', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
       { field: 'provider', path: 'globalState.planModeApiProvider', valueKind: 'string', requiredFor: ['openai.chat_completions'] },
       { field: 'provider', path: 'globalState.actModeApiProvider', valueKind: 'string', requiredFor: ['openai.chat_completions'] }
     ],
@@ -204,7 +206,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     providerKey: 'openai-codex',
     displayName: 'OpenAI Codex',
     dialects: [{ dialect: 'openai.responses', protocol: 'responses', preferred: true }],
-    targets: [{ id: 'codex-config', format: 'toml', driver: 'toml-table', path: '~/.codex/config.toml', priority: 1 }],
+    targets: [{ id: 'codex-config', format: 'toml', driver: 'toml-table', path: '~/.codex/config.toml or ~/snap/codex/<revision>/config.toml', priority: 1 }],
     fields: [
       { field: 'provider', path: 'model_provider', valueKind: 'string', requiredFor: ['openai.responses'] },
       { field: 'baseUrl', path: 'model_providers.<name>.base_url', valueKind: 'string', requiredFor: ['openai.responses'], preserveUnknown: true },

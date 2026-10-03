@@ -14,6 +14,7 @@ const mockExtension = {
 const mockConfig = {
   get: vi.fn(),
   update: vi.fn(),
+  inspect: undefined as any,
 };
 
 vi.mock('vscode', () => ({
@@ -51,6 +52,7 @@ describe('GitHubCopilotAdapter', () => {
       updatedAt: new Date().toISOString()
     } as EndpointProfile;
     vi.clearAllMocks();
+    mockConfig.inspect = undefined;
     // Default: no existing settings
     mockConfig.get.mockReturnValue(undefined);
   });
@@ -164,6 +166,19 @@ describe('GitHubCopilotAdapter', () => {
 
       const proxyStep = plan.steps.find((s) => s.data['method'] === 'proxy-override');
       expect(proxyStep!.oldValue).toEqual(existingAdvanced);
+    });
+
+    it('should provide Custom Endpoint guidance when the legacy setting is unregistered', async () => {
+      mockConfig.inspect = vi.fn().mockReturnValue(undefined);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].action).toBe('show-guided-steps');
+      expect(plan.steps[0].data.configurationType).toBe('copilot-custom-endpoint-ui');
+      expect(plan.steps[0].data.steps).toEqual(expect.arrayContaining([
+        expect.stringContaining('Custom Endpoint')
+      ]));
     });
   });
 

@@ -6,7 +6,7 @@
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot \u2014 routable via proxy override (debug.overrideProxyUrl in github.copilot.advanced)",
+    "github.copilot": "GitHub Copilot \u2014 uses the legacy proxy override when registered; current releases may require Custom Endpoint UI guidance",
     "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server",
     "bedrock.invoke_model": "Amazon Bedrock InvokeModel pass-through API",
     "vertex.raw_predict": "Google Vertex AI rawPredict pass-through API"
@@ -39,7 +39,7 @@
         ],
         "notes": [
           "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic \u2014 inline completions and chat \u2014 through the gateway.",
-          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API but is stable across current releases.",
+          "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API and may be absent from current releases.",
           "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
           "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting that may break in future releases; users should be aware it may change or be removed in future Copilot updates."
         ]

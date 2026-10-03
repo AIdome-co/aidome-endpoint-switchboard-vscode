@@ -12,6 +12,13 @@ vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
   expandTilde: (path: string) => path.replace('~', '/home/user')
 }));
+vi.mock('os', () => ({
+  homedir: () => '/home/user',
+}));
+vi.mock('fs', () => ({
+  existsSync: () => false,
+  readdirSync: () => [],
+}));
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: vi.fn(() => ({
@@ -41,6 +48,20 @@ describe('Codex Config Patcher', () => {
     it('should return the correct config path', () => {
       const path = getCodexConfigPath();
       expect(path).toContain('.codex/config.toml');
+    });
+
+    it('honors an explicit configuration path override', () => {
+      const original = process.env.CODEX_CONFIG_PATH;
+      process.env.CODEX_CONFIG_PATH = '~/snap-config/config.toml';
+      try {
+        expect(getCodexConfigPath()).toBe('/home/user/snap-config/config.toml');
+      } finally {
+        if (original === undefined) {
+          delete process.env.CODEX_CONFIG_PATH;
+        } else {
+          process.env.CODEX_CONFIG_PATH = original;
+        }
+      }
     });
   });
 

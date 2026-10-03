@@ -101,7 +101,7 @@ export class Switchboard {
 
     for (const assistantKey of assistantKeys) {
       // Get adapter for this assistant
-      const adapter = await getAdapter(assistantKey);
+      const adapter = await getAdapter(assistantKey, { profileSecrets: this.profileSecrets });
       
       if (!adapter) {
         this.logger.warning(`No adapter found for assistant: ${assistantKey}`);
@@ -205,6 +205,20 @@ export class Switchboard {
         const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
         const result = await this.verifier.verifyEndpoint(profile, false, authToken);
         results[profile.id] = result;
+
+        const modelCheck = result.checks.find(check => check.name === 'model-list');
+        const modelIds = Array.isArray(modelCheck?.details?.modelIds)
+          ? modelCheck.details.modelIds.filter((model): model is string => typeof model === 'string')
+          : [];
+        if (modelIds.length > 0) {
+          profile.capabilitiesCache = {
+            version: profile.capabilitiesCache?.version ?? 'unknown',
+            supportedDialects: profile.capabilitiesCache?.supportedDialects ?? [profile.dialect],
+            supportedModels: modelIds,
+            features: profile.capabilitiesCache?.features ?? [],
+            endpoints: profile.capabilitiesCache?.endpoints ?? {}
+          };
+        }
         
         // Update last verified timestamp
         if (result.status === 'success') {
