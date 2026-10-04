@@ -12,7 +12,8 @@ import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
-import { validateConfigFileStepData, validateSetEnvVarStepData } from './planStepData';
+import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData } from './planStepData';
+import { patchCodexEnvFile } from '../../adapters/codex/codexEnvFile';
 
 /**
  * Result of applying a plan.
@@ -163,6 +164,11 @@ export class PlanApplier {
       if (!validation.ok) {
         throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
       }
+    } else if (step.action === 'write-env-file') {
+      const validation = validateWriteEnvFileStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
     }
 
     const appliedStep: AppliedStep = {
@@ -186,6 +192,10 @@ export class PlanApplier {
       
       case 'set-env-var':
         await this.applyEnvVar(step, appliedStep);
+        break;
+      
+      case 'write-env-file':
+        await this.applyWriteEnvFile(step, appliedStep);
         break;
       
       case 'show-guided-steps':
@@ -343,6 +353,52 @@ export class PlanApplier {
     this.logger.info(
       `[Applier] Deferred endpoint verification for "${step.assistantKey}" to the verifier command path`
     );
+  }
+
+  /**
+   * Persists provider credential environment variables into the target's
+   * dotenv file (e.g. Codex ~/.codex/.env, loaded by upstream `load_dotenv`).
+   *
+   * The secret is resolved from SecretStorage ONLY here, immediately before
+   * the write, and never appears in the plan, logs, or change history.
+   * Backup-before-modify + atomic write + unrelated variables preserved.
+   */
+  private async applyWriteEnvFile(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
+    const targetPath = step.targetPath;
+    const envVarName = typeof step.data.envVarName === 'string' ? step.data.envVarName : undefined;
+    if (!targetPath || !envVarName) {
+      throw new Error('targetPath and data.envVarName are required for write-env-file');
+    }
+
+    let fileExists = true;
+    try {
+      await fs.access(targetPath);
+    } catch (error) {
+      if (!isFileNotFoundError(error)) {
+        throw error;
+      }
+      fileExists = false;
+      appliedStep.createdFile = true;
+    }
+
+    const authRef = typeof step.data.authRef === 'string' && step.data.authRef.trim().length > 0
+      ? step.data.authRef.trim()
+      : undefined;
+    const secret = authRef ? await this.profileSecrets.getSecret(authRef) : undefined;
+    if (secret === undefined || secret.trim().length === 0) {
+      // No saved credential: endpoint config stays applied, auth remains
+      // guided (the plan carries an optional guided step for exactly this).
+      // Failing here would roll back the working endpoint write.
+      this.logger.warning(
+        `No saved profile credential for "${typeof step.data.profileName === 'string' ? step.data.profileName : authRef ?? 'the profile'}" — ${envVarName} was not written to ${targetPath}. ` +
+        'Set the credential in the profile and reapply, or export it in the environment that launches the assistant.'
+      );
+      return;
+    }
+
+    const backupPath = await patchCodexEnvFile(targetPath, { [envVarName]: secret });
+    appliedStep.backupPath = backupPath;
+    this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }
 
   /**
@@ -536,6 +592,27 @@ export class PlanApplier {
         } else if (step.oldValue && typeof step.oldValue === 'string') {
           await safeWriteFile(step.target, step.oldValue);
           this.logger.info(`Restored file from oldValue`);
+        }
+        break;
+      
+      case 'write-env-file':
+        if (step.backupPath) {
+          try {
+            const backupContent = await fs.readFile(step.backupPath, 'utf-8');
+            await safeWriteFile(step.target, backupContent);
+            this.logger.info(`Restored env file from backup: ${step.backupPath}`);
+          } catch (error) {
+            this.logger.warning(`Could not restore env file from backup: ${error}`);
+          }
+        } else if (step.createdFile && step.target) {
+          try {
+            await fs.unlink(step.target);
+            this.logger.info(`Removed newly created env file ${step.target}`);
+          } catch (error) {
+            if (!isFileNotFoundError(error)) {
+              throw error;
+            }
+          }
         }
         break;
       

@@ -139,6 +139,20 @@ export function validateConfigFileStepData(data: unknown): PlanStepDataValidatio
   }
 }
 
+/** Validates a write-env-file step's data at apply entry. */
+export function validateWriteEnvFileStepData(data: unknown): PlanStepDataValidation {
+  if (!isRecord(data)) {
+    return { ok: false, error: 'write-env-file step requires data' };
+  }
+  if (typeof data.envVarName !== 'string' || data.envVarName.trim().length === 0) {
+    return { ok: false, error: 'write-env-file requires a non-empty environment variable name' };
+  }
+  if (typeof data.targetPath !== 'string' || data.targetPath.trim().length === 0) {
+    return { ok: false, error: 'write-env-file requires a target .env file path' };
+  }
+  return { ok: true };
+}
+
 /** Validates a set-env-var step's data at apply entry. */
 export function validateSetEnvVarStepData(data: unknown): PlanStepDataValidation {
   if (!isRecord(data)) {

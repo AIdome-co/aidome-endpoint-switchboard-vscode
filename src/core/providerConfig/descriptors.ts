@@ -275,7 +275,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     driver: 'toml-table',
     support: 'automatic',
     tier: 'A',
-    secretPolicy: 'secret-storage-only',
+    secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-process',
     discovery: { cliCommands: ['codex'], notes: ['User-defined providers are under model_providers, not providers.'] },
     verification: { requiredFields: ['model_provider', 'model_providers.<name>.base_url', 'model_providers.<name>.wire_api'], exactUrlMatch: true, selectedProviderRequired: true, protocolRequired: true, notes: ['Reject legacy providers table and chat wire API.'] },

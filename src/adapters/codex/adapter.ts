@@ -20,6 +20,7 @@ import { readFileSafe } from '../../util/fsSafe';
 import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
+import * as path from 'path';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
 import type { AdapterDependencies } from '../adapterDependencies';
@@ -63,16 +64,35 @@ export class CodexAdapter extends BaseExtensionAdapter {
     });
     this.expectedBaseUrl = profile.baseUrl;
 
+    // Credential persistence: Codex loads <codex_home>/.env at startup
+    // (upstream load_dotenv) — the official on-disk location for the
+    // provider API key (config.toml keeps only the symbolic env_key).
+    // Secret resolved from SecretStorage at APPLY time, never serialized
+    // into the plan.
+    plan = addStep(plan, {
+      action: 'write-env-file',
+      description: 'Persist gateway credential to the Codex .env file',
+      assistantKey: 'openai-codex',
+      targetPath: path.join(path.dirname(configPath), '.env'),
+      data: {
+        secretPolicy: 'target-persisted-at-apply',
+        authRef: profile.name,
+        profileName: profile.name,
+        envVarName: 'OPENAI_API_KEY'
+      },
+      reversible: true
+    });
+
     plan = addStep(plan, {
       action: 'show-guided-steps',
       description: 'Provide Codex process authentication guidance',
       assistantKey: 'openai-codex',
       data: {
-        message: 'Codex reads the configured provider credentials from the process environment.',
+        message: 'Switchboard persists the gateway credential to ~/.codex/.env (loaded by Codex at startup). If apply reports a missing credential, set OPENAI_API_KEY in the environment that launches Codex.',
         steps: [
-          'Set OPENAI_API_KEY in the environment that launches Codex if the gateway requires authentication.',
-          'Restart Codex after changing the environment.',
-          'Switchboard keeps the profile credential in SecretStorage and never writes it to config.toml.'
+          'Switchboard writes OPENAI_API_KEY to ~/.codex/.env when the profile has a saved credential.',
+          'If no saved credential exists, set OPENAI_API_KEY in the environment that launches Codex.',
+          'Restart Codex after changing the environment.'
         ],
         envVarName: 'OPENAI_API_KEY',
         tier: 'A',
