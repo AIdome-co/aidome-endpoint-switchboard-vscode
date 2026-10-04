@@ -147,9 +147,6 @@ export function validateWriteEnvFileStepData(data: unknown): PlanStepDataValidat
   if (typeof data.envVarName !== 'string' || data.envVarName.trim().length === 0) {
     return { ok: false, error: 'write-env-file requires a non-empty environment variable name' };
   }
-  if (typeof data.targetPath !== 'string' || data.targetPath.trim().length === 0) {
-    return { ok: false, error: 'write-env-file requires a target .env file path' };
-  }
   return { ok: true };
 }
 
