@@ -232,7 +232,9 @@ export async function assignProfileAssistants(
   }
 
   await showError(
-    `Failed to update assistants for "${profile.name}".${combinedFailures.length > 0 ? ` Failures: ${combinedFailures.join(', ')}.` : ''}${skippedSuffix}${detachWarningSuffix}`
+    `Failed to update assistants for "${profile.name}".` +
+    `${combinedFailures.length > 0 ? ` Failures: ${combinedFailures.join(', ')}.` : ''}` +
+    `${incompleteSuffix}${skippedSuffix}${detachWarningSuffix}`
   );
 }
 

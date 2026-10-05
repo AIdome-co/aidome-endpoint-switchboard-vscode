@@ -49,6 +49,12 @@ interface AutomaticProfileApplyResult {
   appliedAssistantKeys: string[];
   skippedAssistantKeys: string[];
   failedAssistantKeys: string[];
+  /** Incomplete (not configured, NOT failed) automatic outcomes, by status. */
+  guidedAssistantKeys: string[];
+  unsupportedAssistantKeys: string[];
+  deferredAssistantKeys: string[];
+  /** All non-configured, non-failed keys (union of the three above). */
+  incompleteAssistantKeys: string[];
 }
 
 const MANAGE_PROFILE_CREATION_TITLES = buildCreateProfileStepTitles(
@@ -576,12 +582,23 @@ async function reapplyEditedProfileMappings(
           progress,
           `Applying ${profile.name} to`
         );
-        const { appliedAssistantKeys, skippedAssistantKeys, failedAssistantKeys } = result;
+        const { appliedAssistantKeys, skippedAssistantKeys, failedAssistantKeys, guidedAssistantKeys, unsupportedAssistantKeys, deferredAssistantKeys, incompleteAssistantKeys } = result;
         const skippedSuffix = skippedAssistantKeys.length > 0
           ? ` Manual-only assistants not updated automatically: ${skippedAssistantKeys.join(', ')}.`
           : '';
+        const incompleteParts = [
+          guidedAssistantKeys.length > 0
+            ? `Manual follow-up required: ${guidedAssistantKeys.join(', ')}` : undefined,
+          unsupportedAssistantKeys.length > 0
+            ? `Unsupported for endpoint switching: ${unsupportedAssistantKeys.join(', ')}` : undefined,
+          deferredAssistantKeys.length > 0
+            ? `Automatic configuration deferred: ${deferredAssistantKeys.join(', ')}` : undefined
+        ].filter(Boolean) as string[];
+        const incompleteSuffix = incompleteParts.length > 0
+          ? ` Incomplete automatic configuration — ${incompleteParts.join('.')}.`
+          : '';
 
-        if (appliedAssistantKeys.length === 0 && failedAssistantKeys.length === 0) {
+        if (appliedAssistantKeys.length === 0 && failedAssistantKeys.length === 0 && incompleteAssistantKeys.length === 0) {
           logger.info(
             `Profile ${profile.name} was updated but no mapped assistants had automatic reapply steps: ${skippedAssistantKeys.join(', ') || 'none'}`
           );
@@ -592,13 +609,15 @@ async function reapplyEditedProfileMappings(
         }
 
         if (failedAssistantKeys.length === 0) {
-          logger.info(`Reapplied profile ${profile.name} to mapped assistants: ${appliedAssistantKeys.join(', ')}`);
+          logger.info(`Reapplied profile ${profile.name} to mapped assistants: applied=[${appliedAssistantKeys.join(', ')}] incomplete=[${incompleteAssistantKeys.join(', ')}]`);
           return {
-            kind: skippedAssistantKeys.length > 0 ? 'warning' : 'success',
-            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}".${skippedSuffix}`
+            kind: (skippedAssistantKeys.length > 0 || incompleteAssistantKeys.length > 0) ? 'warning' : 'success',
+            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}".${skippedSuffix}${incompleteSuffix}`
           };
         }
 
+        // Hard failures keep the existing error path; incomplete statuses
+        // are still reported alongside them (never called failed).
         if (appliedAssistantKeys.length > 0) {
           logger.warning(
             `Reapplied profile ${profile.name} with partial assistant success`,
@@ -606,26 +625,27 @@ async function reapplyEditedProfileMappings(
             {
               appliedAssistantKeys,
               failedAssistantKeys,
-              skippedAssistantKeys
+              skippedAssistantKeys,
+              incompleteAssistantKeys
             }
           );
           return {
             kind: 'warning',
-            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}", but ${failedAssistantKeys.length} failed.${skippedSuffix}`
+            message: `Reapplied ${appliedAssistantKeys.length} assistant(s) using "${profile.name}", but ${failedAssistantKeys.length} failed.${incompleteSuffix}${skippedSuffix}`
           };
         }
 
         logger.error(
           `Failed to reapply mapped assistants for profile ${profile.name}`,
           undefined,
-          { failedAssistantKeys, skippedAssistantKeys }
+          { failedAssistantKeys, skippedAssistantKeys, incompleteAssistantKeys }
         );
         const failureSuffix = failedAssistantKeys.length > 0
           ? ` Failed assistants: ${failedAssistantKeys.join(', ')}.`
           : '';
         return {
           kind: 'error',
-          message: `Failed to reapply automatic configuration for "${profile.name}".${failureSuffix}${skippedSuffix}`
+          message: `Failed to reapply automatic configuration for "${profile.name}".${failureSuffix}${incompleteSuffix}${skippedSuffix}`
         };
       } catch (error) {
         logger.error(
@@ -784,6 +804,9 @@ async function applyAutomaticProfileToAssistants(
   const appliedAssistantKeys: string[] = [];
   const skippedAssistantKeys: string[] = [];
   const failedAssistantKeys: string[] = [];
+  const guidedAssistantKeys: string[] = [];
+  const unsupportedAssistantKeys: string[] = [];
+  const deferredAssistantKeys: string[] = [];
 
   for (const [index, assistantKey] of assistantKeys.entries()) {
     progress?.report({
@@ -799,23 +822,53 @@ async function applyAutomaticProfileToAssistants(
     }
 
     const applyResult = await switchboard.applyPlan(reapplyPlan);
-    const assistantSucceeded = applyResult.assistantResults.get(assistantKey)?.success === true;
-
-    if (assistantSucceeded) {
+    // P1: status is the source of truth; `success` is only a compatibility
+    // field. guided-required / unsupported / deferred are INCOMPLETE, not
+    // hard failures — they must not trigger failure cleanup/abort logic.
+    const outcome = applyResult.assistantResults.get(assistantKey);
+    if (outcome?.status === 'configured') {
       appliedAssistantKeys.push(assistantKey);
       continue;
     }
 
-    failedAssistantKeys.push(assistantKey);
-    if (onFailureCleanup) {
-      await onFailureCleanup(assistantKey);
+    if (outcome === undefined) {
+      // Fail closed: an absent result for an attempted automatic apply is a
+      // genuine failure with an actionable reason.
+      failedAssistantKeys.push(assistantKey);
+      if (onFailureCleanup) {
+        await onFailureCleanup(assistantKey);
+      }
+      continue;
+    }
+
+    switch (outcome.status) {
+      case 'guided-required':
+        guidedAssistantKeys.push(assistantKey);
+        break;
+      case 'unsupported':
+        unsupportedAssistantKeys.push(assistantKey);
+        break;
+      case 'deferred':
+        deferredAssistantKeys.push(assistantKey);
+        break;
+      case 'failed':
+      case undefined:
+        failedAssistantKeys.push(assistantKey);
+        if (onFailureCleanup) {
+          await onFailureCleanup(assistantKey);
+        }
+        break;
     }
   }
 
   return {
     appliedAssistantKeys,
     skippedAssistantKeys,
-    failedAssistantKeys
+    failedAssistantKeys,
+    guidedAssistantKeys,
+    unsupportedAssistantKeys,
+    deferredAssistantKeys,
+    incompleteAssistantKeys: [...guidedAssistantKeys, ...unsupportedAssistantKeys, ...deferredAssistantKeys]
   };
 }
 
@@ -921,19 +974,41 @@ async function reassignMappedAssistantsToProfile(
         const skippedSuffix = targetResult.skippedAssistantKeys.length > 0
           ? ` Manual-only assistants still need manual switching: ${targetResult.skippedAssistantKeys.join(', ')}.`
           : '';
-        const switchedCount = targetResult.appliedAssistantKeys.length + targetResult.skippedAssistantKeys.length;
+        // Incomplete (guided/unsupported/deferred) automatic applies are
+        // intended assignments — the mapping moves to the target, with a
+        // truthful warning that the automatic configuration is incomplete.
+        // This prevents a source-mapping/target-configuration mismatch: the
+        // provider configuration now points at the target, so the mapping
+        // must too.
+        const incompleteParts = [
+          targetResult.guidedAssistantKeys.length > 0
+            ? `Manual follow-up required: ${targetResult.guidedAssistantKeys.join(', ')}` : undefined,
+          targetResult.unsupportedAssistantKeys.length > 0
+            ? `Unsupported for endpoint switching: ${targetResult.unsupportedAssistantKeys.join(', ')}` : undefined,
+          targetResult.deferredAssistantKeys.length > 0
+            ? `Automatic configuration deferred: ${targetResult.deferredAssistantKeys.join(', ')}` : undefined
+        ].filter(Boolean) as string[];
+        const incompleteSuffix = incompleteParts.length > 0
+          ? ` Incomplete automatic configuration — ${incompleteParts.join('.')}.`
+          : '';
+        const switchedCount = targetResult.appliedAssistantKeys.length
+          + targetResult.skippedAssistantKeys.length
+          + targetResult.incompleteAssistantKeys.length;
 
         logger.info(
           `Reassigned ${switchedCount} assistant(s) from ${sourceProfile.name} to ${targetProfile.name}`,
           {
             appliedAssistantKeys: targetResult.appliedAssistantKeys,
-            skippedAssistantKeys: targetResult.skippedAssistantKeys
+            skippedAssistantKeys: targetResult.skippedAssistantKeys,
+            incompleteAssistantKeys: targetResult.incompleteAssistantKeys
           }
         );
 
         return {
-          kind: targetResult.skippedAssistantKeys.length > 0 ? 'warning' : 'success',
-          message: `${switchedCount} assistant mapping${switchedCount !== 1 ? 's' : ''} reassigned to "${targetProfile.name}".${skippedSuffix}`
+          kind: (targetResult.skippedAssistantKeys.length > 0 || targetResult.incompleteAssistantKeys.length > 0)
+            ? 'warning'
+            : 'success',
+          message: `${switchedCount} assistant mapping${switchedCount !== 1 ? 's' : ''} reassigned to "${targetProfile.name}".${skippedSuffix}${incompleteSuffix}`
         };
       } catch (error) {
         logger.error(

@@ -236,24 +236,28 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const incomplete = guidedKeys.length > 0 || unsupportedKeys.length > 0 || deferredKeys.length > 0 || failedKeys.length > 0;
 
     if (configuredKeys.length === 0) {
-      // Nothing configured: truthful incomplete messaging — never
-      // "Successfully configured 0" and never a false "all failed".
-      if (unsupportedKeys.length > 0) {
-        await showWarning(
-          `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` +
-          (guidedKeys.length > 0 ? `. Manual follow-up required for: ${guidedKeys.join(', ')}` : '') +
-          (deferredKeys.length > 0 ? `. Automatic configuration deferred for: ${deferredKeys.join(', ')}` : '')
-        );
-      } else if (guidedKeys.length > 0 || deferredKeys.length > 0) {
-        const parts = [
-          guidedKeys.length > 0 ? `Manual follow-up required for: ${guidedKeys.join(', ')}` : undefined,
-          deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined
-        ].filter(Boolean);
-        await showWarning(`No assistants were automatically configured. ${parts.join('. ')}`);
-      } else {
-        logger.error(`Setup failed in ${elapsed}ms: all ${failedKeys.length} assistant(s) failed`);
+      // P2: NOTHING may disappear — hard failures are reported alongside the
+      // incomplete categories in the same message.
+      const categoryParts = [
+        guidedKeys.length > 0 ? `Manual follow-up required for: ${guidedKeys.join(', ')}` : undefined,
+        unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
+        deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined,
+        failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
+      ].filter(Boolean) as string[];
+
+      if (failedKeys.length > 0) {
+        // A hard failure exists and nothing succeeded — severity: error, but
+        // every category is still listed.
+        logger.error(`Setup failed in ${elapsed}ms: failed=[${failedKeys.join(', ')}]`);
         await showError(
-          `Configuration failed for ${failedKeys.length > 0 ? failedKeys.join(', ') : 'all assistants'}. Check the output channel for details.`,
+          `No assistants were automatically configured. ${categoryParts.join('. ')}. Check the output channel for details.`,
+          'View Output'
+        );
+      } else if (categoryParts.length > 0) {
+        await showWarning(`No assistants were automatically configured. ${categoryParts.join('. ')}`);
+      } else {
+        await showError(
+          'Configuration failed and no assistant outcomes were reported. Check the output channel for details.',
           'View Output'
         );
       }
