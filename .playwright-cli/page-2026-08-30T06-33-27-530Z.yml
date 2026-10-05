@@ -1,0 +1,6 @@
+- generic [active]:
+  - generic:
+    - link "Skip to main content" [ref=f3e1] [cursor=pointer]:
+      - /url: "#main-content"
+    - main:
+      - progressbar "color-ring-loading" [ref=f3e4]

@@ -1,0 +1,307 @@
+- generic [ref=f5e2]:
+  - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=f5e4]:
+    - generic [ref=f5e24]:
+      - generic [ref=f5e28]:
+        - generic [ref=f5e30]:
+          - button "Navigate to AIdome" [ref=f5e32] [cursor=pointer]:
+            - generic [ref=f5e33]: AIdome
+            - generic [ref=f5e34]: ™
+          - generic [ref=f5e37]:
+            - button "Switch to Desktop Experience" [ref=f5e38] [cursor=pointer]
+            - button "Switch to dark mode" [ref=f5e39] [cursor=pointer]
+        - generic [ref=f5e40]:
+          - generic [ref=f5e41]:
+            - generic [ref=f5e42]: Common
+            - list [ref=f5e43]:
+              - listitem [ref=f5e44]:
+                - link "Dashboard" [ref=f5e45] [cursor=pointer]:
+                  - /url: /admin/dashboard
+              - listitem [ref=f5e52]:
+                - link "Secure Workspace" [ref=f5e53] [cursor=pointer]:
+                  - /url: /admin/chat
+              - listitem [ref=f5e57]:
+                - link "Projects" [ref=f5e58] [cursor=pointer]:
+                  - /url: /admin/projects
+              - listitem [ref=f5e62]:
+                - link "Knowledge Base" [ref=f5e63] [cursor=pointer]:
+                  - /url: /admin/knowledge
+              - listitem [ref=f5e67]:
+                - link "My Account" [ref=f5e68] [cursor=pointer]:
+                  - /url: /admin/me
+          - generic [ref=f5e73]:
+            - generic [ref=f5e74]: Security & Control
+            - list [ref=f5e75]:
+              - listitem [ref=f5e77]:
+                - button "LLM Configuration" [ref=f5e78] [cursor=pointer]
+              - listitem [ref=f5e86]:
+                - button "Governance" [ref=f5e87] [cursor=pointer]
+              - listitem [ref=f5e95]:
+                - button "GenAI Firewall" [ref=f5e96] [cursor=pointer]
+              - listitem [ref=f5e103]:
+                - button "AI Gateway" [ref=f5e104] [cursor=pointer]
+              - listitem [ref=f5e111]:
+                - link "MCP Gateway" [ref=f5e112] [cursor=pointer]:
+                  - /url: /admin/ai-gateway/mcp
+          - generic [ref=f5e118]:
+            - generic [ref=f5e119]: Discovery & Visibility
+            - list [ref=f5e120]:
+              - listitem [ref=f5e121]:
+                - button "AI Discovery" [disabled]:
+                  - generic: Soon
+              - listitem [ref=f5e123]:
+                - button "Monitoring" [ref=f5e124] [cursor=pointer]
+              - listitem [ref=f5e131]:
+                - button "Logs" [expanded] [ref=f5e132] [cursor=pointer]
+                - list [ref=f5e140]:
+                  - listitem [ref=f5e141]:
+                    - link "Policy Events" [ref=f5e142] [cursor=pointer]:
+                      - /url: /admin/logs/policy-events
+                  - listitem [ref=f5e143]:
+                    - link "DLP Events" [ref=f5e144] [cursor=pointer]:
+                      - /url: /admin/logs/dlp-logs
+                  - listitem [ref=f5e145]:
+                    - link "Gateway Logs" [active] [ref=f5e146] [cursor=pointer]:
+                      - /url: /admin/logs/gateway-logs
+                  - listitem [ref=f5e147]:
+                    - link "Audit Logs" [ref=f5e148] [cursor=pointer]:
+                      - /url: /admin/logs/audit-logs
+          - generic [ref=f5e149]:
+            - generic [ref=f5e150]: Administration
+            - list [ref=f5e151]:
+              - listitem [ref=f5e153]:
+                - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+              - listitem [ref=f5e163]:
+                - link "Organization" [ref=f5e164] [cursor=pointer]:
+                  - /url: /admin/organization
+              - listitem [ref=f5e171]:
+                - button "Authentication" [ref=f5e172] [cursor=pointer]
+              - listitem [ref=f5e180]:
+                - button "Settings" [ref=f5e181] [cursor=pointer]
+        - generic [ref=f5e188]:
+          - generic [ref=f5e195]:
+            - paragraph [ref=f5e196]: admin@aidome.co
+            - generic [ref=f5e197]: Administrator
+          - generic [ref=f5e201]:
+            - generic [ref=f5e202]:
+              - generic [ref=f5e203]: Powered by
+              - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                - generic [ref=f5e205]: AIdome
+                - generic [ref=f5e206]: ™
+            - button "Sign out" [ref=f5e209] [cursor=pointer]
+        - button "Collapse sidebar" [ref=f5e214]
+      - generic [ref=f5e224]:
+        - generic [ref=f5e226]:
+          - navigation "breadcrumb" [ref=f5e227]:
+            - list [ref=f5e228]:
+              - listitem [ref=f5e229]:
+                - link "Admin" [ref=f5e230] [cursor=pointer]:
+                  - /url: /admin/dashboard
+              - listitem [ref=f5e231]
+              - listitem [ref=f5e234]:
+                - link "Logs" [ref=f5e235] [cursor=pointer]:
+                  - /url: /admin/logs
+              - listitem [ref=f5e236]
+              - listitem [ref=f5e616]:
+                - generic [ref=f5e617]: Gateway Logs
+          - heading "Gateway Logs" [level=1] [ref=f5e618]
+          - paragraph [ref=f5e243]: Inspect AI Gateway requests, responses, and operational events.
+        - generic [ref=f5e620]:
+          - generic [ref=f5e623]:
+            - generic [ref=f5e624]: Gateway Logs
+            - generic [ref=f5e625]: Direct API requests routed via the AI Gateway (Claude Code, PAT clients)
+            - generic [ref=f5e626]: "Scope: All organizations"
+          - generic [ref=f5e628]:
+            - generic [ref=f5e629]:
+              - 'generic "Filtered gateway logs: 10" [ref=f5e631]': 10 entries
+              - generic [ref=f5e632]:
+                - textbox "Search gateway logs by user, model, or log ID" [ref=f5e634]:
+                  - /placeholder: Search by user, model, or log ID...
+                - textbox "Filter by session ID" [ref=f5e635]:
+                  - /placeholder: Session ID...
+                - button "Refresh" [ref=f5e636] [cursor=pointer]
+                - button "Export" [ref=f5e637] [cursor=pointer]
+                - button "Filters" [ref=f5e638] [cursor=pointer]
+            - table [ref=f5e641]:
+              - rowgroup [ref=f5e642]:
+                - row [ref=f5e643]:
+                  - columnheader [ref=f5e644]
+                  - columnheader "Timestamp" [ref=f5e645]
+                  - columnheader "User" [ref=f5e650]:
+                    - generic [ref=f5e651]:
+                      - generic [ref=f5e655]: User
+                      - button "Filter" [ref=f5e656] [cursor=pointer]
+                  - columnheader "Model" [ref=f5e659]:
+                    - generic [ref=f5e660]:
+                      - generic [ref=f5e661]: Model
+                      - button "Filter" [ref=f5e662] [cursor=pointer]
+                  - columnheader "Provider" [ref=f5e665]:
+                    - generic [ref=f5e666]:
+                      - generic [ref=f5e667]: Provider
+                      - button "Filter" [ref=f5e668] [cursor=pointer]
+                  - columnheader "Content" [ref=f5e671]
+                  - columnheader "Total Tokens" [ref=f5e672]
+                  - columnheader "Source" [ref=f5e673]
+                  - columnheader "Status" [ref=f5e674]
+              - rowgroup [ref=f5e675]:
+                - row [ref=f5e676]:
+                  - cell [ref=f5e677]:
+                    - button "Expand gateway log details for maort@aidome.co" [ref=f5e678] [cursor=pointer]
+                  - cell "Aug 29, 2026 21:10:09" [ref=f5e679]:
+                    - generic [ref=f5e683]:
+                      - generic [ref=f5e684]: Aug 29, 2026
+                      - generic [ref=f5e685]: 21:10:09
+                  - cell "maort@aidome.co" [ref=f5e686]
+                  - cell "claude-haiku-4-5-20251001" [ref=f5e692]
+                  - cell "anthropic" [ref=f5e693]
+                  - cell "Suppressed — clean request" [ref=f5e695]
+                  - cell "41" [ref=f5e697]
+                  - cell "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36" [ref=f5e698]
+                  - cell "Success" [ref=f5e700]
+                - row [ref=f5e706]:
+                  - cell [ref=f5e707]:
+                    - button "Expand gateway log details for maort@aidome.co" [ref=f5e708] [cursor=pointer]
+                  - cell "Aug 29, 2026 21:06:13" [ref=f5e709]:
+                    - generic [ref=f5e713]:
+                      - generic [ref=f5e714]: Aug 29, 2026
+                      - generic [ref=f5e715]: 21:06:13
+                  - cell "maort@aidome.co" [ref=f5e716]
+                  - cell "claude-haiku-4-5-20251001" [ref=f5e722]
+                  - cell "anthropic" [ref=f5e723]
+                  - cell "Suppressed — clean request" [ref=f5e725]
+                  - cell "46" [ref=f5e727]
+                  - cell "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36" [ref=f5e728]
+                  - cell "Success" [ref=f5e730]
+                - row [ref=f5e736]:
+                  - cell [ref=f5e737]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e738] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:25:15" [ref=f5e739]:
+                    - generic [ref=f5e743]:
+                      - generic [ref=f5e744]: Aug 26, 2026
+                      - generic [ref=f5e745]: 08:25:15
+                  - cell "admin@aidome.co" [ref=f5e746]
+                  - cell "microsoft-learn" [ref=f5e752]
+                  - cell "streamable_http" [ref=f5e754]
+                  - cell "resources/list" [ref=f5e756]
+                  - cell "—" [ref=f5e758]
+                  - cell "-" [ref=f5e759]
+                  - cell "Success" [ref=f5e760]
+                - row [ref=f5e766]:
+                  - cell [ref=f5e767]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e768] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:25:14" [ref=f5e769]:
+                    - generic [ref=f5e773]:
+                      - generic [ref=f5e774]: Aug 26, 2026
+                      - generic [ref=f5e775]: 08:25:14
+                  - cell "admin@aidome.co" [ref=f5e776]
+                  - cell "context7-mcp" [ref=f5e782]
+                  - cell "streamable_http" [ref=f5e784]
+                  - cell "resources/list" [ref=f5e786]
+                  - cell "—" [ref=f5e788]
+                  - cell "-" [ref=f5e789]
+                  - cell "Success" [ref=f5e790]
+                - row [ref=f5e796]:
+                  - cell [ref=f5e797]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e798] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:24:01" [ref=f5e799]:
+                    - generic [ref=f5e803]:
+                      - generic [ref=f5e804]: Aug 26, 2026
+                      - generic [ref=f5e805]: 08:24:01
+                  - cell "admin@aidome.co" [ref=f5e806]
+                  - cell "gpt-5.4-mini" [ref=f5e812]
+                  - cell "openai" [ref=f5e813]
+                  - cell [ref=f5e815]
+                  - cell "15860" [ref=f5e817]
+                  - cell "Kilo-Code/7.4.23 ai-sdk/provider-utils/4.0.27 runtime/bun/1.3.14" [ref=f5e818]
+                  - cell "Success Tools stripped" [ref=f5e820]:
+                    - generic [ref=f5e821]:
+                      - generic [ref=f5e822]: Success
+                      - generic [ref=f5e826]: Tools stripped
+                - row [ref=f5e827]:
+                  - cell [ref=f5e828]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e829] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:24:00" [ref=f5e830]:
+                    - generic [ref=f5e834]:
+                      - generic [ref=f5e835]: Aug 26, 2026
+                      - generic [ref=f5e836]: 08:24:00
+                  - cell "admin@aidome.co" [ref=f5e837]
+                  - cell "gpt-5.4-mini" [ref=f5e843]
+                  - cell "openai" [ref=f5e844]
+                  - cell "Suppressed — clean request" [ref=f5e846]
+                  - cell "68" [ref=f5e848]
+                  - cell "Python-urllib/3.12" [ref=f5e849]
+                  - cell "Success" [ref=f5e851]
+                - row [ref=f5e857]:
+                  - cell [ref=f5e858]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e859] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:23:23" [ref=f5e860]:
+                    - generic [ref=f5e864]:
+                      - generic [ref=f5e865]: Aug 26, 2026
+                      - generic [ref=f5e866]: 08:23:23
+                  - cell "admin@aidome.co" [ref=f5e867]
+                  - cell "gpt-5.4-mini" [ref=f5e873]
+                  - cell "openai" [ref=f5e874]
+                  - cell "Suppressed — clean request" [ref=f5e876]
+                  - cell "66" [ref=f5e878]
+                  - cell "Python-urllib/3.12" [ref=f5e879]
+                  - cell "Success" [ref=f5e881]
+                - row [ref=f5e887]:
+                  - cell [ref=f5e888]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e889] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:23:22" [ref=f5e890]:
+                    - generic [ref=f5e894]:
+                      - generic [ref=f5e895]: Aug 26, 2026
+                      - generic [ref=f5e896]: 08:23:22
+                  - cell "admin@aidome.co" [ref=f5e897]
+                  - cell "gpt-5.4-mini" [ref=f5e903]
+                  - cell "openai" [ref=f5e904]
+                  - cell "Suppressed — clean request" [ref=f5e906]
+                  - cell "8892" [ref=f5e908]
+                  - cell "Kilo-Code/7.4.23 ai-sdk/provider-utils/4.0.27 runtime/bun/1.3.14" [ref=f5e909]
+                  - cell "Success" [ref=f5e911]
+                - row [ref=f5e917]:
+                  - cell [ref=f5e918]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e919] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:23:03" [ref=f5e920]:
+                    - generic [ref=f5e924]:
+                      - generic [ref=f5e925]: Aug 26, 2026
+                      - generic [ref=f5e926]: 08:23:03
+                  - cell "admin@aidome.co" [ref=f5e927]
+                  - cell "gpt-5.4-mini" [ref=f5e933]
+                  - cell "openai" [ref=f5e934]
+                  - cell [ref=f5e936]
+                  - cell "8645" [ref=f5e938]
+                  - cell "Kilo-Code/7.4.23 ai-sdk/provider-utils/4.0.27 runtime/bun/1.3.14" [ref=f5e939]
+                  - cell "Success" [ref=f5e941]
+                - row [ref=f5e947]:
+                  - cell [ref=f5e948]:
+                    - button "Expand gateway log details for admin@aidome.co" [ref=f5e949] [cursor=pointer]
+                  - cell "Aug 26, 2026 08:22:49" [ref=f5e950]:
+                    - generic [ref=f5e954]:
+                      - generic [ref=f5e955]: Aug 26, 2026
+                      - generic [ref=f5e956]: 08:22:49
+                  - cell "admin@aidome.co" [ref=f5e957]
+                  - cell "gpt-5.4-mini" [ref=f5e963]
+                  - cell "openai" [ref=f5e964]
+                  - cell [ref=f5e966]
+                  - cell "8595" [ref=f5e968]
+                  - cell "Kilo-Code/7.4.23 ai-sdk/provider-utils/4.0.27 runtime/bun/1.3.14" [ref=f5e969]
+                  - cell "Success" [ref=f5e971]
+            - generic [ref=f5e977]:
+              - generic [ref=f5e978]: Showing 1–10 of 59
+              - generic [ref=f5e980]:
+                - generic [ref=f5e981]:
+                  - generic [ref=f5e982]: Rows per page
+                  - combobox [ref=f5e983] [cursor=pointer]:
+                    - generic: "10"
+                - generic [ref=f5e986]:
+                  - button "«" [disabled]
+                  - button "‹" [disabled]
+                  - generic [ref=f5e987]: Page 1 of 6
+                  - button "›" [ref=f5e988] [cursor=pointer]
+                  - button "»" [ref=f5e989] [cursor=pointer]
+                  - generic [ref=f5e990]:
+                    - generic [ref=f5e991]: Go to
+                    - spinbutton [ref=f5e992]: "1"
+                    - button "Go" [ref=f5e993] [cursor=pointer]

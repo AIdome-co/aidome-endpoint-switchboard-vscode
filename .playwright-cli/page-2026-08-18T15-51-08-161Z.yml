@@ -1,0 +1,329 @@
+- generic:
+  - generic:
+    - link:
+      - /url: "#main-content"
+      - text: Skip to main content
+    - main:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - generic: AIdome
+                      - generic: ™
+                  - generic:
+                    - button
+                    - button
+              - generic:
+                - generic:
+                  - generic: Common
+                  - list:
+                    - listitem:
+                      - link:
+                        - /url: /admin/dashboard
+                        - generic: Dashboard
+                    - listitem:
+                      - link:
+                        - /url: /admin/chat
+                        - generic: Secure Workspace
+                    - listitem:
+                      - link:
+                        - /url: /admin/projects
+                        - generic: Projects
+                    - listitem:
+                      - link:
+                        - /url: /admin/knowledge
+                        - generic: Knowledge Base
+                    - listitem:
+                      - link:
+                        - /url: /admin/me
+                        - generic: My Account
+                - generic:
+                  - generic: Security & Control
+                  - list:
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: LLM Configuration
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: Governance
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: GenAI Firewall
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: AI Gateway
+                    - listitem:
+                      - link:
+                        - /url: /admin/ai-gateway/mcp
+                        - generic: MCP Gateway
+                - generic:
+                  - generic: Discovery & Visibility
+                  - list:
+                    - listitem:
+                      - button [disabled]:
+                        - generic: AI Discovery
+                        - generic: Soon
+                    - generic:
+                      - listitem:
+                        - button [expanded]:
+                          - generic: Monitoring
+                        - generic:
+                          - list:
+                            - listitem:
+                              - link:
+                                - /url: /admin/monitoring/genai-firewall
+                                - text: GenAI Firewall
+                            - listitem:
+                              - link:
+                                - /url: /admin/monitoring/ai-gateway
+                                - text: AI Gateway
+                            - listitem:
+                              - link:
+                                - /url: /admin/monitoring/api-key-usage
+                                - text: Usage Analytics
+                            - listitem:
+                              - link:
+                                - /url: /admin/monitoring/system-health
+                                - text: System Health
+                            - listitem:
+                              - link:
+                                - /url: /admin/monitoring/cost-usage
+                                - text: Cost & Usage
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: Logs
+                - generic:
+                  - generic: Administration
+                  - list:
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: Users & Groups
+                    - listitem:
+                      - link:
+                        - /url: /admin/organization
+                        - generic: Organization
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: Authentication
+                    - generic:
+                      - listitem:
+                        - button:
+                          - generic: Settings
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - paragraph: admin@aidome.co
+                      - generic: Administrator
+                - generic:
+                  - generic:
+                    - generic: Powered by
+                    - button:
+                      - generic: AIdome
+                      - generic: ™
+                  - button:
+                    - generic: Sign out
+              - button
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - navigation:
+                            - list:
+                              - listitem:
+                                - link:
+                                  - /url: /admin/dashboard
+                                  - text: Admin
+                              - listitem
+                              - listitem:
+                                - link:
+                                  - /url: /admin/monitoring
+                                  - text: Monitoring
+                              - listitem
+                              - listitem:
+                                - generic: AI Gateway
+                          - generic:
+                            - heading [level=1]: AI Gateway
+                          - paragraph: Detailed metrics for AI Gateway traffic, AI tools, tool-call activity, and per-user usage.
+                      - generic:
+                        - tabpanel:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: "Time:"
+                                - combobox [expanded]:
+                                  - generic: 24h
+                              - generic:
+                                - generic: "Provider:"
+                                - combobox:
+                                  - generic: All
+                              - generic:
+                                - generic: "AI Tool:"
+                                - combobox:
+                                  - generic: All
+                              - generic:
+                                - generic: "Category:"
+                                - combobox:
+                                  - generic: All
+                              - generic:
+                                - generic: "User:"
+                                - combobox:
+                                  - generic: All
+                              - generic:
+                                - generic:
+                                  - button: Auto-refresh 30s
+                                  - generic: Updated 12s ago
+                                  - button:
+                                    - generic: Refresh
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: Requests
+                                - generic: "0"
+                                - generic: 24h
+                            - generic:
+                              - generic:
+                                - generic: Avg Response
+                                - generic: 0ms
+                                - generic: No data
+                            - generic:
+                              - generic:
+                                - generic: Error Rate
+                                - generic: 0%
+                                - generic: in period
+                            - generic:
+                              - generic:
+                                - generic: Tokens
+                                - generic: "0"
+                                - generic: $0.00
+                          - generic:
+                            - generic: Tool Calls Over Time
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - list:
+                                          - listitem: edit
+                                          - listitem: execute
+                                          - listitem: read
+                                          - listitem: search
+                                          - listitem: web
+                                      - application:
+                                        - generic:
+                                          - generic:
+                                            - generic: 2026-08-17T17:00:00+00:00
+                                            - generic: 2026-08-17T22:00:00+00:00
+                                            - generic: 2026-08-18T03:00:00+00:00
+                                            - generic: 2026-08-18T08:00:00+00:00
+                                            - generic: 2026-08-18T15:00:00+00:00
+                          - generic:
+                            - generic:
+                              - generic: Tool Governance Flow (24h)
+                              - paragraph: AIdome sits between your client apps and the LLM. The top arrow is the request path; the bottom arrow is the response. Hover any box or arrow for details.
+                            - generic: No tool activity in the selected window.
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic: Response Speed
+                                    - paragraph: Average latency by tool - last window
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic: Token Usage
+                                    - paragraph: Top consumers - last window
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: Top Tools Called (24h)
+                                - paragraph: Tool calls executed by the client after AIdome forwarded the LLM response — ranked by invocation count.
+                              - generic: No tool calls in the selected window.
+                            - generic:
+                              - generic:
+                                - generic: Top Tools Blocked (24h)
+                                - paragraph: Tool definitions AIdome stripped from the request before the LLM saw them - ranked by block count.
+                              - generic: No tools were blocked in the selected window.
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: Provider Distribution
+                                - paragraph: Where requests are routed - last window
+                              - generic: 0%
+                            - generic:
+                              - generic:
+                                - generic: Model Distribution
+                                - paragraph: Which models are used - last window
+                              - generic:
+                                - generic:
+                                  - generic: 0%
+                                  - generic:
+                                    - paragraph: No model data available
+                          - generic:
+                            - generic:
+                              - generic:
+                                - text: Errors Over Time
+                                - generic: (0.00% avg)
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - application:
+                                        - generic:
+                                          - generic:
+                                            - generic: 2026-08-17T17:00:00+00:00
+                                            - generic: 2026-08-17T22:00:00+00:00
+                                            - generic: 2026-08-18T03:00:00+00:00
+                                            - generic: 2026-08-18T08:00:00+00:00
+                                            - generic: 2026-08-18T15:00:00+00:00
+                                          - generic:
+                                            - generic: 0%
+                                            - generic: 0.15%
+                                            - generic: 0.3%
+                                            - generic: 0.5%
+                          - generic:
+                            - generic: User Activity by Tool
+                            - generic:
+                              - generic:
+                                - table:
+                                  - rowgroup:
+                                    - row:
+                                      - columnheader: User
+                                      - columnheader: AI Tool
+                                      - columnheader: Reqs
+                                      - columnheader: Tokens
+                                      - columnheader: Tool Calls
+                                      - columnheader:
+                                        - generic: Blocked
+                                      - columnheader: Speed
+                              - generic:
+                                - generic: Page 1 of 1 • Showing 0 of 0
+                                - generic:
+                                  - button [disabled]: Prev
+                                  - button [disabled]: Next
+  - generic: "0.15"
+  - listbox [ref=f5e1574]:
+    - option "1h" [ref=f5e1575]
+    - option "24h" [active] [selected] [ref=f5e1578]
+    - option "7d" [ref=f5e1584]
+    - option "30d" [ref=f5e1587]

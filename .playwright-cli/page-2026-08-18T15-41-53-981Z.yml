@@ -1,0 +1,15 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e86]:
+      - generic [ref=e87]:
+        - button "Navigate to AIdome" [ref=e88] [cursor=pointer]:
+          - generic [ref=e89]: AIdome
+          - generic [ref=e90]: ™
+        - button "Switch to dark mode" [ref=e93] [cursor=pointer]
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - heading "Welcome to AIdome™" [level=1] [ref=e99]
+          - paragraph [ref=e100]: Secure authentication powered by Single Sign-On
+        - paragraph [ref=e104]: Redirecting to login...

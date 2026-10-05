@@ -1,0 +1,43 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e8]:
+        - generic [ref=e10]:
+          - button "Navigate to AIdome" [ref=e11] [cursor=pointer]:
+            - generic [ref=e12]: AIdome
+            - generic [ref=e13]: ™
+          - generic [ref=e16]: Enterprise
+        - generic [ref=e17]:
+          - button "Switch to dark mode" [ref=e18] [cursor=pointer]
+          - button "Login" [ref=e19] [cursor=pointer]
+      - generic [ref=e21]:
+        - generic [ref=e23]:
+          - heading "Enterprise-grade security for AI systems" [level=1] [ref=e24]
+          - paragraph [ref=e25]: AIdome Enterprise provides a secure gateway for your organization's AI interactions with policy enforcement, encryption, and comprehensive monitoring.
+          - button "Login" [ref=e27] [cursor=pointer]
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - heading "Policy Enforcement" [level=3] [ref=e41]
+            - paragraph [ref=e42]: Define and enforce security policies across all AI interactions with granular controls.
+          - generic [ref=e43]:
+            - heading "Enterprise Security" [level=3] [ref=e48]
+            - paragraph [ref=e49]: TLS transport security, privacy controls, identity-based access, and compliance with enterprise requirements.
+          - generic [ref=e50]:
+            - heading "Model Management" [level=3] [ref=e55]
+            - paragraph [ref=e56]: Connect to and manage multiple AI providers with unified security policies.
+        - generic [ref=e57]:
+          - heading "How It Works" [level=2] [ref=e58]
+          - paragraph [ref=e59]: AIdome™ sits between your users and AI providers, securing all interactions
+        - generic [ref=e62]:
+          - generic [ref=e67]:
+            - heading "Configure Security Policies" [level=3] [ref=e68]
+            - paragraph [ref=e69]: Define user roles, security policies, and approved AI models.
+          - generic [ref=e74]:
+            - heading "Connect to AI Models" [level=3] [ref=e75]
+            - paragraph [ref=e76]: Securely connect to cloud and local AI providers through AIdome™.
+          - generic [ref=e81]:
+            - heading "Monitor & Protect" [level=3] [ref=e82]
+            - paragraph [ref=e83]: Real-time monitoring, threat detection, and compliance reporting.
+        - button "Login to Get Started" [ref=e85] [cursor=pointer]

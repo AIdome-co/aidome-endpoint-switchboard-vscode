@@ -1,0 +1,16 @@
+- generic [ref=f8e4]:
+  - heading "Welcome to AIdome Server™" [level=2] [ref=f8e12]
+  - paragraph [ref=f8e13]: Enter your password
+  - generic [ref=f8e14]:
+    - paragraph [ref=f8e15]:
+      - text: "Signing in as:"
+      - strong [ref=f8e16]: admin@aidome.co
+    - link "Use different account" [ref=f8e17] [cursor=pointer]:
+      - /url: /auth/realms/aidome-org-template/login-actions/restart?client_id=aidome-frontend&tab_id=1Y0FZiFNrS8&client_data=eyJydSI6Imh0dHBzOi8vbWFvcnQtYWlkb21lLWRldi12bS5haW51LWFsdGFpci50cy5uZXQvbG9naW4iLCJydCI6ImNvZGUiLCJybSI6ImZyYWdtZW50Iiwic3QiOiJmN2QyNTNmMS04ZDYwLTQzNjktYWI2MS1hYzBkMDI1NmVmMmYifQ&skip_logout=false
+  - generic [ref=f8e19]:
+    - generic [ref=f8e20]:
+      - textbox "Password" [active] [invalid] [ref=f8e21]
+      - generic [ref=f8e22]: Invalid username or password.
+    - button "Sign In" [ref=f8e23] [cursor=pointer]
+  - link "Forgot Password?" [ref=f8e25] [cursor=pointer]:
+    - /url: /auth/realms/aidome-org-template/login-actions/reset-credentials?client_id=aidome-frontend&tab_id=1Y0FZiFNrS8&client_data=eyJydSI6Imh0dHBzOi8vbWFvcnQtYWlkb21lLWRldi12bS5haW51LWFsdGFpci50cy5uZXQvbG9naW4iLCJydCI6ImNvZGUiLCJybSI6ImZyYWdtZW50Iiwic3QiOiJmN2QyNTNmMS04ZDYwLTQzNjktYWI2MS1hYzBkMDI1NmVmMmYifQ

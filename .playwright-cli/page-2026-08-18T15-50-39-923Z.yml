@@ -1,0 +1,344 @@
+- generic [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - main [ref=f5e4]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e26]:
+          - generic [ref=f5e28]:
+            - button "Navigate to AIdome" [ref=f5e30] [cursor=pointer]:
+              - generic [ref=f5e31]: AIdome
+              - generic [ref=f5e32]: ™
+            - generic [ref=f5e35]:
+              - button "Switch to Desktop Experience" [ref=f5e36] [cursor=pointer]
+              - button "Switch to dark mode" [ref=f5e37] [cursor=pointer]
+          - generic [ref=f5e38]:
+            - generic [ref=f5e39]:
+              - generic [ref=f5e40]: Common
+              - list [ref=f5e41]:
+                - listitem [ref=f5e42]:
+                  - link "Dashboard" [ref=f5e43] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e50]:
+                  - link "Secure Workspace" [ref=f5e51] [cursor=pointer]:
+                    - /url: /admin/chat
+                - listitem [ref=f5e55]:
+                  - link "Projects" [ref=f5e56] [cursor=pointer]:
+                    - /url: /admin/projects
+                - listitem [ref=f5e60]:
+                  - link "Knowledge Base" [ref=f5e61] [cursor=pointer]:
+                    - /url: /admin/knowledge
+                - listitem [ref=f5e65]:
+                  - link "My Account" [ref=f5e66] [cursor=pointer]:
+                    - /url: /admin/me
+            - generic [ref=f5e71]:
+              - generic [ref=f5e72]: Security & Control
+              - list [ref=f5e73]:
+                - listitem [ref=f5e75]:
+                  - button "LLM Configuration" [ref=f5e76] [cursor=pointer]
+                - listitem [ref=f5e84]:
+                  - button "Governance" [ref=f5e85] [cursor=pointer]
+                - listitem [ref=f5e93]:
+                  - button "GenAI Firewall" [ref=f5e94] [cursor=pointer]
+                - listitem [ref=f5e101]:
+                  - button "AI Gateway" [ref=f5e102] [cursor=pointer]
+                - listitem [ref=f5e109]:
+                  - link "MCP Gateway" [ref=f5e110] [cursor=pointer]:
+                    - /url: /admin/ai-gateway/mcp
+            - generic [ref=f5e116]:
+              - generic [ref=f5e117]: Discovery & Visibility
+              - list [ref=f5e118]:
+                - listitem [ref=f5e119]:
+                  - button "AI Discovery" [disabled]:
+                    - generic: Soon
+                - listitem [ref=f5e121]:
+                  - button "Monitoring" [expanded] [ref=f5e122] [cursor=pointer]
+                  - list [ref=f5e129]:
+                    - listitem [ref=f5e130]:
+                      - link "GenAI Firewall" [ref=f5e131] [cursor=pointer]:
+                        - /url: /admin/monitoring/genai-firewall
+                    - listitem [ref=f5e132]:
+                      - link "AI Gateway" [ref=f5e133] [cursor=pointer]:
+                        - /url: /admin/monitoring/ai-gateway
+                    - listitem [ref=f5e134]:
+                      - link "Usage Analytics" [active] [ref=f5e135] [cursor=pointer]:
+                        - /url: /admin/monitoring/api-key-usage
+                    - listitem [ref=f5e136]:
+                      - link "System Health" [ref=f5e137] [cursor=pointer]:
+                        - /url: /admin/monitoring/system-health
+                    - listitem [ref=f5e138]:
+                      - link "Cost & Usage" [ref=f5e139] [cursor=pointer]:
+                        - /url: /admin/monitoring/cost-usage
+                - listitem [ref=f5e141]:
+                  - button "Logs" [ref=f5e142] [cursor=pointer]
+            - generic [ref=f5e149]:
+              - generic [ref=f5e150]: Administration
+              - list [ref=f5e151]:
+                - listitem [ref=f5e153]:
+                  - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+                - listitem [ref=f5e163]:
+                  - link "Organization" [ref=f5e164] [cursor=pointer]:
+                    - /url: /admin/organization
+                - listitem [ref=f5e171]:
+                  - button "Authentication" [ref=f5e172] [cursor=pointer]
+                - listitem [ref=f5e180]:
+                  - button "Settings" [ref=f5e181] [cursor=pointer]
+          - generic [ref=f5e188]:
+            - generic [ref=f5e195]:
+              - paragraph [ref=f5e196]: admin@aidome.co
+              - generic [ref=f5e197]: Administrator
+            - generic [ref=f5e201]:
+              - generic [ref=f5e202]:
+                - generic [ref=f5e203]: Powered by
+                - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                  - generic [ref=f5e205]: AIdome
+                  - generic [ref=f5e206]: ™
+              - button "Sign out" [ref=f5e209] [cursor=pointer]
+          - button "Collapse sidebar" [ref=f5e214]
+        - generic [ref=f5e225]:
+          - generic [ref=f5e227]:
+            - navigation "breadcrumb" [ref=f5e228]:
+              - list [ref=f5e229]:
+                - listitem [ref=f5e230]:
+                  - link "Admin" [ref=f5e231] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e232]
+                - listitem [ref=f5e235]:
+                  - link "Monitoring" [ref=f5e236] [cursor=pointer]:
+                    - /url: /admin/monitoring
+                - listitem [ref=f5e237]
+                - listitem [ref=f5e829]:
+                  - generic [ref=f5e830]: Usage Analytics
+            - heading "Usage Analytics" [level=1] [ref=f5e831]
+            - paragraph [ref=f5e244]: Inspect usage trends, API key activity, and hot spots across your organization.
+          - tabpanel [ref=f5e832]:
+            - generic [ref=f5e833]:
+              - heading "Usage Analytics" [level=2] [ref=f5e838]
+              - generic [ref=f5e839]:
+                - generic [ref=f5e840]:
+                  - button "7 Days" [ref=f5e841] [cursor=pointer]
+                  - button "30 Days" [ref=f5e842] [cursor=pointer]
+                  - button "90 Days" [ref=f5e843] [cursor=pointer]
+                - button "Filters" [ref=f5e844] [cursor=pointer]
+            - generic [ref=f5e846]:
+              - button "Overview" [ref=f5e847] [cursor=pointer]
+              - button "By User" [ref=f5e853] [cursor=pointer]
+              - button "By Group" [ref=f5e857] [cursor=pointer]
+              - button "By Provider" [ref=f5e863] [cursor=pointer]
+              - button "By Model" [ref=f5e867] [cursor=pointer]
+              - button "By API Key" [ref=f5e871] [cursor=pointer]
+              - button "By Governance" [ref=f5e876] [cursor=pointer]
+            - generic [ref=f5e880]:
+              - generic [ref=f5e884]:
+                - paragraph [ref=f5e885]: Total Requests
+                - paragraph [ref=f5e886]: "54"
+              - generic [ref=f5e891]:
+                - generic [ref=f5e892]:
+                  - paragraph [ref=f5e893]: Total Tokens
+                  - paragraph [ref=f5e894]: 194,549
+                - img "Total Tokens" [ref=f5e895]
+              - generic [ref=f5e901]:
+                - paragraph [ref=f5e902]: Active Users
+                - paragraph [ref=f5e903]: "6"
+              - generic [ref=f5e912]:
+                - paragraph [ref=f5e913]: API Keys Used
+                - paragraph [ref=f5e914]: "4"
+              - generic [ref=f5e922]:
+                - paragraph [ref=f5e923]: Success Rate
+                - paragraph [ref=f5e924]: 100%
+              - generic [ref=f5e931]:
+                - paragraph [ref=f5e932]: Failed
+                - paragraph [ref=f5e933]: "0"
+            - generic [ref=f5e936]:
+              - generic [ref=f5e937]:
+                - generic [ref=f5e938]: Daily Request Volume
+                - generic [ref=f5e942]: Request activity for the last 7 days
+              - generic [ref=f5e946]:
+                - generic [ref=f5e948]:
+                  - generic [ref=f5e949]: Failed
+                  - generic [ref=f5e951]: Successful
+                - application [ref=f5e953]:
+                  - generic [ref=f5e973]:
+                    - generic [ref=f5e974]:
+                      - generic [ref=f5e975]: Aug 12
+                      - generic [ref=f5e977]: Aug 13
+                      - generic [ref=f5e979]: Aug 14
+                      - generic [ref=f5e981]: Aug 15
+                      - generic [ref=f5e983]: Aug 16
+                      - generic [ref=f5e985]: Aug 17
+                      - generic [ref=f5e987]: Aug 18
+                    - generic [ref=f5e989]:
+                      - generic [ref=f5e990]: "0"
+                      - generic [ref=f5e992]: "15"
+                      - generic [ref=f5e994]: "30"
+                      - generic [ref=f5e996]: "45"
+                      - generic [ref=f5e998]: "60"
+            - generic [ref=f5e1000]:
+              - generic [ref=f5e1001]:
+                - generic [ref=f5e1002]: Daily Token Volume
+                - generic [ref=f5e1006]: Token consumption for the last 7 days
+              - application [ref=f5e1011]:
+                - generic [ref=f5e1031]:
+                  - generic [ref=f5e1032]:
+                    - generic [ref=f5e1033]: Aug 12
+                    - generic [ref=f5e1035]: Aug 13
+                    - generic [ref=f5e1037]: Aug 14
+                    - generic [ref=f5e1039]: Aug 15
+                    - generic [ref=f5e1041]: Aug 16
+                    - generic [ref=f5e1043]: Aug 17
+                    - generic [ref=f5e1045]: Aug 18
+                  - generic [ref=f5e1047]:
+                    - generic [ref=f5e1048]: "0"
+                    - generic [ref=f5e1050]: "45000"
+                    - generic [ref=f5e1052]: "90000"
+                    - generic [ref=f5e1054]: "135000"
+                    - generic [ref=f5e1056]: "180000"
+            - generic [ref=f5e1058]:
+              - generic [ref=f5e1060]:
+                - generic [ref=f5e1061]:
+                  - generic [ref=f5e1062]: Usage Details
+                  - generic [ref=f5e1063]: Correlated view of who's using which API keys and models
+                - button "Export CSV" [ref=f5e1064] [cursor=pointer]
+              - table [ref=f5e1068]:
+                - rowgroup [ref=f5e1069]:
+                  - row [ref=f5e1070]:
+                    - columnheader "User" [ref=f5e1071]:
+                      - generic [ref=f5e1072]:
+                        - generic [ref=f5e1073]:
+                          - generic [ref=f5e1077]: User
+                          - button "Filter" [ref=f5e1078] [cursor=pointer]
+                        - button [ref=f5e1081] [cursor=pointer]
+                    - columnheader "Group" [ref=f5e1082]:
+                      - generic [ref=f5e1083]:
+                        - generic [ref=f5e1089]: Group
+                        - button "Filter" [ref=f5e1090] [cursor=pointer]
+                    - columnheader "Provider" [ref=f5e1093]:
+                      - generic [ref=f5e1094]:
+                        - generic [ref=f5e1095]:
+                          - generic [ref=f5e1096]: Provider
+                          - button "Filter" [ref=f5e1097] [cursor=pointer]
+                        - button [ref=f5e1100] [cursor=pointer]
+                    - columnheader "Model" [ref=f5e1101]:
+                      - generic [ref=f5e1102]:
+                        - generic [ref=f5e1103]: Model
+                        - button [ref=f5e1104] [cursor=pointer]
+                    - columnheader "API Key" [ref=f5e1105]:
+                      - generic [ref=f5e1106]:
+                        - generic [ref=f5e1111]: API Key
+                        - button "Filter" [ref=f5e1112] [cursor=pointer]
+                    - columnheader "Security" [ref=f5e1115]
+                    - columnheader "Residency" [ref=f5e1120]
+                    - columnheader "Requests" [ref=f5e1126] [cursor=pointer]
+                    - columnheader "Last Used" [ref=f5e1130] [cursor=pointer]
+                - rowgroup [ref=f5e1135]:
+                  - row [ref=f5e1136]:
+                    - cell "maort@aidome.co" [ref=f5e1137]
+                    - cell "-" [ref=f5e1138]
+                    - cell "anthropic" [ref=f5e1139]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e1140]
+                    - cell "anthropic-dev-key" [ref=f5e1141]
+                    - cell "enterprise" [ref=f5e1142]
+                    - cell "provider hosted" [ref=f5e1144]
+                    - cell "17" [ref=f5e1146]
+                    - cell "2h ago" [ref=f5e1149]
+                  - row [ref=f5e1150]:
+                    - cell "admin@aidome.co" [ref=f5e1151]
+                    - cell "-" [ref=f5e1152]
+                    - cell "anthropic" [ref=f5e1153]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e1154]
+                    - cell "anthropic-dev-key" [ref=f5e1155]
+                    - cell "enterprise" [ref=f5e1156]
+                    - cell "provider hosted" [ref=f5e1158]
+                    - cell "14" [ref=f5e1160]
+                    - cell "1h ago" [ref=f5e1163]
+                  - row [ref=f5e1164]:
+                    - cell "shlomid@aidome.co" [ref=f5e1165]
+                    - cell "DevOps" [ref=f5e1166]
+                    - cell "openrouter" [ref=f5e1169]
+                    - cell "deepseek/deepseek-v4-flash-0731" [ref=f5e1170]
+                    - cell "openrouter" [ref=f5e1171]
+                    - cell "enterprise" [ref=f5e1172]
+                    - cell "provider hosted" [ref=f5e1174]
+                    - cell "11" [ref=f5e1176]
+                    - cell "1h ago" [ref=f5e1179]
+                  - row [ref=f5e1180]:
+                    - cell "shlomid" [ref=f5e1181]
+                    - cell "-" [ref=f5e1182]
+                    - cell "anthropic" [ref=f5e1183]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e1184]
+                    - cell "anthropic-dev-key" [ref=f5e1185]
+                    - cell "enterprise" [ref=f5e1186]
+                    - cell "provider hosted" [ref=f5e1188]
+                    - cell "2" [ref=f5e1190]
+                    - cell "58m ago" [ref=f5e1193]
+                  - row [ref=f5e1194]:
+                    - cell "lironp@aidome.co" [ref=f5e1195]
+                    - cell "-" [ref=f5e1196]
+                    - cell "anthropic" [ref=f5e1197]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e1198]
+                    - cell "anthropic-dev-key" [ref=f5e1199]
+                    - cell "enterprise" [ref=f5e1200]
+                    - cell "provider hosted" [ref=f5e1202]
+                    - cell "2" [ref=f5e1204]
+                    - cell "2d ago" [ref=f5e1207]
+                  - row [ref=f5e1208]:
+                    - cell "lironp@aidome.co" [ref=f5e1209]
+                    - cell "-" [ref=f5e1210]
+                    - cell "anthropic" [ref=f5e1211]
+                    - cell "claude-sonnet-4-6" [ref=f5e1212]
+                    - cell "anthropic-dev-key-hk" [ref=f5e1213]
+                    - cell "enterprise" [ref=f5e1214]
+                    - cell "provider hosted" [ref=f5e1216]
+                    - cell "2" [ref=f5e1218]
+                    - cell "2d ago" [ref=f5e1221]
+                  - row [ref=f5e1222]:
+                    - cell "benjamins@aidome.co" [ref=f5e1223]
+                    - cell "-" [ref=f5e1224]
+                    - cell "anthropic" [ref=f5e1225]
+                    - cell "claude-sonnet-4-6" [ref=f5e1226]
+                    - cell "anthropic-dev-key-hk" [ref=f5e1227]
+                    - cell "enterprise" [ref=f5e1228]
+                    - cell "provider hosted" [ref=f5e1230]
+                    - cell "2" [ref=f5e1232]
+                    - cell "5d ago" [ref=f5e1235]
+                  - row [ref=f5e1236]:
+                    - cell "maort@aidome.co" [ref=f5e1237]
+                    - cell "-" [ref=f5e1238]
+                    - cell "openai" [ref=f5e1239]
+                    - cell "gpt-5.4" [ref=f5e1240]
+                    - cell "openai-dev-key" [ref=f5e1241]
+                    - cell "enterprise" [ref=f5e1242]
+                    - cell "provider hosted" [ref=f5e1244]
+                    - cell "1" [ref=f5e1246]
+                    - cell "3h ago" [ref=f5e1249]
+                  - row [ref=f5e1250]:
+                    - cell "benjamins@aidome.co" [ref=f5e1251]
+                    - cell "-" [ref=f5e1252]
+                    - cell "openrouter" [ref=f5e1253]
+                    - cell "qwen/qwen3-32b" [ref=f5e1254]
+                    - cell "openrouter" [ref=f5e1255]
+                    - cell "enterprise" [ref=f5e1256]
+                    - cell "provider hosted" [ref=f5e1258]
+                    - cell "1" [ref=f5e1260]
+                    - cell "5d ago" [ref=f5e1263]
+                  - row [ref=f5e1264]:
+                    - cell "admin@aidome.co" [ref=f5e1265]
+                    - cell "-" [ref=f5e1266]
+                    - cell "openrouter" [ref=f5e1267]
+                    - cell "openai/gpt-5.4" [ref=f5e1268]
+                    - cell "openrouter" [ref=f5e1269]
+                    - cell "enterprise" [ref=f5e1270]
+                    - cell "provider hosted" [ref=f5e1272]
+                    - cell "1" [ref=f5e1274]
+                    - cell "2h ago" [ref=f5e1277]
+                  - row [ref=f5e1278]:
+                    - cell "maort@aidome.co" [ref=f5e1279]
+                    - cell "-" [ref=f5e1280]
+                    - cell "openrouter" [ref=f5e1281]
+                    - cell "openai/gpt-5.4" [ref=f5e1282]
+                    - cell "openrouter" [ref=f5e1283]
+                    - cell "enterprise" [ref=f5e1284]
+                    - cell "provider hosted" [ref=f5e1286]
+                    - cell "1" [ref=f5e1288]
+                    - cell "2h ago" [ref=f5e1291]
+  - generic [ref=f5e828]: "45000"

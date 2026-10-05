@@ -1,0 +1,159 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - main [ref=f5e4]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e26]:
+          - generic [ref=f5e28]:
+            - button "Navigate to AIdome" [ref=f5e30] [cursor=pointer]:
+              - generic [ref=f5e31]: AIdome
+              - generic [ref=f5e32]: ™
+            - generic [ref=f5e35]:
+              - button "Switch to Desktop Experience" [ref=f5e36] [cursor=pointer]
+              - button "Switch to dark mode" [ref=f5e37] [cursor=pointer]
+          - generic [ref=f5e38]:
+            - generic [ref=f5e39]:
+              - generic [ref=f5e40]: Common
+              - list [ref=f5e41]:
+                - listitem [ref=f5e42]:
+                  - link "Dashboard" [ref=f5e43] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e50]:
+                  - link "Secure Workspace" [ref=f5e51] [cursor=pointer]:
+                    - /url: /admin/chat
+                - listitem [ref=f5e55]:
+                  - link "Projects" [ref=f5e56] [cursor=pointer]:
+                    - /url: /admin/projects
+                - listitem [ref=f5e60]:
+                  - link "Knowledge Base" [ref=f5e61] [cursor=pointer]:
+                    - /url: /admin/knowledge
+                - listitem [ref=f5e65]:
+                  - link "My Account" [ref=f5e66] [cursor=pointer]:
+                    - /url: /admin/me
+            - generic [ref=f5e71]:
+              - generic [ref=f5e72]: Security & Control
+              - list [ref=f5e73]:
+                - listitem [ref=f5e75]:
+                  - button "LLM Configuration" [ref=f5e76] [cursor=pointer]
+                - listitem [ref=f5e84]:
+                  - button "Governance" [ref=f5e85] [cursor=pointer]
+                - listitem [ref=f5e93]:
+                  - button "GenAI Firewall" [ref=f5e94] [cursor=pointer]
+                - listitem [ref=f5e101]:
+                  - button "AI Gateway" [ref=f5e102] [cursor=pointer]
+                - listitem [ref=f5e109]:
+                  - link "MCP Gateway" [ref=f5e110] [cursor=pointer]:
+                    - /url: /admin/ai-gateway/mcp
+            - generic [ref=f5e116]:
+              - generic [ref=f5e117]: Discovery & Visibility
+              - list [ref=f5e118]:
+                - listitem [ref=f5e119]:
+                  - button "AI Discovery" [disabled]:
+                    - generic: Soon
+                - listitem [ref=f5e121]:
+                  - button "Monitoring" [expanded] [ref=f5e122] [cursor=pointer]
+                  - list [ref=f5e129]:
+                    - listitem [ref=f5e130]:
+                      - link "GenAI Firewall" [ref=f5e131] [cursor=pointer]:
+                        - /url: /admin/monitoring/genai-firewall
+                    - listitem [ref=f5e132]:
+                      - link "AI Gateway" [ref=f5e133] [cursor=pointer]:
+                        - /url: /admin/monitoring/ai-gateway
+                    - listitem [ref=f5e134]:
+                      - link "Usage Analytics" [ref=f5e135] [cursor=pointer]:
+                        - /url: /admin/monitoring/api-key-usage
+                    - listitem [ref=f5e136]:
+                      - link "System Health" [ref=f5e137] [cursor=pointer]:
+                        - /url: /admin/monitoring/system-health
+                    - listitem [ref=f5e138]:
+                      - link "Cost & Usage" [ref=f5e139] [cursor=pointer]:
+                        - /url: /admin/monitoring/cost-usage
+                - listitem [ref=f5e141]:
+                  - button "Logs" [ref=f5e142] [cursor=pointer]
+            - generic [ref=f5e149]:
+              - generic [ref=f5e150]: Administration
+              - list [ref=f5e151]:
+                - listitem [ref=f5e153]:
+                  - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+                - listitem [ref=f5e163]:
+                  - link "Organization" [ref=f5e164] [cursor=pointer]:
+                    - /url: /admin/organization
+                - listitem [ref=f5e171]:
+                  - button "Authentication" [ref=f5e172] [cursor=pointer]
+                - listitem [ref=f5e180]:
+                  - button "Settings" [ref=f5e181] [cursor=pointer]
+          - generic [ref=f5e188]:
+            - generic [ref=f5e195]:
+              - paragraph [ref=f5e196]: admin@aidome.co
+              - generic [ref=f5e197]: Administrator
+            - generic [ref=f5e201]:
+              - generic [ref=f5e202]:
+                - generic [ref=f5e203]: Powered by
+                - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                  - generic [ref=f5e205]: AIdome
+                  - generic [ref=f5e206]: ™
+              - button "Sign out" [ref=f5e209] [cursor=pointer]
+          - button "Collapse sidebar" [ref=f5e214]
+        - generic [ref=f5e2924]:
+          - generic [ref=f5e2926]:
+            - navigation "breadcrumb" [ref=f5e2927]:
+              - list [ref=f5e2928]:
+                - listitem [ref=f5e2929]:
+                  - link "Admin" [ref=f5e2930] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e2931]
+                - listitem [ref=f5e2934]:
+                  - link "Monitoring" [ref=f5e2935] [cursor=pointer]:
+                    - /url: /admin/monitoring
+                - listitem [ref=f5e2936]
+                - listitem [ref=f5e3981]:
+                  - generic [ref=f5e3982]: Cost & Usage
+            - heading "Cost & Usage" [level=1] [ref=f5e3983]
+            - paragraph [ref=f5e2943]: Track LLM spend, token usage, anomalies, and monthly budget across providers and models.
+          - tabpanel [ref=f5e2945]:
+            - generic [ref=f5e3986]:
+              - generic [ref=f5e3987]:
+                - generic [ref=f5e3988]: Period
+                - combobox "Period" [ref=f5e3989]:
+                  - option "Last 24h"
+                  - option "Last 7 days" [selected]
+                  - option "Last 30 days"
+                  - option "Last 90 days"
+              - generic [ref=f5e3990]:
+                - generic [ref=f5e3991]: Provider
+                - combobox "Provider" [ref=f5e3992]:
+                  - option "All providers"
+                  - option "anthropic" [selected]
+                  - option "mcp"
+                  - option "openai"
+                  - option "openrouter"
+              - generic [ref=f5e3993]:
+                - generic [ref=f5e3994]: Model
+                - combobox "Model" [ref=f5e3995]:
+                  - option "All models" [selected]
+                  - option "claude-haiku-4-5-20251001"
+                  - option "claude-sonnet-4-6"
+                  - option "deepseek/deepseek-v4-flash-0731"
+                  - option "google/gemini-3-pro-image-preview"
+                  - option "gpt-5.4"
+                  - option "gpt-image-1"
+                  - option "mcp"
+                  - option "openai/gpt-5.4"
+                  - option "qwen/qwen3-32b"
+              - generic [ref=f5e3996]:
+                - generic [ref=f5e3997]: User
+                - combobox "User" [ref=f5e3998]:
+                  - option "All users"
+                  - option "lironp@aidome.co"
+                  - option "maort@aidome.co"
+                  - option "benjamins@aidome.co"
+                  - option "shlomid@aidome.co"
+                  - option "admin@aidome.co" [selected]
+                  - option "afc3c290-805b-4406-bb5b-d52ff739b50a"
+              - generic [ref=f5e3999]:
+                - generic [ref=f5e4000]: Monthly Budget (USD)
+                - generic [ref=f5e4001]:
+                  - spinbutton "Monthly Budget" [ref=f5e4002]: "50"
+                  - button "Save budget" [disabled]: Save
+  - generic [ref=f5e828]: "90000"

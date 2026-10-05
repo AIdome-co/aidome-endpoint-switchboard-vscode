@@ -1,0 +1,16 @@
+- generic [ref=f5e2]:
+  - generic [ref=f5e3]: AIdome
+  - generic [ref=f5e5]:
+    - banner [ref=f5e6]:
+      - generic [ref=f5e7]:
+        - text: admin@aidome.co
+        - link " Restart login" [ref=f5e8] [cursor=pointer]:
+          - /url: /auth/realms/aidome-org-template/login-actions/restart?client_id=aidome-frontend&tab_id=QMIlwl0tF0c&client_data=eyJydSI6Imh0dHBzOi8vZGVtby1sYWItdm0tNzAyMDNmZTEuYWlkb21lLmNsb3VkL2xvZ2luIiwicnQiOiJjb2RlIiwicm0iOiJmcmFnbWVudCIsInN0IjoiMGZmYjNlNTItZTU4NC00ZTRlLWI2YTYtNzEwNWMzNWIyZmJiIn0&skip_logout=false
+          - generic [ref=f5e9]:
+            - generic [ref=f5e10]: 
+            - text: Restart login
+    - generic [ref=f5e13]:
+      - generic [ref=f5e14]:
+        - generic [ref=f5e15]: One-time code
+        - textbox "One-time code" [active] [ref=f5e17]
+      - button "Sign In" [ref=f5e20] [cursor=pointer]

@@ -1,0 +1,505 @@
+- generic [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - main [ref=f5e4]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e26]:
+          - generic [ref=f5e28]:
+            - button "Navigate to AIdome" [ref=f5e30] [cursor=pointer]:
+              - generic [ref=f5e31]: AIdome
+              - generic [ref=f5e32]: ™
+            - generic [ref=f5e35]:
+              - button "Switch to Desktop Experience" [ref=f5e36] [cursor=pointer]
+              - button "Switch to dark mode" [ref=f5e37] [cursor=pointer]
+          - generic [ref=f5e38]:
+            - generic [ref=f5e39]:
+              - generic [ref=f5e40]: Common
+              - list [ref=f5e41]:
+                - listitem [ref=f5e42]:
+                  - link "Dashboard" [ref=f5e43] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e50]:
+                  - link "Secure Workspace" [ref=f5e51] [cursor=pointer]:
+                    - /url: /admin/chat
+                - listitem [ref=f5e55]:
+                  - link "Projects" [ref=f5e56] [cursor=pointer]:
+                    - /url: /admin/projects
+                - listitem [ref=f5e60]:
+                  - link "Knowledge Base" [ref=f5e61] [cursor=pointer]:
+                    - /url: /admin/knowledge
+                - listitem [ref=f5e65]:
+                  - link "My Account" [ref=f5e66] [cursor=pointer]:
+                    - /url: /admin/me
+            - generic [ref=f5e71]:
+              - generic [ref=f5e72]: Security & Control
+              - list [ref=f5e73]:
+                - listitem [ref=f5e75]:
+                  - button "LLM Configuration" [ref=f5e76] [cursor=pointer]
+                - listitem [ref=f5e84]:
+                  - button "Governance" [ref=f5e85] [cursor=pointer]
+                - listitem [ref=f5e93]:
+                  - button "GenAI Firewall" [ref=f5e94] [cursor=pointer]
+                - listitem [ref=f5e101]:
+                  - button "AI Gateway" [ref=f5e102] [cursor=pointer]
+                - listitem [ref=f5e109]:
+                  - link "MCP Gateway" [ref=f5e110] [cursor=pointer]:
+                    - /url: /admin/ai-gateway/mcp
+            - generic [ref=f5e116]:
+              - generic [ref=f5e117]: Discovery & Visibility
+              - list [ref=f5e118]:
+                - listitem [ref=f5e119]:
+                  - button "AI Discovery" [disabled]:
+                    - generic: Soon
+                - listitem [ref=f5e121]:
+                  - button "Monitoring" [expanded] [ref=f5e122] [cursor=pointer]
+                  - list [ref=f5e129]:
+                    - listitem [ref=f5e130]:
+                      - link "GenAI Firewall" [active] [ref=f5e131] [cursor=pointer]:
+                        - /url: /admin/monitoring/genai-firewall
+                    - listitem [ref=f5e132]:
+                      - link "AI Gateway" [ref=f5e133] [cursor=pointer]:
+                        - /url: /admin/monitoring/ai-gateway
+                    - listitem [ref=f5e134]:
+                      - link "Usage Analytics" [ref=f5e135] [cursor=pointer]:
+                        - /url: /admin/monitoring/api-key-usage
+                    - listitem [ref=f5e136]:
+                      - link "System Health" [ref=f5e137] [cursor=pointer]:
+                        - /url: /admin/monitoring/system-health
+                    - listitem [ref=f5e138]:
+                      - link "Cost & Usage" [ref=f5e139] [cursor=pointer]:
+                        - /url: /admin/monitoring/cost-usage
+                - listitem [ref=f5e141]:
+                  - button "Logs" [ref=f5e142] [cursor=pointer]
+            - generic [ref=f5e149]:
+              - generic [ref=f5e150]: Administration
+              - list [ref=f5e151]:
+                - listitem [ref=f5e153]:
+                  - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+                - listitem [ref=f5e163]:
+                  - link "Organization" [ref=f5e164] [cursor=pointer]:
+                    - /url: /admin/organization
+                - listitem [ref=f5e171]:
+                  - button "Authentication" [ref=f5e172] [cursor=pointer]
+                - listitem [ref=f5e180]:
+                  - button "Settings" [ref=f5e181] [cursor=pointer]
+          - generic [ref=f5e188]:
+            - generic [ref=f5e195]:
+              - paragraph [ref=f5e196]: admin@aidome.co
+              - generic [ref=f5e197]: Administrator
+            - generic [ref=f5e201]:
+              - generic [ref=f5e202]:
+                - generic [ref=f5e203]: Powered by
+                - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                  - generic [ref=f5e205]: AIdome
+                  - generic [ref=f5e206]: ™
+              - button "Sign out" [ref=f5e209] [cursor=pointer]
+          - button "Collapse sidebar" [ref=f5e214]
+        - generic [ref=f5e5371]:
+          - generic [ref=f5e5373]:
+            - navigation "breadcrumb" [ref=f5e5374]:
+              - list [ref=f5e5375]:
+                - listitem [ref=f5e5376]:
+                  - link "Admin" [ref=f5e5377] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e5378]
+                - listitem [ref=f5e5381]:
+                  - link "Monitoring" [ref=f5e5382] [cursor=pointer]:
+                    - /url: /admin/monitoring
+                - listitem [ref=f5e5383]
+                - listitem [ref=f5e7220]:
+                  - generic [ref=f5e7221]: GenAI Firewall
+            - heading "GenAI Firewall" [level=1] [ref=f5e7222]
+            - paragraph [ref=f5e5390]: Detailed policy enforcement metrics, violation trends, and DLP analytics.
+          - tabpanel [ref=f5e5392]:
+            - generic [ref=f5e7223]:
+              - tablist [ref=f5e7224]:
+                - tab "Overview" [selected] [ref=f5e7225] [cursor=pointer]
+                - tab "DLP" [ref=f5e7226] [cursor=pointer]
+              - tabpanel "Overview" [ref=f5e7227]:
+                - generic [ref=f5e7229]:
+                  - generic [ref=f5e7232]:
+                    - generic [ref=f5e7233]: "Time:"
+                    - combobox "Time:" [ref=f5e7234] [cursor=pointer]:
+                      - generic: 24h
+                  - generic [ref=f5e7237]:
+                    - generic [ref=f5e7238]: "Policy:"
+                    - combobox "Policy:" [ref=f5e7239] [cursor=pointer]:
+                      - generic: All
+                  - generic [ref=f5e7242]:
+                    - generic [ref=f5e7243]: "Category:"
+                    - combobox "Category:" [ref=f5e7244] [cursor=pointer]:
+                      - generic: All
+                  - generic [ref=f5e7247]:
+                    - generic [ref=f5e7248]: "Severity:"
+                    - combobox "Severity:" [ref=f5e7249] [cursor=pointer]:
+                      - generic: All
+                  - generic [ref=f5e7252]:
+                    - generic [ref=f5e7253]: "User:"
+                    - combobox "User:" [ref=f5e7254] [cursor=pointer]:
+                      - generic: All
+                  - generic [ref=f5e7258]:
+                    - button "Auto-refresh every 30s" [ref=f5e7259]: Auto-refresh 30s
+                    - generic [ref=f5e7261]: Updated 10s ago
+                    - button "Refresh now" [ref=f5e7262] [cursor=pointer]:
+                      - generic [ref=f5e7263]: Refresh
+                - generic [ref=f5e7264]:
+                  - generic [ref=f5e7266]:
+                    - generic [ref=f5e7267]: Requests Scanned
+                    - generic [ref=f5e7271]: "59"
+                    - generic [ref=f5e7272]: 24h
+                  - generic [ref=f5e7274]:
+                    - generic [ref=f5e7275]: Violations
+                    - generic [ref=f5e7279]: "52"
+                    - generic [ref=f5e7280]: 24h
+                  - generic [ref=f5e7282]:
+                    - generic [ref=f5e7283]: Block Rate
+                    - generic [ref=f5e7287]: 1.7%
+                    - generic [ref=f5e7288]: of requests
+                  - generic [ref=f5e7290]:
+                    - generic [ref=f5e7291]: Refused Responses
+                    - generic [ref=f5e7297]: "0"
+                    - generic [ref=f5e7298]: 24h
+                  - generic [ref=f5e7300]:
+                    - generic [ref=f5e7301]: DLP Events
+                    - generic [ref=f5e7307]: "27"
+                    - generic [ref=f5e7308]: 24h
+                - generic [ref=f5e7309]:
+                  - generic [ref=f5e7310]: Policy Violations Over Time
+                  - application [ref=f5e7318]:
+                    - generic [ref=f5e7337]:
+                      - generic [ref=f5e7338]:
+                        - generic [ref=f5e7339]: 2026-08-17T18:00:00+00:00
+                        - generic [ref=f5e7341]: 2026-08-17T23:00:00+00:00
+                        - generic [ref=f5e7343]: 2026-08-18T04:00:00+00:00
+                        - generic [ref=f5e7345]: 2026-08-18T09:00:00+00:00
+                        - generic [ref=f5e7347]: 2026-08-18T16:00:00+00:00
+                      - generic [ref=f5e7349]:
+                        - generic [ref=f5e7350]: "0"
+                        - generic [ref=f5e7352]: "15"
+                        - generic [ref=f5e7354]: "30"
+                        - generic [ref=f5e7356]: "45"
+                        - generic [ref=f5e7358]: "60"
+                - generic [ref=f5e7360]:
+                  - generic [ref=f5e7361]:
+                    - generic [ref=f5e7362]: Policy Enforcement Flow (24h)
+                    - paragraph [ref=f5e7365]: AIdome firewall inspects prompts before they reach the LLM and scans responses before they return to the client in the selected 24h window.
+                  - generic [ref=f5e7366]:
+                    - generic [ref=f5e7367]:
+                      - button "Client applications 59 requests" [ref=f5e7368]:
+                        - generic [ref=f5e7369]: Client
+                        - generic [ref=f5e7370]: applications
+                        - generic [ref=f5e7371]:
+                          - generic [ref=f5e7372]: "59"
+                          - generic [ref=f5e7373]: requests
+                      - generic [ref=f5e7374]:
+                        - generic [ref=f5e7375]:
+                          - generic [ref=f5e7376]: "59"
+                          - generic [ref=f5e7388]: requests
+                        - generic [ref=f5e7390]:
+                          - generic [ref=f5e7391]: "16"
+                          - generic [ref=f5e7403]: returned (−42 redacted)
+                      - button "AIdome Firewall pre-prompt · −1 blocked pre-prompt · −0 refused post-response · −42 redacted" [ref=f5e7405]:
+                        - generic [ref=f5e7406]: AIdome Firewall
+                        - generic [ref=f5e7408]:
+                          - generic [ref=f5e7409]: pre-prompt · −1 blocked
+                          - generic [ref=f5e7410]: pre-prompt · −0 refused
+                          - generic [ref=f5e7411]: post-response · −42 redacted
+                      - generic [ref=f5e7412]:
+                        - generic [ref=f5e7413]:
+                          - generic [ref=f5e7414]: "58"
+                          - generic [ref=f5e7426]: prompts forwarded
+                        - generic [ref=f5e7428]:
+                          - generic [ref=f5e7429]: "58"
+                          - generic [ref=f5e7441]: responses
+                      - button "LLM provider 58 responses" [ref=f5e7443]:
+                        - generic [ref=f5e7444]: LLM
+                        - generic [ref=f5e7445]: provider
+                        - generic [ref=f5e7446]:
+                          - generic [ref=f5e7447]: "58"
+                          - generic [ref=f5e7448]: responses
+                    - generic [ref=f5e7449]:
+                      - generic [ref=f5e7450]: request path
+                      - generic [ref=f5e7452]: LLM response
+                      - generic [ref=f5e7454]: returned to client
+                - generic [ref=f5e7456]:
+                  - generic [ref=f5e7457]:
+                    - generic [ref=f5e7458]:
+                      - generic [ref=f5e7459]: Policy Exposure
+                      - paragraph [ref=f5e7462]: Select a policy to see who triggered it most.
+                    - generic [ref=f5e7464]:
+                      - generic "Triggered policies" [ref=f5e7465]:
+                        - button "SWIFT/BIC Codes 14%" [pressed] [ref=f5e7466] [cursor=pointer]:
+                          - generic [ref=f5e7468]:
+                            - generic "SWIFT/BIC Codes" [ref=f5e7469]
+                            - generic [ref=f5e7470]: 14%
+                        - button "test4 allow \"test\" 12%" [ref=f5e7471] [cursor=pointer]:
+                          - generic [ref=f5e7473]:
+                            - generic "test4 allow \"test\"" [ref=f5e7474]
+                            - generic [ref=f5e7475]: 12%
+                        - button "MCP Tool Argument — Prompt Injection 10%" [ref=f5e7476] [cursor=pointer]:
+                          - generic [ref=f5e7478]:
+                            - generic "MCP Tool Argument — Prompt Injection" [ref=f5e7479]
+                            - generic [ref=f5e7480]: 10%
+                        - button "Email Addresses 8%" [ref=f5e7481] [cursor=pointer]:
+                          - generic [ref=f5e7483]:
+                            - generic "Email Addresses" [ref=f5e7484]
+                            - generic [ref=f5e7485]: 8%
+                        - button "test 7%" [ref=f5e7486] [cursor=pointer]:
+                          - generic [ref=f5e7488]:
+                            - generic "test" [ref=f5e7489]
+                            - generic [ref=f5e7490]: 7%
+                        - button "IP Addresses 5%" [ref=f5e7491] [cursor=pointer]:
+                          - generic [ref=f5e7493]:
+                            - generic "IP Addresses" [ref=f5e7494]
+                            - generic [ref=f5e7495]: 5%
+                        - button "Address (home/physical/postal) 3%" [ref=f5e7496] [cursor=pointer]:
+                          - generic [ref=f5e7498]:
+                            - generic "Address (home/physical/postal)" [ref=f5e7499]
+                            - generic [ref=f5e7500]: 3%
+                        - button "Card Security Codes 3%" [ref=f5e7501] [cursor=pointer]:
+                          - generic [ref=f5e7503]:
+                            - generic "Card Security Codes" [ref=f5e7504]
+                            - generic [ref=f5e7505]: 3%
+                        - button "Credit Card — Visa 3%" [ref=f5e7506] [cursor=pointer]:
+                          - generic [ref=f5e7508]:
+                            - generic "Credit Card — Visa" [ref=f5e7509]
+                            - generic [ref=f5e7510]: 3%
+                        - button "NPI Numbers 3%" [ref=f5e7511] [cursor=pointer]:
+                          - generic [ref=f5e7513]:
+                            - generic "NPI Numbers" [ref=f5e7514]
+                            - generic [ref=f5e7515]: 3%
+                        - button "US ABA Bank Routing Number 3%" [ref=f5e7516] [cursor=pointer]:
+                          - generic [ref=f5e7518]:
+                            - generic "US ABA Bank Routing Number" [ref=f5e7519]
+                            - generic [ref=f5e7520]: 3%
+                        - button "test3 keywords 3%" [ref=f5e7521] [cursor=pointer]:
+                          - generic [ref=f5e7523]:
+                            - generic "test3 keywords" [ref=f5e7524]
+                            - generic [ref=f5e7525]: 3%
+                        - button "Vehicle License Plates 3%" [ref=f5e7526] [cursor=pointer]:
+                          - generic [ref=f5e7528]:
+                            - generic "Vehicle License Plates" [ref=f5e7529]
+                            - generic [ref=f5e7530]: 3%
+                        - button "SSN 3%" [ref=f5e7531] [cursor=pointer]:
+                          - generic [ref=f5e7533]:
+                            - generic "SSN" [ref=f5e7534]
+                            - generic [ref=f5e7535]: 3%
+                        - button "Health & Medical Data 3%" [ref=f5e7536] [cursor=pointer]:
+                          - generic [ref=f5e7538]:
+                            - generic "Health & Medical Data" [ref=f5e7539]
+                            - generic [ref=f5e7540]: 3%
+                        - button "Phone Numbers 3%" [ref=f5e7541] [cursor=pointer]:
+                          - generic [ref=f5e7543]:
+                            - generic "Phone Numbers" [ref=f5e7544]
+                            - generic [ref=f5e7545]: 3%
+                        - button "Full Names 3%" [ref=f5e7546] [cursor=pointer]:
+                          - generic [ref=f5e7548]:
+                            - generic "Full Names" [ref=f5e7549]
+                            - generic [ref=f5e7550]: 3%
+                        - button "test2 2%" [ref=f5e7551] [cursor=pointer]:
+                          - generic [ref=f5e7553]:
+                            - generic "test2" [ref=f5e7554]
+                            - generic [ref=f5e7555]: 2%
+                        - button "URLs 2%" [ref=f5e7556] [cursor=pointer]:
+                          - generic [ref=f5e7558]:
+                            - generic "URLs" [ref=f5e7559]
+                            - generic [ref=f5e7560]: 2%
+                        - button "Passport Numbers 2%" [ref=f5e7561] [cursor=pointer]:
+                          - generic [ref=f5e7563]:
+                            - generic "Passport Numbers" [ref=f5e7564]
+                            - generic [ref=f5e7565]: 2%
+                        - button "US Bank Account Number 2%" [ref=f5e7566] [cursor=pointer]:
+                          - generic [ref=f5e7568]:
+                            - generic "US Bank Account Number" [ref=f5e7569]
+                            - generic [ref=f5e7570]: 2%
+                      - generic [ref=f5e7571]:
+                        - generic [ref=f5e7572]:
+                          - generic [ref=f5e7573]:
+                            - paragraph [ref=f5e7574]: Top People
+                            - heading "SWIFT/BIC Codes" [level=3] [ref=f5e7575]
+                          - generic [ref=f5e7576]: 14% of events
+                        - table [ref=f5e7578]:
+                          - rowgroup [ref=f5e7579]:
+                            - row [ref=f5e7580]:
+                              - columnheader "#" [ref=f5e7581]
+                              - columnheader "User" [ref=f5e7582]
+                              - columnheader "Violations" [ref=f5e7583]
+                              - columnheader "Last Action" [ref=f5e7584]
+                              - columnheader "Last Flagged" [ref=f5e7585]
+                          - rowgroup [ref=f5e7586]:
+                            - row [ref=f5e7587]:
+                              - cell "1" [ref=f5e7588]
+                              - cell "shlomid@aidome.co" [ref=f5e7589]
+                              - cell "6" [ref=f5e7590]
+                              - cell "REDACT" [ref=f5e7591]
+                              - cell "1h ago" [ref=f5e7593]
+                            - row [ref=f5e7594]:
+                              - cell "2" [ref=f5e7595]
+                              - cell "admin@aidome.co" [ref=f5e7596]
+                              - cell "2" [ref=f5e7597]
+                              - cell "REDACT" [ref=f5e7598]
+                              - cell "1h ago" [ref=f5e7600]
+                  - generic [ref=f5e7601]:
+                    - generic [ref=f5e7602]:
+                      - generic [ref=f5e7603]: Policy Category Breakdown
+                      - tablist [ref=f5e7607]:
+                        - tab "By action" [selected] [ref=f5e7608] [cursor=pointer]
+                        - tab "By category" [ref=f5e7609] [cursor=pointer]
+                    - generic [ref=f5e7610]:
+                      - generic [ref=f5e7612]:
+                        - generic "REDACT" [ref=f5e7613]
+                        - generic [ref=f5e7614]: 71.2%
+                      - generic [ref=f5e7618]:
+                        - generic "WARNING" [ref=f5e7619]
+                        - generic [ref=f5e7620]: 15.3%
+                      - generic [ref=f5e7624]:
+                        - generic "ALLOW" [ref=f5e7625]
+                        - generic [ref=f5e7626]: 11.9%
+                      - generic [ref=f5e7630]:
+                        - generic "BLOCK" [ref=f5e7631]
+                        - generic [ref=f5e7632]: 1.7%
+                - generic [ref=f5e7635]:
+                  - generic [ref=f5e7636]:
+                    - generic [ref=f5e7637]: Top Policy Users
+                    - table [ref=f5e7645]:
+                      - rowgroup [ref=f5e7646]:
+                        - row [ref=f5e7647]:
+                          - columnheader "User" [ref=f5e7648]
+                          - columnheader "Violations" [ref=f5e7649]
+                          - columnheader "Top Policy" [ref=f5e7650]
+                          - columnheader "Last Flagged" [ref=f5e7651]
+                      - rowgroup [ref=f5e7652]:
+                        - row [ref=f5e7653]:
+                          - cell "shlomid@aidome.co" [ref=f5e7654]
+                          - cell "40" [ref=f5e7655]
+                          - cell "test4 allow \"test\"" [ref=f5e7656]
+                          - cell "1h ago" [ref=f5e7657]
+                        - row [ref=f5e7658]:
+                          - cell "admin@aidome.co" [ref=f5e7659]
+                          - cell "9" [ref=f5e7660]
+                          - cell "MCP Tool Argument — Prompt Injection" [ref=f5e7661]
+                          - cell "1m ago" [ref=f5e7662]
+                        - row [ref=f5e7663]:
+                          - cell "maort@aidome.co" [ref=f5e7664]
+                          - cell "3" [ref=f5e7665]
+                          - cell "Email Addresses" [ref=f5e7666]
+                          - cell "3h ago" [ref=f5e7667]
+                  - generic [ref=f5e7668]:
+                    - generic [ref=f5e7669]: DLP Events Breakdown
+                    - generic [ref=f5e7676]:
+                      - generic [ref=f5e7678]:
+                        - generic "Vehicle License Plates" [ref=f5e7679]
+                        - generic [ref=f5e7680]: 7.4%
+                      - generic [ref=f5e7684]:
+                        - generic "Card Security Codes" [ref=f5e7685]
+                        - generic [ref=f5e7686]: 7.4%
+                      - generic [ref=f5e7690]:
+                        - generic "Credit Card — Visa" [ref=f5e7691]
+                        - generic [ref=f5e7692]: 7.4%
+                      - generic [ref=f5e7696]:
+                        - generic "Email Addresses" [ref=f5e7697]
+                        - generic [ref=f5e7698]: 7.4%
+                      - generic [ref=f5e7702]:
+                        - generic "Full Names" [ref=f5e7703]
+                        - generic [ref=f5e7704]: 7.4%
+                      - generic [ref=f5e7708]:
+                        - generic "Health & Medical Data" [ref=f5e7709]
+                        - generic [ref=f5e7710]: 7.4%
+                      - generic [ref=f5e7714]:
+                        - generic "IP Addresses" [ref=f5e7715]
+                        - generic [ref=f5e7716]: 7.4%
+                      - generic [ref=f5e7720]:
+                        - generic "NPI Numbers" [ref=f5e7721]
+                        - generic [ref=f5e7722]: 7.4%
+                      - generic [ref=f5e7726]:
+                        - generic "SSN" [ref=f5e7727]
+                        - generic [ref=f5e7728]: 7.4%
+                      - generic [ref=f5e7732]:
+                        - generic "US ABA Bank Routing Number" [ref=f5e7733]
+                        - generic [ref=f5e7734]: 7.4%
+                      - generic [ref=f5e7738]:
+                        - generic "Address (home/physical/postal)" [ref=f5e7739]
+                        - generic [ref=f5e7740]: 7.4%
+                      - generic [ref=f5e7744]:
+                        - generic "Phone Numbers" [ref=f5e7745]
+                        - generic [ref=f5e7746]: 7.4%
+                      - generic [ref=f5e7750]:
+                        - generic "Passport Numbers" [ref=f5e7751]
+                        - generic [ref=f5e7752]: 3.7%
+                      - generic [ref=f5e7756]:
+                        - generic "URLs" [ref=f5e7757]
+                        - generic [ref=f5e7758]: 3.7%
+                      - generic [ref=f5e7762]:
+                        - generic "US Bank Account Number" [ref=f5e7763]
+                        - generic [ref=f5e7764]: 3.7%
+                - generic [ref=f5e7767]:
+                  - generic [ref=f5e7768]:
+                    - generic [ref=f5e7769]: Severity Distribution
+                    - generic [ref=f5e7774]:
+                      - img "Severity distribution donut chart 3 severity levels are represented. MEDIUM accounts for 86.4% of events. LOW accounts for 11.9% of events. HIGH accounts for 1.7% of events." [ref=f5e7776]
+                      - generic [ref=f5e7781]:
+                        - generic [ref=f5e7782]:
+                          - generic [ref=f5e7784]: MEDIUM
+                          - generic [ref=f5e7785]: 86.4%
+                        - generic [ref=f5e7786]:
+                          - generic [ref=f5e7788]: LOW
+                          - generic [ref=f5e7789]: 11.9%
+                        - generic [ref=f5e7790]:
+                          - generic [ref=f5e7792]: HIGH
+                          - generic [ref=f5e7793]: 1.7%
+                  - generic [ref=f5e7794]:
+                    - generic [ref=f5e7795]: Violations by Category
+                    - generic [ref=f5e7800]:
+                      - generic [ref=f5e7802]:
+                        - term [ref=f5e7803]:
+                          - generic [ref=f5e7805]: Prompt Injection
+                        - definition [ref=f5e7806]: 6 (10.2%)
+                      - generic [ref=f5e7810]:
+                        - term [ref=f5e7811]:
+                          - generic [ref=f5e7813]: Content Safety
+                        - definition [ref=f5e7814]: 26 (44.1%)
+                      - generic [ref=f5e7818]:
+                        - term [ref=f5e7819]:
+                          - generic [ref=f5e7821]: DLP
+                        - definition [ref=f5e7822]: 27 (45.8%)
+                - generic [ref=f5e7825]:
+                  - generic [ref=f5e7826]: User Violations Activity
+                  - generic [ref=f5e7828]:
+                    - table [ref=f5e7830]:
+                      - rowgroup [ref=f5e7831]:
+                        - row [ref=f5e7832]:
+                          - columnheader "User" [ref=f5e7833]
+                          - columnheader "Violations" [ref=f5e7834]
+                          - columnheader "Blocks" [ref=f5e7835]
+                          - columnheader "DLP Events" [ref=f5e7836]
+                          - columnheader "Top Policy" [ref=f5e7837]
+                          - columnheader "Speed" [ref=f5e7838]
+                      - rowgroup [ref=f5e7839]:
+                        - row [ref=f5e7840]:
+                          - cell "shlomid@aidome.co" [ref=f5e7841]
+                          - cell "47" [ref=f5e7842]
+                          - cell "0" [ref=f5e7843]
+                          - cell "27" [ref=f5e7844]
+                          - cell "test4 allow \"test\"" [ref=f5e7845]
+                          - cell "Low" [ref=f5e7846]
+                        - row [ref=f5e7848]:
+                          - cell "admin@aidome.co" [ref=f5e7849]
+                          - cell "9" [ref=f5e7850]
+                          - cell "1" [ref=f5e7851]
+                          - cell "0" [ref=f5e7852]
+                          - cell "MCP Tool Argument — Prompt Injection" [ref=f5e7853]
+                          - cell "Low" [ref=f5e7854]
+                        - row [ref=f5e7856]:
+                          - cell "maort@aidome.co" [ref=f5e7857]
+                          - cell "3" [ref=f5e7858]
+                          - cell "0" [ref=f5e7859]
+                          - cell "0" [ref=f5e7860]
+                          - cell "Email Addresses" [ref=f5e7861]
+                          - cell "Low" [ref=f5e7862]
+                    - generic [ref=f5e7864]:
+                      - generic [ref=f5e7865]: Page 1 of 1 · Showing 3 of 3
+                      - generic [ref=f5e7866]:
+                        - button "Prev" [disabled]
+                        - button "Next" [disabled]
+  - generic [ref=f5e828]: 2026-08-17T20:00:00+00:00

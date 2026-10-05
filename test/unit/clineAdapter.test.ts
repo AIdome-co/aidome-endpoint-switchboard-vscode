@@ -170,8 +170,12 @@ describe('ClineAdapter', () => {
       expect(editSteps[0].newValue).toBe(mockProfile.baseUrl);
       expect(editSteps[0].data.driver).toBe('json-object');
       expect(editSteps[0].data.patches).toEqual(expect.arrayContaining([
-        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'baseUrl'], source: 'baseUrl' })
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'baseUrl'], source: 'baseUrl' }),
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'apiKey'], source: 'secret', removeWhenMissing: true })
       ]));
+      expect(editSteps[0].data.secretPolicy).toBe('target-persisted-at-apply');
+      expect(editSteps[0].data.authRef).toBe(mockProfile.name);
+      expect(editSteps[0].data.clearAuthWhenMissing).toBe(true);
       expect(editSteps[1].newValue).toBe(mockProfile.baseUrl);
       expect(editSteps[1].data.driver).toBe('json-object');
       expect(JSON.stringify(plan)).not.toContain('keep-this-provider');
@@ -296,13 +300,14 @@ describe('ClineAdapter', () => {
 
       expect(result).toEqual(expect.objectContaining({
         success: true,
-        message: 'Cline native provider configuration verified'
+        message: 'Cline native provider configuration verified (no API key set)'
       }));
       expect(result.details).toMatchObject({
         providerId: 'openai-compatible',
         planModeApiProvider: 'openai',
         actModeApiProvider: 'openai',
-        baseUrlConfigured: true
+        baseUrlConfigured: true,
+        apiKeyConfigured: false
       });
     });
 

@@ -1,0 +1,270 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - main [ref=f5e4]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e26]:
+          - generic [ref=f5e28]:
+            - button "Navigate to AIdome" [ref=f5e30] [cursor=pointer]:
+              - generic [ref=f5e31]: AIdome
+              - generic [ref=f5e32]: ™
+            - generic [ref=f5e35]:
+              - button "Switch to Desktop Experience" [ref=f5e36] [cursor=pointer]
+              - button "Switch to dark mode" [ref=f5e37] [cursor=pointer]
+          - generic [ref=f5e38]:
+            - generic [ref=f5e39]:
+              - generic [ref=f5e40]: Common
+              - list [ref=f5e41]:
+                - listitem [ref=f5e42]:
+                  - link "Dashboard" [ref=f5e43] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e50]:
+                  - link "Secure Workspace" [ref=f5e51] [cursor=pointer]:
+                    - /url: /admin/chat
+                - listitem [ref=f5e55]:
+                  - link "Projects" [ref=f5e56] [cursor=pointer]:
+                    - /url: /admin/projects
+                - listitem [ref=f5e60]:
+                  - link "Knowledge Base" [ref=f5e61] [cursor=pointer]:
+                    - /url: /admin/knowledge
+                - listitem [ref=f5e65]:
+                  - link "My Account" [ref=f5e66] [cursor=pointer]:
+                    - /url: /admin/me
+            - generic [ref=f5e71]:
+              - generic [ref=f5e72]: Security & Control
+              - list [ref=f5e73]:
+                - listitem [ref=f5e75]:
+                  - button "LLM Configuration" [ref=f5e76] [cursor=pointer]
+                - listitem [ref=f5e84]:
+                  - button "Governance" [ref=f5e85] [cursor=pointer]
+                - listitem [ref=f5e93]:
+                  - button "GenAI Firewall" [ref=f5e94] [cursor=pointer]
+                - listitem [ref=f5e101]:
+                  - button "AI Gateway" [ref=f5e102] [cursor=pointer]
+                - listitem [ref=f5e109]:
+                  - link "MCP Gateway" [ref=f5e110] [cursor=pointer]:
+                    - /url: /admin/ai-gateway/mcp
+            - generic [ref=f5e116]:
+              - generic [ref=f5e117]: Discovery & Visibility
+              - list [ref=f5e118]:
+                - listitem [ref=f5e119]:
+                  - button "AI Discovery" [disabled]:
+                    - generic: Soon
+                - listitem [ref=f5e121]:
+                  - button "Monitoring" [expanded] [ref=f5e122] [cursor=pointer]
+                  - list [ref=f5e129]:
+                    - listitem [ref=f5e130]:
+                      - link "GenAI Firewall" [ref=f5e131] [cursor=pointer]:
+                        - /url: /admin/monitoring/genai-firewall
+                    - listitem [ref=f5e132]:
+                      - link "AI Gateway" [ref=f5e133] [cursor=pointer]:
+                        - /url: /admin/monitoring/ai-gateway
+                    - listitem [ref=f5e134]:
+                      - link "Usage Analytics" [ref=f5e135] [cursor=pointer]:
+                        - /url: /admin/monitoring/api-key-usage
+                    - listitem [ref=f5e136]:
+                      - link "System Health" [ref=f5e137] [cursor=pointer]:
+                        - /url: /admin/monitoring/system-health
+                    - listitem [ref=f5e138]:
+                      - link "Cost & Usage" [ref=f5e139] [cursor=pointer]:
+                        - /url: /admin/monitoring/cost-usage
+                - listitem [ref=f5e141]:
+                  - button "Logs" [ref=f5e142] [cursor=pointer]
+            - generic [ref=f5e149]:
+              - generic [ref=f5e150]: Administration
+              - list [ref=f5e151]:
+                - listitem [ref=f5e153]:
+                  - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+                - listitem [ref=f5e163]:
+                  - link "Organization" [ref=f5e164] [cursor=pointer]:
+                    - /url: /admin/organization
+                - listitem [ref=f5e171]:
+                  - button "Authentication" [ref=f5e172] [cursor=pointer]
+                - listitem [ref=f5e180]:
+                  - button "Settings" [ref=f5e181] [cursor=pointer]
+          - generic [ref=f5e188]:
+            - generic [ref=f5e195]:
+              - paragraph [ref=f5e196]: admin@aidome.co
+              - generic [ref=f5e197]: Administrator
+            - generic [ref=f5e201]:
+              - generic [ref=f5e202]:
+                - generic [ref=f5e203]: Powered by
+                - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                  - generic [ref=f5e205]: AIdome
+                  - generic [ref=f5e206]: ™
+              - button "Sign out" [ref=f5e209] [cursor=pointer]
+          - button "Collapse sidebar" [ref=f5e214]
+        - generic [ref=f5e225]:
+          - generic [ref=f5e227]:
+            - navigation "breadcrumb" [ref=f5e228]:
+              - list [ref=f5e229]:
+                - listitem [ref=f5e230]:
+                  - link "Admin" [ref=f5e231] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e232]
+                - listitem [ref=f5e235]:
+                  - link "Monitoring" [ref=f5e236] [cursor=pointer]:
+                    - /url: /admin/monitoring
+                - listitem [ref=f5e237]
+                - listitem [ref=f5e1292]:
+                  - generic [ref=f5e1293]: AI Gateway
+            - heading "AI Gateway" [level=1] [ref=f5e1294]
+            - paragraph [ref=f5e244]: Detailed metrics for AI Gateway traffic, AI tools, tool-call activity, and per-user usage.
+          - tabpanel [ref=f5e1590]:
+            - generic [ref=f5e1592]:
+              - generic [ref=f5e1595]:
+                - generic [ref=f5e1596]: "Time:"
+                - combobox [ref=f5e1597] [cursor=pointer]:
+                  - generic: 7d
+              - generic [ref=f5e1600]:
+                - generic [ref=f5e1601]: "Provider:"
+                - combobox [ref=f5e1602] [cursor=pointer]:
+                  - generic: All
+              - generic [ref=f5e1605]:
+                - generic [ref=f5e1606]: "AI Tool:"
+                - combobox [ref=f5e1607] [cursor=pointer]:
+                  - generic: All
+              - generic [ref=f5e1610]:
+                - generic [ref=f5e1611]: "Category:"
+                - combobox [ref=f5e1612] [cursor=pointer]:
+                  - generic: All
+              - generic [ref=f5e1615]:
+                - generic [ref=f5e1616]: "User:"
+                - combobox [ref=f5e1617] [cursor=pointer]:
+                  - generic: All
+              - generic [ref=f5e1621]:
+                - button "Auto-refresh every 30s" [ref=f5e1622]: Auto-refresh 30s
+                - generic [ref=f5e1624]: Updated just now
+                - button "Refresh now" [ref=f5e1625] [cursor=pointer]:
+                  - generic [ref=f5e1626]: Refresh
+            - generic [ref=f5e1627]:
+              - generic [ref=f5e1629]:
+                - generic [ref=f5e1630]: Requests
+                - generic [ref=f5e1634]: "1"
+                - generic [ref=f5e1635]: 7d
+              - generic [ref=f5e1637]:
+                - generic [ref=f5e1638]: Avg Response
+                - generic [ref=f5e1643]: 345ms
+                - generic [ref=f5e1644]: Mostly fast
+              - generic [ref=f5e1646]:
+                - generic [ref=f5e1647]: Error Rate
+                - generic [ref=f5e1651]: 0%
+                - generic [ref=f5e1652]: in period
+              - generic [ref=f5e1654]:
+                - generic [ref=f5e1655]: Tokens
+                - generic [ref=f5e1662]: "0"
+                - generic [ref=f5e1663]: $0.00
+            - generic [ref=f5e1664]:
+              - generic [ref=f5e1665]: Tool Calls Over Time
+              - generic [ref=f5e1672]:
+                - list [ref=f5e1674]:
+                  - listitem [ref=f5e1675]:
+                    - img "edit legend icon" [ref=f5e1676]
+                    - text: edit
+                  - listitem [ref=f5e1678]:
+                    - img "execute legend icon" [ref=f5e1679]
+                    - text: execute
+                  - listitem [ref=f5e1681]:
+                    - img "read legend icon" [ref=f5e1682]
+                    - text: read
+                  - listitem [ref=f5e1684]:
+                    - img "search legend icon" [ref=f5e1685]
+                    - text: search
+                  - listitem [ref=f5e1687]:
+                    - img "web legend icon" [ref=f5e1688]
+                    - text: web
+                - application [ref=f5e1690]:
+                  - generic [ref=f5e1700]:
+                    - generic [ref=f5e1701]: 2026-08-14T00:00:00+00:00
+                    - generic [ref=f5e1703]: 2026-08-16T00:00:00+00:00
+                    - generic [ref=f5e1705]: 2026-08-18T00:00:00+00:00
+            - generic [ref=f5e1707]:
+              - generic [ref=f5e1708]:
+                - generic [ref=f5e1709]: Tool Governance Flow (24h)
+                - paragraph [ref=f5e1712]: AIdome sits between your client apps and the LLM. The top arrow is the request path; the bottom arrow is the response. Hover any box or arrow for details.
+              - generic [ref=f5e1713]: No tool activity in the selected window.
+            - generic [ref=f5e1714]:
+              - generic [ref=f5e1718]:
+                - generic [ref=f5e1719]: Response Speed
+                - paragraph [ref=f5e1723]: Average latency by tool - last window
+              - generic [ref=f5e1728]:
+                - generic [ref=f5e1729]: Token Usage
+                - paragraph [ref=f5e1735]: Top consumers - last window
+            - generic [ref=f5e1737]:
+              - generic [ref=f5e1738]:
+                - generic [ref=f5e1739]:
+                  - generic [ref=f5e1740]: Top Tools Called (24h)
+                  - paragraph [ref=f5e1743]: Tool calls executed by the client after AIdome forwarded the LLM response — ranked by invocation count.
+                - generic [ref=f5e1744]: No tool calls in the selected window.
+              - generic [ref=f5e1746]:
+                - generic [ref=f5e1747]:
+                  - generic [ref=f5e1748]: Top Tools Blocked (24h)
+                  - paragraph [ref=f5e1751]: Tool definitions AIdome stripped from the request before the LLM saw them - ranked by block count.
+                - generic [ref=f5e1752]: No tools were blocked in the selected window.
+            - generic [ref=f5e1754]:
+              - generic [ref=f5e1755]:
+                - generic [ref=f5e1756]:
+                  - generic [ref=f5e1757]: Provider Distribution
+                  - paragraph [ref=f5e1758]: Where requests are routed - last window
+                - generic [ref=f5e1760]:
+                  - generic [ref=f5e1761]:
+                    - img "Provider distribution donut chart Top provider mcp accounts for 100% of requests." [ref=f5e1762]
+                    - generic: 100%
+                  - generic [ref=f5e1766]:
+                    - generic [ref=f5e1768]: mcp
+                    - generic [ref=f5e1769]: 100%
+              - generic [ref=f5e1770]:
+                - generic [ref=f5e1771]:
+                  - generic [ref=f5e1772]: Model Distribution
+                  - paragraph [ref=f5e1773]: Which models are used - last window
+                - generic [ref=f5e1775]:
+                  - generic [ref=f5e1776]:
+                    - img "Model distribution donut chart Top model mcp accounts for 100% of requests." [ref=f5e1777]
+                    - generic: 100%
+                  - generic [ref=f5e1781]:
+                    - generic [ref=f5e1783]: mcp
+                    - generic [ref=f5e1784]: 100%
+            - generic [ref=f5e1785]:
+              - generic [ref=f5e1787]:
+                - text: Errors Over Time
+                - generic [ref=f5e1790]: (0.00% avg)
+              - application [ref=f5e1795]:
+                - generic [ref=f5e1816]:
+                  - generic [ref=f5e1817]:
+                    - generic [ref=f5e1818]: 2026-08-14T00:00:00+00:00
+                    - generic [ref=f5e1820]: 2026-08-16T00:00:00+00:00
+                    - generic [ref=f5e1822]: 2026-08-18T00:00:00+00:00
+                  - generic [ref=f5e1824]:
+                    - generic [ref=f5e1825]: 0%
+                    - generic [ref=f5e1827]: 0.15%
+                    - generic [ref=f5e1829]: 0.3%
+                    - generic [ref=f5e1831]: 0.5%
+            - generic [ref=f5e1833]:
+              - generic [ref=f5e1834]: User Activity by Tool
+              - generic [ref=f5e1836]:
+                - table [ref=f5e1838]:
+                  - rowgroup [ref=f5e1839]:
+                    - row [ref=f5e1840]:
+                      - columnheader "User" [ref=f5e1841]
+                      - columnheader "AI Tool" [ref=f5e1842]
+                      - columnheader "Reqs" [ref=f5e1843]
+                      - columnheader "Tokens" [ref=f5e1844]
+                      - columnheader "Tool Calls" [ref=f5e1845]
+                      - columnheader "Blocked" [ref=f5e1846]
+                      - columnheader "Speed" [ref=f5e1850]
+                  - rowgroup [ref=f5e1851]:
+                    - row [ref=f5e1852]:
+                      - cell "benjamins@aidome.co" [ref=f5e1853]
+                      - cell "—" [ref=f5e1854]
+                      - cell "1" [ref=f5e1855]
+                      - cell "0" [ref=f5e1856]
+                      - cell "0 (0%)" [ref=f5e1857]
+                      - cell "0" [ref=f5e1858]
+                      - cell "speed 🟢" [ref=f5e1859]: 🟢
+                - generic [ref=f5e1860]:
+                  - generic [ref=f5e1861]: Page 1 of 1 • Showing 1 of 1
+                  - generic [ref=f5e1862]:
+                    - button "Prev" [disabled]
+                    - button "Next" [disabled]
+  - generic [ref=f5e828]: 2026-08-12T00:00:00+00:00

@@ -1,0 +1,448 @@
+- generic [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - link "Skip to main content" [ref=f5e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - main [ref=f5e4]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e26]:
+          - generic [ref=f5e28]:
+            - button "Navigate to AIdome" [ref=f5e30] [cursor=pointer]:
+              - generic [ref=f5e31]: AIdome
+              - generic [ref=f5e32]: ™
+            - generic [ref=f5e35]:
+              - button "Switch to Desktop Experience" [ref=f5e36] [cursor=pointer]
+              - button "Switch to dark mode" [ref=f5e37] [cursor=pointer]
+          - generic [ref=f5e38]:
+            - generic [ref=f5e39]:
+              - generic [ref=f5e40]: Common
+              - list [ref=f5e41]:
+                - listitem [ref=f5e42]:
+                  - link "Dashboard" [ref=f5e43] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e50]:
+                  - link "Secure Workspace" [ref=f5e51] [cursor=pointer]:
+                    - /url: /admin/chat
+                - listitem [ref=f5e55]:
+                  - link "Projects" [ref=f5e56] [cursor=pointer]:
+                    - /url: /admin/projects
+                - listitem [ref=f5e60]:
+                  - link "Knowledge Base" [ref=f5e61] [cursor=pointer]:
+                    - /url: /admin/knowledge
+                - listitem [ref=f5e65]:
+                  - link "My Account" [ref=f5e66] [cursor=pointer]:
+                    - /url: /admin/me
+            - generic [ref=f5e71]:
+              - generic [ref=f5e72]: Security & Control
+              - list [ref=f5e73]:
+                - listitem [ref=f5e75]:
+                  - button "LLM Configuration" [ref=f5e76] [cursor=pointer]
+                - listitem [ref=f5e84]:
+                  - button "Governance" [ref=f5e85] [cursor=pointer]
+                - listitem [ref=f5e93]:
+                  - button "GenAI Firewall" [ref=f5e94] [cursor=pointer]
+                - listitem [ref=f5e101]:
+                  - button "AI Gateway" [ref=f5e102] [cursor=pointer]
+                - listitem [ref=f5e109]:
+                  - link "MCP Gateway" [ref=f5e110] [cursor=pointer]:
+                    - /url: /admin/ai-gateway/mcp
+            - generic [ref=f5e116]:
+              - generic [ref=f5e117]: Discovery & Visibility
+              - list [ref=f5e118]:
+                - listitem [ref=f5e119]:
+                  - button "AI Discovery" [disabled]:
+                    - generic: Soon
+                - listitem [ref=f5e121]:
+                  - button "Monitoring" [expanded] [ref=f5e122] [cursor=pointer]
+                  - list [ref=f5e129]:
+                    - listitem [ref=f5e130]:
+                      - link "GenAI Firewall" [ref=f5e131] [cursor=pointer]:
+                        - /url: /admin/monitoring/genai-firewall
+                    - listitem [ref=f5e132]:
+                      - link "AI Gateway" [ref=f5e133] [cursor=pointer]:
+                        - /url: /admin/monitoring/ai-gateway
+                    - listitem [ref=f5e134]:
+                      - link "Usage Analytics" [ref=f5e135] [cursor=pointer]:
+                        - /url: /admin/monitoring/api-key-usage
+                    - listitem [ref=f5e136]:
+                      - link "System Health" [ref=f5e137] [cursor=pointer]:
+                        - /url: /admin/monitoring/system-health
+                    - listitem [ref=f5e138]:
+                      - link "Cost & Usage" [active] [ref=f5e139] [cursor=pointer]:
+                        - /url: /admin/monitoring/cost-usage
+                - listitem [ref=f5e141]:
+                  - button "Logs" [ref=f5e142] [cursor=pointer]
+            - generic [ref=f5e149]:
+              - generic [ref=f5e150]: Administration
+              - list [ref=f5e151]:
+                - listitem [ref=f5e153]:
+                  - button "Users & Groups" [ref=f5e154] [cursor=pointer]
+                - listitem [ref=f5e163]:
+                  - link "Organization" [ref=f5e164] [cursor=pointer]:
+                    - /url: /admin/organization
+                - listitem [ref=f5e171]:
+                  - button "Authentication" [ref=f5e172] [cursor=pointer]
+                - listitem [ref=f5e180]:
+                  - button "Settings" [ref=f5e181] [cursor=pointer]
+          - generic [ref=f5e188]:
+            - generic [ref=f5e195]:
+              - paragraph [ref=f5e196]: admin@aidome.co
+              - generic [ref=f5e197]: Administrator
+            - generic [ref=f5e201]:
+              - generic [ref=f5e202]:
+                - generic [ref=f5e203]: Powered by
+                - button "Navigate to AIdome" [ref=f5e204] [cursor=pointer]:
+                  - generic [ref=f5e205]: AIdome
+                  - generic [ref=f5e206]: ™
+              - button "Sign out" [ref=f5e209] [cursor=pointer]
+          - button "Collapse sidebar" [ref=f5e214]
+        - generic [ref=f5e5371]:
+          - generic [ref=f5e5373]:
+            - navigation "breadcrumb" [ref=f5e5374]:
+              - list [ref=f5e5375]:
+                - listitem [ref=f5e5376]:
+                  - link "Admin" [ref=f5e5377] [cursor=pointer]:
+                    - /url: /admin/dashboard
+                - listitem [ref=f5e5378]
+                - listitem [ref=f5e5381]:
+                  - link "Monitoring" [ref=f5e5382] [cursor=pointer]:
+                    - /url: /admin/monitoring
+                - listitem [ref=f5e5383]
+                - listitem [ref=f5e6611]:
+                  - generic [ref=f5e6612]: Cost & Usage
+            - heading "Cost & Usage" [level=1] [ref=f5e6613]
+            - paragraph [ref=f5e5390]: Track LLM spend, token usage, anomalies, and monthly budget across providers and models.
+          - tabpanel [ref=f5e6614]:
+            - generic [ref=f5e6617]:
+              - generic [ref=f5e6618]:
+                - generic [ref=f5e6619]: Period
+                - combobox "Period" [ref=f5e6620]:
+                  - option "Last 24h"
+                  - option "Last 7 days" [selected]
+                  - option "Last 30 days"
+                  - option "Last 90 days"
+              - generic [ref=f5e6621]:
+                - generic [ref=f5e6622]: Provider
+                - combobox "Provider" [ref=f5e6623]:
+                  - option "All providers" [selected]
+                  - option "anthropic"
+                  - option "mcp"
+                  - option "openai"
+                  - option "openrouter"
+              - generic [ref=f5e6624]:
+                - generic [ref=f5e6625]: Model
+                - combobox "Model" [ref=f5e6626]:
+                  - option "All models" [selected]
+                  - option "claude-haiku-4-5-20251001"
+                  - option "claude-sonnet-4-6"
+                  - option "deepseek/deepseek-v4-flash-0731"
+                  - option "google/gemini-3-pro-image-preview"
+                  - option "gpt-5.4"
+                  - option "gpt-image-1"
+                  - option "mcp"
+                  - option "openai/gpt-5.4"
+                  - option "qwen/qwen3-32b"
+              - generic [ref=f5e6627]:
+                - generic [ref=f5e6628]: User
+                - combobox "User" [ref=f5e6629]:
+                  - option "All users" [selected]
+                  - option "lironp@aidome.co"
+                  - option "maort@aidome.co"
+                  - option "benjamins@aidome.co"
+                  - option "shlomid@aidome.co"
+                  - option "admin@aidome.co"
+                  - option "afc3c290-805b-4406-bb5b-d52ff739b50a"
+              - generic [ref=f5e6630]:
+                - generic [ref=f5e6631]: Monthly Budget (USD)
+                - generic [ref=f5e6632]:
+                  - spinbutton "Monthly Budget" [ref=f5e6633]: "50"
+                  - button "Save budget" [disabled]: Save
+            - generic [ref=f5e6634]:
+              - generic [ref=f5e6636]:
+                - generic [ref=f5e6637]: Total Spend
+                - generic [ref=f5e6641]: $1.12
+              - generic [ref=f5e6643]:
+                - generic [ref=f5e6644]: Daily Avg
+                - generic [ref=f5e6649]: $0.16
+              - generic [ref=f5e6651]:
+                - generic [ref=f5e6652]: Tokens Consumed
+                - generic [ref=f5e6659]: 394,958
+              - generic [ref=f5e6661]:
+                - generic [ref=f5e6662]: Requests
+                - generic [ref=f5e6666]: "113"
+              - generic [ref=f5e6668]:
+                - generic [ref=f5e6669]: Anomaly
+                - generic [ref=f5e6673]:
+                  - generic [ref=f5e6674]: "1.00"
+                  - generic [ref=f5e6675]: Anomaly
+            - generic [ref=f5e6676]:
+              - generic [ref=f5e6677]: Compared with previous period
+              - generic [ref=f5e6680]:
+                - generic [ref=f5e6681]:
+                  - term [ref=f5e6682]: Spend
+                  - definition [ref=f5e6683]: $1.12
+                  - generic [ref=f5e6684]:
+                    - generic [ref=f5e6685]: "Previous: $0.06"
+                    - generic [ref=f5e6686]: +$1.06 (+1,802.6%)
+                - generic [ref=f5e6690]:
+                  - term [ref=f5e6691]: Tokens
+                  - definition [ref=f5e6692]: 394,958
+                  - generic [ref=f5e6693]:
+                    - generic [ref=f5e6694]: "Previous: 23,018"
+                    - generic [ref=f5e6695]: +371,940 (+1,615.9%)
+                - generic [ref=f5e6699]:
+                  - term [ref=f5e6700]: Requests
+                  - definition [ref=f5e6701]: "113"
+                  - generic [ref=f5e6702]:
+                    - generic [ref=f5e6703]: "Previous: 15"
+                    - generic [ref=f5e6704]: +98 (+653.3%)
+            - generic [ref=f5e6708]:
+              - generic [ref=f5e6709]:
+                - generic [ref=f5e6710]: Monthly Budget
+                - generic [ref=f5e6717]:
+                  - generic [ref=f5e6718]:
+                    - generic [ref=f5e6719]: $1.26 spent of $50.00
+                    - generic [ref=f5e6720]: 2.5% used
+                  - generic [ref=f5e6723]:
+                    - generic [ref=f5e6724]:
+                      - generic [ref=f5e6725]: Projected end-of-month
+                      - generic [ref=f5e6726]: $2.17
+                    - generic [ref=f5e6727]:
+                      - generic [ref=f5e6728]: Days left
+                      - generic [ref=f5e6729]: "13"
+                    - generic [ref=f5e6730]:
+                      - generic [ref=f5e6731]: Status
+                      - generic [ref=f5e6732]: ✓ On track
+              - generic [ref=f5e6733]:
+                - generic [ref=f5e6734]: Cost by Provider
+                - generic [ref=f5e6741]:
+                  - generic [ref=f5e6742]:
+                    - generic [ref=f5e6744]: anthropic
+                    - generic [ref=f5e6747]: $1.08
+                  - generic [ref=f5e6748]:
+                    - generic [ref=f5e6750]: openai
+                    - generic [ref=f5e6753]: $0.04
+                  - generic [ref=f5e6754]:
+                    - generic [ref=f5e6756]: openrouter
+                    - generic [ref=f5e6759]: $0.01
+                  - generic [ref=f5e6760]:
+                    - generic [ref=f5e6762]: mcp
+                    - generic [ref=f5e6764]: $0.00
+            - generic [ref=f5e6765]:
+              - generic [ref=f5e6766]:
+                - generic [ref=f5e6767]: Spend Over Time
+                - application [ref=f5e6776]:
+                  - generic [ref=f5e6798]:
+                    - generic [ref=f5e6799]:
+                      - generic [ref=f5e6800]: 2026-08-13
+                      - generic [ref=f5e6802]: 2026-08-14
+                      - generic [ref=f5e6804]: 2026-08-16
+                      - generic [ref=f5e6806]: 2026-08-18
+                    - generic [ref=f5e6808]:
+                      - generic [ref=f5e6809]: "0"
+                      - generic [ref=f5e6811]: "0.25"
+                      - generic [ref=f5e6813]: "0.5"
+                      - generic [ref=f5e6815]: "0.75"
+                      - generic [ref=f5e6817]: "1"
+              - generic [ref=f5e6819]:
+                - generic [ref=f5e6820]: Requests Over Time
+                - generic [ref=f5e6824]:
+                  - application [ref=f5e6828]:
+                    - generic [ref=f5e6853]:
+                      - generic [ref=f5e6854]:
+                        - generic [ref=f5e6855]: 2026-08-13
+                        - generic [ref=f5e6857]: 2026-08-14
+                        - generic [ref=f5e6859]: 2026-08-16
+                        - generic [ref=f5e6861]: 2026-08-18
+                      - generic [ref=f5e6863]:
+                        - generic [ref=f5e6864]: "0"
+                        - generic [ref=f5e6866]: "90000"
+                        - generic [ref=f5e6868]: "180000"
+                        - generic [ref=f5e6870]: "270000"
+                        - generic [ref=f5e6872]: "360000"
+                  - generic [ref=f5e6874]:
+                    - generic [ref=f5e6875]: Requests (113)
+                    - generic [ref=f5e6877]: Tokens (394,958)
+            - generic [ref=f5e6879]:
+              - generic [ref=f5e6880]: Model Distribution
+              - generic [ref=f5e6886]:
+                - application [ref=f5e6890]
+                - generic [ref=f5e6912]:
+                  - generic [ref=f5e6913]:
+                    - generic "claude-haiku-4-5-20251001" [ref=f5e6915]
+                    - generic [ref=f5e6918]: 89%
+                    - generic [ref=f5e6919]: 351,558
+                  - generic [ref=f5e6920]:
+                    - generic "claude-sonnet-4-6" [ref=f5e6922]
+                    - generic [ref=f5e6925]: 11%
+                    - generic [ref=f5e6926]: 41,766
+                  - generic [ref=f5e6927]:
+                    - generic "deepseek/deepseek-v4-flash-0731" [ref=f5e6929]
+                    - generic [ref=f5e6932]: 0%
+                    - generic [ref=f5e6933]: "692"
+                  - generic [ref=f5e6934]:
+                    - generic "qwen/qwen3-32b" [ref=f5e6936]
+                    - generic [ref=f5e6939]: 0%
+                    - generic [ref=f5e6940]: "474"
+                  - generic [ref=f5e6941]:
+                    - generic "openai/gpt-5.4" [ref=f5e6943]
+                    - generic [ref=f5e6946]: 0%
+                    - generic [ref=f5e6947]: "446"
+                  - generic [ref=f5e6948]:
+                    - generic "gpt-5.4" [ref=f5e6950]
+                    - generic [ref=f5e6952]: 0%
+                    - generic [ref=f5e6953]: "22"
+            - generic [ref=f5e6954]:
+              - generic [ref=f5e6955]:
+                - generic [ref=f5e6956]: Top Models by Cost
+                - application [ref=f5e6962]:
+                  - generic [ref=f5e6970]:
+                    - generic [ref=f5e6973] [cursor=pointer]
+                    - generic [ref=f5e6976] [cursor=pointer]
+                    - generic [ref=f5e6979] [cursor=pointer]
+                    - generic [ref=f5e6982] [cursor=pointer]
+                  - generic [ref=f5e6990]:
+                    - generic [ref=f5e6991]:
+                      - generic [ref=f5e6992]: "0"
+                      - generic [ref=f5e6994]: "0.2"
+                      - generic [ref=f5e6996]: "0.4"
+                      - generic [ref=f5e6998]: "0.6"
+                      - generic [ref=f5e7000]: "0.8"
+                    - generic [ref=f5e7002]:
+                      - generic [ref=f5e7003]: claude-haiku-4-5-20251001
+                      - generic [ref=f5e7005]: claude-sonnet-4-6
+                      - generic [ref=f5e7007]: gpt-image-1
+                      - generic [ref=f5e7009]: openai/gpt-5.4
+                      - generic [ref=f5e7011]: mcp
+              - generic [ref=f5e7013]:
+                - generic [ref=f5e7014]: Token Usage by Model
+                - table [ref=f5e7018]:
+                  - rowgroup [ref=f5e7019]:
+                    - row [ref=f5e7020]:
+                      - columnheader "Model" [ref=f5e7021]
+                      - columnheader "Input" [ref=f5e7022]
+                      - columnheader "Output" [ref=f5e7023]
+                      - columnheader "Total" [ref=f5e7024]
+                  - rowgroup [ref=f5e7025]:
+                    - row [ref=f5e7026]:
+                      - cell "claude-haiku-4-5-20251001" [ref=f5e7027]
+                      - cell "241,266" [ref=f5e7028]
+                      - cell "110,292" [ref=f5e7029]
+                      - cell "351,558" [ref=f5e7030]
+                    - row [ref=f5e7031]:
+                      - cell "claude-sonnet-4-6" [ref=f5e7032]
+                      - cell "28,447" [ref=f5e7033]
+                      - cell "13,319" [ref=f5e7034]
+                      - cell "41,766" [ref=f5e7035]
+                    - row [ref=f5e7036]:
+                      - cell "gpt-image-1" [ref=f5e7037]
+                      - cell "0" [ref=f5e7038]
+                      - cell "0" [ref=f5e7039]
+                      - cell "0" [ref=f5e7040]
+                    - row [ref=f5e7041]:
+                      - cell "openai/gpt-5.4" [ref=f5e7042]
+                      - cell "99" [ref=f5e7043]
+                      - cell "347" [ref=f5e7044]
+                      - cell "446" [ref=f5e7045]
+                    - row [ref=f5e7046]:
+                      - cell "mcp" [ref=f5e7047]
+                      - cell "0" [ref=f5e7048]
+                      - cell "0" [ref=f5e7049]
+                      - cell "0" [ref=f5e7050]
+                    - row [ref=f5e7051]:
+                      - cell "google/gemini-3-pro-image-preview" [ref=f5e7052]
+                      - cell "0" [ref=f5e7053]
+                      - cell "0" [ref=f5e7054]
+                      - cell "0" [ref=f5e7055]
+                    - row [ref=f5e7056]:
+                      - cell "gpt-5.4" [ref=f5e7057]
+                      - cell "15" [ref=f5e7058]
+                      - cell "7" [ref=f5e7059]
+                      - cell "22" [ref=f5e7060]
+                    - row [ref=f5e7061]:
+                      - cell "deepseek/deepseek-v4-flash-0731" [ref=f5e7062]
+                      - cell "147" [ref=f5e7063]
+                      - cell "545" [ref=f5e7064]
+                      - cell "692" [ref=f5e7065]
+                    - row [ref=f5e7066]:
+                      - cell "qwen/qwen3-32b" [ref=f5e7067]
+                      - cell "101" [ref=f5e7068]
+                      - cell "373" [ref=f5e7069]
+                      - cell "474" [ref=f5e7070]
+            - generic [ref=f5e7071]:
+              - generic [ref=f5e7072]:
+                - generic [ref=f5e7073]: Cost by User
+                - button "Export CSV" [ref=f5e7079] [cursor=pointer]
+              - table [ref=f5e7082]:
+                - rowgroup [ref=f5e7083]:
+                  - row [ref=f5e7084]:
+                    - columnheader "User" [ref=f5e7085]
+                    - columnheader "Top Model" [ref=f5e7086]
+                    - columnheader "Requests" [ref=f5e7087]
+                    - columnheader "Tokens" [ref=f5e7088]
+                    - columnheader "Cost" [ref=f5e7089]
+                    - columnheader "Cost / Req" [ref=f5e7090]
+                - rowgroup [ref=f5e7091]:
+                  - row [ref=f5e7092]:
+                    - cell "admin@aidome.co" [ref=f5e7093]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e7094]
+                    - cell "32" [ref=f5e7095]
+                    - cell "170,072" [ref=f5e7096]
+                    - cell "$0.38" [ref=f5e7097]
+                    - cell "$0.01" [ref=f5e7098]
+                  - row [ref=f5e7099]:
+                    - cell "maort@aidome.co" [ref=f5e7100]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e7101]
+                    - cell "40" [ref=f5e7102]
+                    - cell "145,446" [ref=f5e7103]
+                    - cell "$0.38" [ref=f5e7104]
+                    - cell "$0.0094" [ref=f5e7105]
+                  - row [ref=f5e7106]:
+                    - cell "benjamins@aidome.co" [ref=f5e7107]
+                    - cell "claude-sonnet-4-6" [ref=f5e7108]
+                    - cell "7" [ref=f5e7109]
+                    - cell "23,086" [ref=f5e7110]
+                    - cell "$0.16" [ref=f5e7111]
+                    - cell "$0.02" [ref=f5e7112]
+                  - row [ref=f5e7113]:
+                    - cell "lironp@aidome.co" [ref=f5e7114]
+                    - cell "claude-sonnet-4-6" [ref=f5e7115]
+                    - cell "8" [ref=f5e7116]
+                    - cell "31,024" [ref=f5e7117]
+                    - cell "$0.16" [ref=f5e7118]
+                    - cell "$0.02" [ref=f5e7119]
+                  - row [ref=f5e7120]:
+                    - cell "shlomid@aidome.co" [ref=f5e7121]
+                    - cell "claude-haiku-4-5-20251001" [ref=f5e7122]
+                    - cell "4" [ref=f5e7123]
+                    - cell "24,638" [ref=f5e7124]
+                    - cell "$0.06" [ref=f5e7125]
+                    - cell "$0.01" [ref=f5e7126]
+                  - row [ref=f5e7127]:
+                    - cell "afc3c290-805b-4406-bb5b-d52ff739b50a" [ref=f5e7128]
+                    - cell "deepseek/deepseek-v4-flash-0731" [ref=f5e7129]
+                    - cell "22" [ref=f5e7130]
+                    - cell "692" [ref=f5e7131]
+                    - cell "$0.00" [ref=f5e7132]
+                    - cell "$0.00" [ref=f5e7133]
+            - generic [ref=f5e7134]:
+              - generic [ref=f5e7135]: Cost per 1k Tokens
+              - generic [ref=f5e7137]:
+                - application [ref=f5e7141]:
+                  - generic [ref=f5e7163]:
+                    - generic [ref=f5e7164]:
+                      - generic [ref=f5e7165]: 2026-08-13
+                      - generic [ref=f5e7167]: 2026-08-14
+                      - generic [ref=f5e7169]: 2026-08-16
+                      - generic [ref=f5e7171]: 2026-08-17
+                      - generic [ref=f5e7173]: 2026-08-18
+                    - generic [ref=f5e7175]:
+                      - generic [ref=f5e7176]: "0"
+                      - generic [ref=f5e7178]: "0.002"
+                      - generic [ref=f5e7180]: "0.004"
+                      - generic [ref=f5e7182]: "0.006"
+                      - generic [ref=f5e7184]: "0.008"
+                - generic [ref=f5e7186]:
+                  - generic [ref=f5e7187]: Effective
+                  - generic [ref=f5e7189]: Input
+                  - generic [ref=f5e7191]: Output
+  - generic [ref=f5e828]: 2026-08-17T20:00:00+00:00

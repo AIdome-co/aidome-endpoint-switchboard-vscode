@@ -95,17 +95,23 @@ export class ClineAdapter extends BaseExtensionAdapter {
         configType: 'cline-provider-settings',
         providerId: CLINE_PROVIDER_ID,
         profileId: profile.id,
+        profileName: profile.name,
+        authRef: profile.authRef ?? profile.name,
         baseUrl,
         format: 'json',
+        secretPolicy: 'target-persisted-at-apply',
         patches: [
           { path: ['version'], value: 1 },
           { path: ['modes'], value: {}, setWhenMissing: true },
           { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'provider'], value: CLINE_PROVIDER_ID },
           { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'baseUrl'], source: 'baseUrl' },
           ...(modelId ? [{ path: ['providers', CLINE_PROVIDER_ID, 'settings', 'model'], value: modelId }] : []),
-          { path: ['providers', CLINE_PROVIDER_ID, 'updatedAt'], source: 'timestamp', setWhenMissing: true },
-          { path: ['providers', CLINE_PROVIDER_ID, 'tokenSource'], value: 'manual', setWhenMissing: true }
-        ]
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'apiKey'], source: 'secret', removeWhenMissing: true },
+          { path: ['providers', CLINE_PROVIDER_ID, 'updatedAt'], source: 'timestamp' },
+          { path: ['providers', CLINE_PROVIDER_ID, 'tokenSource'], value: 'manual' }
+        ],
+        clearAuthWhenMissing: true,
+        missingSecretMessage: `Cline API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
       },
       reversible: true
     });
@@ -202,7 +208,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
         ],
         baseUrl,
         tier: 'A',
-        limitation: 'Cline persists its API key in its own provider store; Switchboard never copies profile secrets into providers.json.',
+        limitation: 'Cline API key is persisted into providers.json from the profile secret at apply time (target-persisted-at-apply), mirroring the Codex env-file credential flow.',
         configurationType: 'cline-provider-ui',
         optional: false
       },
@@ -332,16 +338,21 @@ export class ClineAdapter extends BaseExtensionAdapter {
       };
     }
 
+    const hasApiKey = typeof providerSettings?.apiKey === 'string'
+      && providerSettings.apiKey.trim().length > 0;
     return {
       success: true,
-      message: 'Cline native provider configuration verified',
+      message: hasApiKey
+        ? 'Cline native provider configuration verified'
+        : 'Cline native provider configuration verified (no API key set)',
       details: {
         providerSettingsPath: paths.providerSettingsPath,
         globalStatePath: paths.globalStatePath,
         providerId: CLINE_PROVIDER_ID,
         planModeApiProvider: planProvider,
         actModeApiProvider: actProvider,
-        baseUrlConfigured: true
+        baseUrlConfigured: true,
+        apiKeyConfigured: hasApiKey
       }
     };
   }
