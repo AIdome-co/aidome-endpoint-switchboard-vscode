@@ -83,6 +83,8 @@ export async function assignProfileAssistants(
   let plan: Plan | undefined;
   let unplannedAssistantKeys: string[] = [];
   let guidedAssistantKeys: string[] = [];
+  let unsupportedAssistantKeys: string[] = [];
+  let deferredAssistantKeys: string[] = [];
 
   if (selectedAssistantKeys.length > 0) {
     plan = await withProgress(
@@ -129,8 +131,16 @@ export async function assignProfileAssistants(
     succeededAssistantKeys = [...result.assistantResults.entries()]
       .filter(([, assistantResult]) => assistantResult.status === 'configured')
       .map(([assistantKey]) => assistantKey);
+    // GAP: track incomplete outcome categories separately — they carry
+    // different semantics and must not be flattened into one bucket.
     guidedAssistantKeys = [...result.assistantResults.entries()]
-      .filter(([, assistantResult]) => assistantResult.status === 'guided-required' || assistantResult.status === 'unsupported' || assistantResult.status === 'deferred')
+      .filter(([, assistantResult]) => assistantResult.status === 'guided-required')
+      .map(([assistantKey]) => assistantKey);
+    unsupportedAssistantKeys = [...result.assistantResults.entries()]
+      .filter(([, assistantResult]) => assistantResult.status === 'unsupported')
+      .map(([assistantKey]) => assistantKey);
+    deferredAssistantKeys = [...result.assistantResults.entries()]
+      .filter(([, assistantResult]) => assistantResult.status === 'deferred')
       .map(([assistantKey]) => assistantKey);
     failedAssistantKeys = [...result.assistantResults.entries()]
       .filter(([, assistantResult]) => assistantResult.status === 'failed')
@@ -176,30 +186,48 @@ export async function assignProfileAssistants(
   const skippedSuffix = unplannedAssistantKeys.length > 0
     ? ` No plan was generated for: ${unplannedAssistantKeys.join(', ')}.`
     : '';
-  const guidedSuffix = guidedAssistantKeys.length > 0
-    ? ` Guided follow-up is required for: ${guidedAssistantKeys.join(', ')}.`
-    : '';
+  // Incomplete categories stay SEPARATE (guided / unsupported / deferred).
+  const incompleteParts = [
+    guidedAssistantKeys.length > 0 ? `Manual follow-up required for: ${guidedAssistantKeys.join(', ')}` : undefined,
+    unsupportedAssistantKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedAssistantKeys.join(', ')}` : undefined,
+    deferredAssistantKeys.length > 0 ? `Automatic configuration deferred for: ${deferredAssistantKeys.join(', ')}` : undefined
+  ].filter(Boolean) as string[];
+  const incompleteSuffix = incompleteParts.length > 0 ? ` ${incompleteParts.join('. ')}.` : '';
   const detachSwitchSuffix = detachedSwitches.length > 0
     ? ` Auto-switched detached assistants to: ${detachedSwitches.join(', ')}.`
     : '';
   const detachWarningSuffix = detachWarnings.length > 0
     ? ` ${detachWarnings.join(' ')}`
     : '';
-  const summary = buildAssignmentOutcomeMessage(profile.name, succeededAssistantKeys.length, detachedAssistantKeys.length);
+  const anyIncompleteAssignment = guidedAssistantKeys.length > 0 || unsupportedAssistantKeys.length > 0 || deferredAssistantKeys.length > 0;
+  // Zero/zero: never emit "Detached 0 assistant(s)" — the incomplete
+  // assignment message carries the truth instead.
+  const summary = (succeededAssistantKeys.length === 0 && detachedAssistantKeys.length === 0 && anyIncompleteAssignment)
+    ? `No assistants were automatically assigned to "${profile.name}".`
+    : buildAssignmentOutcomeMessage(profile.name, succeededAssistantKeys.length, detachedAssistantKeys.length);
   const combinedFailures = [...failedAssistantKeys, ...detachFailures];
 
   if (combinedFailures.length === 0 && detachWarnings.length === 0) {
-    await showSuccess(`${summary}${detachSwitchSuffix}${guidedSuffix}${skippedSuffix}`);
+    if (succeededAssistantKeys.length === 0 && detachedAssistantKeys.length === 0 && anyIncompleteAssignment) {
+      // Guided/unsupported/deferred-only: warning, NOT success.
+      await showWarning(`${summary}${detachSwitchSuffix}${incompleteSuffix}${skippedSuffix}`);
+      return;
+    }
+    if (succeededAssistantKeys.length > 0 && anyIncompleteAssignment) {
+      await showWarning(`${summary}${detachSwitchSuffix}${incompleteSuffix}${skippedSuffix}`);
+      return;
+    }
+    await showSuccess(`${summary}${detachSwitchSuffix}${incompleteSuffix}${skippedSuffix}`);
     return;
   }
 
   if (combinedFailures.length === 0) {
-    await showWarning(`${summary}${detachSwitchSuffix}${guidedSuffix}${skippedSuffix}${detachWarningSuffix}`);
+    await showWarning(`${summary}${detachSwitchSuffix}${incompleteSuffix}${skippedSuffix}${detachWarningSuffix}`);
     return;
   }
 
   if (succeededAssistantKeys.length > 0 || detachedAssistantKeys.length > 0) {
-    await showWarning(`${summary}${detachSwitchSuffix} Failures: ${combinedFailures.join(', ')}.${guidedSuffix}${skippedSuffix}${detachWarningSuffix}`);
+    await showWarning(`${summary}${detachSwitchSuffix} Failures: ${combinedFailures.join(', ')}.${incompleteSuffix}${skippedSuffix}${detachWarningSuffix}`);
     return;
   }
 

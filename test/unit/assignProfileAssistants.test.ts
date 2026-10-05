@@ -684,10 +684,10 @@ describe('assignProfileAssistants', () => {
 
     await assignProfileAssistants({} as any, profile.id);
 
-    // GAP 6: guided-required is NOT a failure — it reports as a truthful
-    // guided follow-up on the success path.
-    expect(mockShowSuccess).toHaveBeenCalledWith(
-      'Assigned "OpenAI Prod" to 1 assistant(s). Guided follow-up is required for: anythingllm.'
+    // GAP 6: guided-required is NOT a failure, but configured + guided is a
+    // truthful partial result — warning, not pure success.
+    expect(mockShowWarning).toHaveBeenCalledWith(
+      'Assigned "OpenAI Prod" to 1 assistant(s). Manual follow-up required for: anythingllm.'
     );
   });
 
@@ -1133,4 +1133,127 @@ describe('assignProfileAssistants', () => {
       })
     ]);
   });
+  describe('assignment outcome categories', () => {
+    function mockAssignmentFlow(assistantResults: Array<[string, { status: string; success: boolean; reason?: string }]>) {
+      mockGetAssistantMappings.mockResolvedValue([]);
+      mockDetectAll.mockResolvedValue({
+        assistants: [
+          { assistantKey: 'cline', displayName: 'Cline', extensionId: 'saoudrizwan.claude-dev', version: '1.0.0', isActive: true, tier: 'A', kind: 'vscode-extension' }
+        ],
+        clis: []
+      });
+      mockLoadRegistry.mockResolvedValue({
+        assistants: [{
+          key: 'cline',
+          displayName: 'Cline',
+          kind: 'vscode-extension',
+          detection: { vscodeExtensionIds: ['saoudrizwan.claude-dev'] },
+          dialect: { primary: 'openai.chat_completions', alsoPossible: [] },
+          endpointSwitching: { supported: true, tier: 'A', configurationModes: ['config-file'], notes: [] },
+          tlsVerification: { support: 'vscode-global', notes: '' },
+          sources: []
+        }],
+        dialectCatalog: {},
+        $schemaVersion: '0.1.0',
+        updatedAt: '2026-05-18'
+      });
+      mockShowQuickPick.mockResolvedValue([{ assistantKey: 'cline', label: 'Cline' }]);
+      mockBuildPlan.mockResolvedValue({
+        profileId: profile.id,
+        assistantKeys: ['cline'],
+        steps: [{ id: 'step-1', assistantKey: 'cline', action: 'edit-config-file' }]
+      });
+      mockApplyPlan.mockResolvedValue({
+        success: true,
+        appliedSteps: [{ id: 'step-1', assistantKey: 'cline', action: 'edit-config-file' }],
+        failedSteps: [],
+        assistantResults: new Map(assistantResults)
+      });
+    }
+
+    it('guided-only assignment is a warning, never success, never "Detached 0"', async () => {
+      mockAssignmentFlow([['cline', { status: 'guided-required', success: false }]]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('No assistants were automatically assigned to "OpenAI Prod"');
+      expect(message).toContain('Manual follow-up required for: cline');
+      expect(message).not.toContain('Detached 0');
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+    });
+
+    it('unsupported-only assignment is a warning, not success', async () => {
+      mockAssignmentFlow([['cline', { status: 'unsupported', success: false }]]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Unsupported for endpoint switching: cline');
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+    });
+
+    it('deferred-only assignment is a warning, not success', async () => {
+      mockAssignmentFlow([['cline', { status: 'deferred', success: false }]]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Automatic configuration deferred for: cline');
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+    });
+
+    it('configured + guided warns with both categories', async () => {
+      mockAssignmentFlow([
+        ['cline', { status: 'configured', success: true }],
+        ['gemini-cli', { status: 'guided-required', success: false }]
+      ]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Assigned "OpenAI Prod" to 1 assistant');
+      expect(message).toContain('Manual follow-up required for: gemini-cli');
+    });
+
+    it('configured + unsupported warns with the unsupported category', async () => {
+      mockAssignmentFlow([
+        ['cline', { status: 'configured', success: true }],
+        ['tabnine', { status: 'unsupported', success: false }]
+      ]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Assigned "OpenAI Prod" to 1 assistant');
+      expect(message).toContain('Unsupported for endpoint switching: tabnine');
+    });
+
+    it('configured + deferred warns with the deferred category', async () => {
+      mockAssignmentFlow([
+        ['cline', { status: 'configured', success: true }],
+        ['github-copilot', { status: 'deferred', success: false }]
+      ]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Assigned "OpenAI Prod" to 1 assistant');
+      expect(message).toContain('Automatic configuration deferred for: github-copilot');
+    });
+
+    it('configured-only assignment keeps the unchanged success behavior', async () => {
+      mockAssignmentFlow([['cline', { status: 'configured', success: true }]]);
+
+      await assignProfileAssistants({} as any, profile.id);
+
+      expect(mockShowSuccess).toHaveBeenCalledTimes(1);
+      expect(mockShowSuccess.mock.calls[0][0]).toContain('Assigned "OpenAI Prod" to 1 assistant');
+    });
+  });
+
 });

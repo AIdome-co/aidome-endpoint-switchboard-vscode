@@ -211,124 +211,84 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       async () => await switchboard.applyPlan(plan)
     );
     
-    // Step 5/5 — Verify and report
-    logger.info('Setup wizard step 5/5: Reporting result');
+    // Step 5/5 — Report outcomes. assistantResults is the source of truth
+    // for UI categories; result.success only means "no step threw" and is
+    // used for execution-level logging, never for assistant classification.
     const elapsed = wizardTimer.stop();
 
-    if (result.success) {
+    // Outcome categories computed ONCE (shared by every path).
+    const configuredKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'configured')
+      .map(([k]) => k);
+    const guidedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'guided-required')
+      .map(([k]) => k);
+    const unsupportedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'unsupported')
+      .map(([k]) => k);
+    const deferredKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'deferred')
+      .map(([k]) => k);
+    const failedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'failed')
+      .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
+
+    const incomplete = guidedKeys.length > 0 || unsupportedKeys.length > 0 || deferredKeys.length > 0 || failedKeys.length > 0;
+
+    if (configuredKeys.length === 0) {
+      // Nothing configured: truthful incomplete messaging — never
+      // "Successfully configured 0" and never a false "all failed".
+      if (unsupportedKeys.length > 0) {
+        await showWarning(
+          `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` +
+          (guidedKeys.length > 0 ? `. Manual follow-up required for: ${guidedKeys.join(', ')}` : '') +
+          (deferredKeys.length > 0 ? `. Automatic configuration deferred for: ${deferredKeys.join(', ')}` : '')
+        );
+      } else if (guidedKeys.length > 0 || deferredKeys.length > 0) {
+        const parts = [
+          guidedKeys.length > 0 ? `Manual follow-up required for: ${guidedKeys.join(', ')}` : undefined,
+          deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined
+        ].filter(Boolean);
+        await showWarning(`No assistants were automatically configured. ${parts.join('. ')}`);
+      } else {
+        logger.error(`Setup failed in ${elapsed}ms: all ${failedKeys.length} assistant(s) failed`);
+        await showError(
+          `Configuration failed for ${failedKeys.length > 0 ? failedKeys.join(', ') : 'all assistants'}. Check the output channel for details.`,
+          'View Output'
+        );
+      }
+    } else if (incomplete) {
+      // Some assistants were configured — activate so they start routing.
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
-      
-      // Outcome-category reporting: derive truth from assistantResults, not
-      // from plan execution success.
-      const configuredKeys = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'configured')
-        .map(([k]) => k);
-      const guidedKeys = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'guided-required')
-        .map(([k]) => k);
-      const unsupportedKeys = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'unsupported')
-        .map(([k]) => k);
-      const failedKeys = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'failed')
-        .map(([k]) => k);
-
-      if (configuredKeys.length === 0) {
-        // Never say "Successfully configured 0 assistants".
-        if (unsupportedKeys.length > 0) {
-          await showWarning(
-            `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` +
-            (guidedKeys.length > 0 ? `. Manual follow-up required for: ${guidedKeys.join(', ')}` : '')
-          );
-        } else if (guidedKeys.length > 0) {
-          await showWarning(
-            `No assistants were automatically configured. Manual follow-up required for: ${guidedKeys.join(', ')}`
-          );
-        } else {
-          await showError(
-            `Configuration failed for ${failedKeys.length > 0 ? failedKeys.join(', ') : 'all assistants'}. Check the output channel for details.`,
-            'View Output'
-          );
-        }
-      } else if (guidedKeys.length > 0 || unsupportedKeys.length > 0 || failedKeys.length > 0) {
-        const parts = [
-          `Configured: ${configuredKeys.join(', ')}`,
-          guidedKeys.length > 0 ? `Manual follow-up required: ${guidedKeys.join(', ')}` : undefined,
-          unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
-          failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
-        ].filter(Boolean);
-        await showWarning(parts.join('. '), 'View Output');
-      } else {
-        const action = await showSuccess(
-          `Successfully configured ${configuredKeys.length} assistant(s) to use ${profile.name}`,
-          'Verify'
-        );
-        if (action === 'Verify') {
-          await verifyProfileConnection(context, profile, {
-            progressTitle: `Verifying connection to ${profile.name}...`
-          });
-        }
-      }
-      logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
+      const parts = [
+        `Configured: ${configuredKeys.join(', ')}`,
+        guidedKeys.length > 0 ? `Manual follow-up required: ${guidedKeys.join(', ')}` : undefined,
+        unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
+        deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined,
+        failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
+      ].filter(Boolean);
+      logger.info(`Setup partially complete in ${elapsed}ms: configured=[${configuredKeys.join(', ')}] failed=[${failedKeys.join(', ')}]`);
+      await showWarning(parts.join('. '), 'View Output');
     } else {
-      // GAP 2: compute outcome categories ONCE — a step failure elsewhere in the
-      // plan must not flatten guided/unsupported/deferred into "failed".
-      const succeeded = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'configured')
-        .map(([k]) => k);
-      const guided = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'guided-required')
-        .map(([k]) => k);
-      const unsupported = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'unsupported')
-        .map(([k]) => k);
-      const deferred = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'deferred')
-        .map(([k]) => k);
-      const failed = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.status === 'failed')
-        .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
-
-      if (succeeded.length > 0) {
-        // At least some assistants were configured — activate the profile so
-        // the successfully configured ones start routing through it.
-        await profileStore.setActiveProfile(profile.id);
-        updateStatusBar(profile.name);
-        void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
-        const parts = [
-          `Configured: ${succeeded.join(', ')}`,
-          guided.length > 0 ? `Manual follow-up required: ${guided.join(', ')}` : undefined,
-          unsupported.length > 0 ? `Unsupported for endpoint switching: ${unsupported.join(', ')}` : undefined,
-          deferred.length > 0 ? `Automatic configuration deferred for: ${deferred.join(', ')}` : undefined,
-          failed.length > 0 ? `Failed: ${failed.join(', ')}` : undefined
-        ].filter(Boolean);
-        logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
-        await showWarning(parts.join('. '), 'View Output');
-      } else {
-        // Nothing configured: truthful incomplete messaging, never "0 configured".
-        if (unsupported.length > 0) {
-          await showWarning(
-            `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupported.join(', ')}` +
-            (guided.length > 0 ? `. Manual follow-up required for: ${guided.join(', ')}` : '') +
-            (deferred.length > 0 ? `. Automatic configuration deferred for: ${deferred.join(', ')}` : '')
-          );
-        } else if (guided.length > 0 || deferred.length > 0) {
-          const parts = [
-            guided.length > 0 ? `Manual follow-up required for: ${guided.join(', ')}` : undefined,
-            deferred.length > 0 ? `Automatic configuration deferred for: ${deferred.join(', ')}` : undefined
-          ].filter(Boolean);
-          await showWarning(`No assistants were automatically configured. ${parts.join('. ')}`);
-        } else {
-          logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
-          await showError(
-            `Configuration failed for all assistants. Check the output channel for details.`,
-            'View Output'
-          );
-        }
+      await profileStore.setActiveProfile(profile.id);
+      updateStatusBar(profile.name);
+      void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+      const action = await showSuccess(
+        `Successfully configured ${configuredKeys.length} assistant(s) to use ${profile.name}`,
+        'Verify'
+      );
+      if (action === 'Verify') {
+        await verifyProfileConnection(context, profile, {
+          progressTitle: `Verifying connection to ${profile.name}...`
+        });
       }
     }
+    if (!result.success) {
+      logger.error(`Plan execution reported failures (${result.failedSteps.length} step(s) threw)`);
+    }
+    logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
   } catch (error) {
     if (error instanceof UserCancellationError) {
       logger.info(`Setup cancelled by user at step: ${error.step}`);
