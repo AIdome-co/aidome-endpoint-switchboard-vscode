@@ -220,23 +220,56 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
       
-      // GAP 5: count unique assistants whose final outcome is configured —
-      // NOT applied step count (one assistant can have many steps).
-      const configuredCount = countConfiguredAssistants(result.assistantResults);
+      // Outcome-category reporting: derive truth from assistantResults, not
+      // from plan execution success.
+      const configuredKeys = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'configured')
+        .map(([k]) => k);
       const guidedKeys = [...result.assistantResults.entries()]
         .filter(([, r]) => r.status === 'guided-required')
         .map(([k]) => k);
-      const guidedSuffix = guidedKeys.length > 0
-        ? `. Manual follow-up required for: ${guidedKeys.join(', ')}`
-        : '';
-      const action = await showSuccess(
-        `Successfully configured ${configuredCount} assistant(s) to use ${profile.name}${guidedSuffix}`,
-        'Verify'
-      );
-      if (action === 'Verify') {
-        await verifyProfileConnection(context, profile, {
-          progressTitle: `Verifying connection to ${profile.name}...`
-        });
+      const unsupportedKeys = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'unsupported')
+        .map(([k]) => k);
+      const failedKeys = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'failed')
+        .map(([k]) => k);
+
+      if (configuredKeys.length === 0) {
+        // Never say "Successfully configured 0 assistants".
+        if (unsupportedKeys.length > 0) {
+          await showWarning(
+            `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` +
+            (guidedKeys.length > 0 ? `. Manual follow-up required for: ${guidedKeys.join(', ')}` : '')
+          );
+        } else if (guidedKeys.length > 0) {
+          await showWarning(
+            `No assistants were automatically configured. Manual follow-up required for: ${guidedKeys.join(', ')}`
+          );
+        } else {
+          await showError(
+            `Configuration failed for ${failedKeys.length > 0 ? failedKeys.join(', ') : 'all assistants'}. Check the output channel for details.`,
+            'View Output'
+          );
+        }
+      } else if (guidedKeys.length > 0 || unsupportedKeys.length > 0 || failedKeys.length > 0) {
+        const parts = [
+          `Configured: ${configuredKeys.join(', ')}`,
+          guidedKeys.length > 0 ? `Manual follow-up required: ${guidedKeys.join(', ')}` : undefined,
+          unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
+          failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
+        ].filter(Boolean);
+        await showWarning(parts.join('. '), 'View Output');
+      } else {
+        const action = await showSuccess(
+          `Successfully configured ${configuredKeys.length} assistant(s) to use ${profile.name}`,
+          'Verify'
+        );
+        if (action === 'Verify') {
+          await verifyProfileConnection(context, profile, {
+            progressTitle: `Verifying connection to ${profile.name}...`
+          });
+        }
       }
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {

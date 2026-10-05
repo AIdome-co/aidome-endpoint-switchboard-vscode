@@ -21,6 +21,11 @@ export interface EnvFileDriverOptions {
    * (e.g. "Codex .env file"). Defaults to "env file".
    */
   fileLabel?: string;
+  /**
+   * Managed keys to REMOVE from the file. Unrelated variables and comments
+   * are always preserved; removing a key that does not exist is a no-op.
+   */
+  removeKeys?: readonly string[];
 }
 
 /** Parses a .env file into key/value records. */
@@ -72,6 +77,11 @@ export function buildDotEnvContent(
 ): string {
   const existing = parseDotEnv(existingContent, options);
   const merged: Record<string, string> = { ...existing, ...vars };
+  // Managed-key removal: only the explicitly listed keys are dropped;
+  // unrelated variables and comments survive.
+  for (const key of options.removeKeys ?? []) {
+    delete merged[key];
+  }
 
   // Preserve comment lines from the original file where the library contract
   // allows; keys are re-emitted sorted for deterministic idempotent output.
@@ -110,7 +120,7 @@ export async function patchEnvFile(
     }
   }
 
-  const updated = buildDotEnvContent(existingContent, vars);
+  const updated = buildDotEnvContent(existingContent, vars, options);
   const success = await writeFileAtomic(envFilePath, updated);
   if (!success) {
     throw new Error(`Failed to write ${options.fileLabel ?? 'env file'} to ${envFilePath}`);

@@ -76,6 +76,10 @@ export class CodexAdapter extends BaseExtensionAdapter {
       targetPath: path.join(path.dirname(configPath), '.env'),
       data: {
         secretPolicy: 'target-persisted-at-apply',
+        // A previous profile's credential must never survive a profile
+        // switch: when the newly applied profile has no saved secret,
+        // remove ONLY the managed key (unrelated variables preserved).
+        missingSecretBehavior: 'remove-managed-key',
         authRef: profile.name,
         profileName: profile.name,
         envVarName: 'OPENAI_API_KEY'

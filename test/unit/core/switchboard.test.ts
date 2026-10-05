@@ -170,8 +170,8 @@ describe('Switchboard Claude auth secret hydration', () => {
         },
       ],
       assistantResults: new Map([
-        ['claude-code', { success: true }],
-        ['cline', { success: false, reason: 'settings failed' }],
+        ['claude-code', { status: 'configured', success: true }],
+        ['cline', { status: 'failed', success: false, reason: 'settings failed' }],
       ]),
     });
 
@@ -231,7 +231,7 @@ describe('Switchboard guided-output truthfulness', () => {
         },
       ],
       failedSteps: [],
-      assistantResults: new Map([['roo-code', { success: true }]]),
+      assistantResults: new Map([['roo-code', { status: 'guided-required', success: false }]]),
     });
 
     const switchboard = new Switchboard(
@@ -266,7 +266,7 @@ describe('Switchboard guided-output truthfulness', () => {
         { id: 's2', action: 'edit-config-file', description: 'b', assistantKey: 'claude-code', data: {}, reversible: true },
       ],
       failedSteps: [],
-      assistantResults: new Map([['claude-code', { success: true }]]),
+      assistantResults: new Map([['claude-code', { status: 'configured', success: true }]]),
     });
 
     const switchboard = new Switchboard(

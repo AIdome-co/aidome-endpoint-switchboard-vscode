@@ -168,7 +168,7 @@ describe('assistant outcome semantics', () => {
     const plan = createPlan('p1', ['assist-u']);
     plan.steps.push(step('show-guided-steps', 'assist-u', {
       message: 'This assistant is retired and unsupported',
-      limitation: 'unsupported'
+      configurationStatus: 'unsupported'
     }));
 
     const result = await apply(plan);

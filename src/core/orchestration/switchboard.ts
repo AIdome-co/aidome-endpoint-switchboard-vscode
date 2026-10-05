@@ -170,11 +170,19 @@ export class Switchboard {
           .map(step => step.assistantKey)
       );
 
-      // Update mappings in profile store — one final mapping per assistant.
+      // Mapping truthfulness (GAP 7): persist a mapping ONLY when the
+      // assistant's final outcome is 'configured' AND a real mutation
+      // occurred — partial mutation + required guidance is not a configured
+      // state and must not be stored as one.
+      const configuredAssistants = new Set(
+        [...result.assistantResults.entries()]
+          .filter(([, r]) => r.status === 'configured')
+          .map(([k]) => k)
+      );
       const mappingFailures: string[] = [];
       const mappedAssistants = new Set<string>();
       for (const step of result.appliedSteps) {
-        if (!mutatedAssistants.has(step.assistantKey) || mappedAssistants.has(step.assistantKey)) {
+        if (!configuredAssistants.has(step.assistantKey) || mappedAssistants.has(step.assistantKey)) {
           continue;
         }
         mappedAssistants.add(step.assistantKey);

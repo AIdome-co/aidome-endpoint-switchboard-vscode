@@ -14,7 +14,7 @@ import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
 import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
 import { type AssistantApplyResult, assistantResult, isConfigurationMutationAction } from './assistantOutcome';
-import { patchEnvFile } from '../providerConfig/envFileDriver';
+import { patchEnvFile, parseDotEnv } from '../providerConfig/envFileDriver';
 
 /**
  * Result of applying a plan.
@@ -119,7 +119,10 @@ export class PlanApplier {
         // informational/guidance is guided-required (or unsupported when the
         // guidance explicitly declares it). Optional guidance shown AFTER a
         // successful mutation does not downgrade the outcome.
-        const mutationSteps = appliedChangeSteps.filter(step => isConfigurationMutationAction(step.type));
+        // A mutation is real only when the action classifies as one AND the
+        // write actually happened (skipped no-ops are not mutations).
+        const mutationSteps = appliedChangeSteps.filter(step =>
+          isConfigurationMutationAction(step.type) && step.mutationApplied !== false);
         // GAP 10: a REQUIRED (non-optional) guided step after partial
         // automatic configuration means user action is still needed for the
         // assistant to be usable — guided-required, even though the mutation
@@ -154,8 +157,10 @@ export class PlanApplier {
         } else {
           // No mutation executed: check whether any guidance step declares
           // the assistant unsupported (Roo/Tabnine-style informational plans).
+          // Unsupported is declared explicitly via typed metadata — never
+          // inferred from free-form limitation text.
           const unsupportedStep = steps.find(step =>
-            step.action === 'show-guided-steps' && step.data.limitation === 'unsupported');
+            step.action === 'show-guided-steps' && step.data.configurationStatus === 'unsupported');
           if (unsupportedStep) {
             assistantResults.set(assistantKey, assistantResult('unsupported', unsupportedStep.data.message as string | undefined));
             this.logger.info(`[Applier] Assistant "${assistantKey}" is unsupported (guidance only)`);
@@ -289,8 +294,12 @@ export class PlanApplier {
 
     try {
       await config.update(step.targetPath, step.newValue, scope);
+      appliedStep.mutationApplied = true;
     } catch (error) {
       if (error instanceof Error && error.message.includes('is not a registered configuration')) {
+        // Intentional no-op: nothing was written, so this step must NOT
+        // count as a configuration mutation downstream.
+        appliedStep.mutationApplied = false;
         this.logger.warning(
           `Skipped unregistered setting "${step.targetPath}" — ` +
           `the target extension may not be installed on this machine`
@@ -339,6 +348,7 @@ export class PlanApplier {
     if (!success) {
       throw new Error(`Failed to write to ${step.targetPath}`);
     }
+    appliedStep.mutationApplied = true;
 
     this.logger.info(`Updated config file ${step.targetPath}`);
   }
@@ -446,12 +456,42 @@ export class PlanApplier {
       : undefined;
     const secret = authRef ? await this.profileSecrets.getSecret(authRef) : undefined;
     if (secret === undefined || secret.trim().length === 0) {
-      // GAP 9: the step executed (guidance shown) but no credential was
-      // persisted — mark it so the outcome is guided-required, not configured.
       appliedStep.secretResolved = false;
       // No saved credential: endpoint config stays applied, auth remains
-      // guided (the plan carries an optional guided step for exactly this).
-      // Failing here would roll back the working endpoint write.
+      // guided. Behavior toward a possibly stale managed key is declared by
+      // the step (never inferred from a provider name).
+      const missingBehavior = typeof step.data.missingSecretBehavior === 'string'
+        ? step.data.missingSecretBehavior
+        : 'preserve';
+      if (missingBehavior === 'fail') {
+        throw new Error(
+          `No saved profile credential for "${typeof step.data.profileName === 'string' ? step.data.profileName : authRef ?? 'the profile'}" and missingSecretBehavior is "fail" — ${envVarName} was not written to ${targetPath}`
+        );
+      }
+      if (missingBehavior === 'remove-managed-key' && fileExists) {
+        // Remove ONLY the managed key so a previous profile's credential can
+        // never survive a profile switch; unrelated variables and comments
+        // are preserved. Removing a key that does not exist is a no-op.
+        const existingContent = await fs.readFile(targetPath, 'utf-8').catch(() => undefined);
+        const existingKeys = existingContent !== undefined
+          ? Object.keys(parseDotEnv(existingContent))
+          : [];
+        if (existingKeys.includes(envVarName)) {
+          const backupPath = await patchEnvFile(
+            targetPath,
+            {},
+            { fileLabel: 'env file', removeKeys: [envVarName] }
+          );
+          appliedStep.backupPath = backupPath;
+          appliedStep.managedValueRemoved = true;
+          this.logger.info(
+            `Removed stale managed key ${envVarName} from ${targetPath} (no saved profile credential for the newly applied profile)`
+          );
+        } else {
+          this.logger.info(`${envVarName} not present in ${targetPath} — nothing to remove`);
+        }
+      }
+      // Truthful guidance either way: authentication is incomplete.
       this.logger.warning(
         `No saved profile credential for "${typeof step.data.profileName === 'string' ? step.data.profileName : authRef ?? 'the profile'}" — ${envVarName} was not written to ${targetPath}. ` +
         'Set the credential in the profile and reapply, or export it in the environment that launches the assistant.'
@@ -462,6 +502,7 @@ export class PlanApplier {
     const backupPath = await patchEnvFile(targetPath, { [envVarName]: secret }, { fileLabel: 'env file' });
     appliedStep.backupPath = backupPath;
     appliedStep.secretResolved = true;
+    appliedStep.mutationApplied = true;
     this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }
 

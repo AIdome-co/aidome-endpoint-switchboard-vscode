@@ -92,6 +92,15 @@ export interface WriteEnvFileStepData {
   authRef?: string;
   /** REQUIRED: an explicit persistence policy is mandatory for any step that resolves a secret from storage and persists it to disk. */
   secretPolicy: 'target-persisted-at-apply';
+  /**
+   * What to do with the managed key when the profile has NO saved secret:
+   * - 'preserve' (default): leave the existing managed key untouched.
+   * - 'remove-managed-key': remove ONLY the managed variable (stale profile
+   *   credentials must never survive a profile switch); unrelated variables
+   *   and comments are preserved.
+   * - 'fail': the step throws.
+   */
+  missingSecretBehavior?: 'preserve' | 'remove-managed-key' | 'fail';
   profileName?: string;
   preserveUnknown?: boolean;
   [key: string]: unknown;
@@ -215,6 +224,12 @@ export function validateWriteEnvFileStepData(data: unknown): PlanStepDataValidat
   }
   if (data.secretPolicy !== 'target-persisted-at-apply') {
     return { ok: false, error: 'write-env-file secretPolicy must be "target-persisted-at-apply"' };
+  }
+  if (
+    data.missingSecretBehavior !== undefined &&
+    !['preserve', 'remove-managed-key', 'fail'].includes(data.missingSecretBehavior as string)
+  ) {
+    return { ok: false, error: 'write-env-file missingSecretBehavior must be "preserve", "remove-managed-key" or "fail"' };
   }
   return { ok: true };
 }

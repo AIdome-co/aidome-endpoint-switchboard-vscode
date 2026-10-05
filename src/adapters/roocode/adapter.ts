@@ -33,7 +33,9 @@ export class RooCodeAdapter extends BaseExtensionAdapter {
       ],
       baseUrl: profile.baseUrl,
       tier: DESCRIPTOR?.tier ?? 'C',
-      limitation: 'retired-upstream'
+      limitation: 'retired-upstream',
+      // Explicit typed outcome metadata (never inferred from limitation text).
+      configurationStatus: 'unsupported'
     } satisfies GuidedStepsData;
 
     return addStep(createPlan(profile.id, ['roo-code']), {

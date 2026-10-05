@@ -124,7 +124,15 @@ export async function activateProfileAndReapplyMappings(
         const appliedAssistantKeys = actionableAssistantKeys
           .filter(key => !failedAssistantKeys.includes(key) && !guidedRequiredKeys.includes(key));
 
-        if (applyResult.success) {
+        // Outcome truth: derive the activation result from per-assistant
+        // statuses, NOT from applyResult.success (which only means no step
+        // threw). guided-required/unsupported assistants are incomplete.
+        const completeIncompleteKeys = [...guidedRequiredKeys];
+        const allConfigured = appliedAssistantKeys.length > 0 &&
+          failedAssistantKeys.length === 0 && completeIncompleteKeys.length === 0;
+        const noneConfigured = appliedAssistantKeys.length === 0;
+
+        if (allConfigured) {
           await profileStore.setActiveProfile(profile.id);
           updateStatusBar(profile.name);
           logger.info(`Activated profile ${profile.name} and reapplied ${appliedAssistantKeys.join(', ')}`);
@@ -134,11 +142,11 @@ export async function activateProfileAndReapplyMappings(
             mappedAssistantKeys,
             appliedAssistantKeys,
             failedAssistantKeys: [],
-            skippedAssistantKeys
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
           };
         }
 
-        if (appliedAssistantKeys.length > 0) {
+        if (!noneConfigured) {
           await profileStore.setActiveProfile(profile.id);
           updateStatusBar(profile.name);
           logger.warning(
@@ -156,7 +164,28 @@ export async function activateProfileAndReapplyMappings(
             mappedAssistantKeys,
             appliedAssistantKeys,
             failedAssistantKeys,
-            skippedAssistantKeys
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
+          };
+        }
+
+        // Zero configured: guided/unsupported-only stays 'active-only'-adjacent
+        // (activation itself succeeded) but is reported truthfully as partial
+        // unless everything FAILED outright.
+        if (failedAssistantKeys.length === 0 && completeIncompleteKeys.length > 0) {
+          await profileStore.setActiveProfile(profile.id);
+          updateStatusBar(profile.name);
+          logger.warning(
+            `Activated profile ${profile.name} — no assistants were automatically configured`,
+            undefined,
+            { incompleteAssistantKeys: completeIncompleteKeys, skippedAssistantKeys }
+          );
+          return {
+            status: 'partial' as const,
+            profile,
+            mappedAssistantKeys,
+            appliedAssistantKeys: [],
+            failedAssistantKeys: [],
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
           };
         }
 
@@ -171,7 +200,7 @@ export async function activateProfileAndReapplyMappings(
           mappedAssistantKeys,
           appliedAssistantKeys: [],
           failedAssistantKeys,
-          skippedAssistantKeys,
+          skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys],
           errorMessage: `No assistant configurations were updated for "${profile.name}".`
         };
       } catch (error) {
