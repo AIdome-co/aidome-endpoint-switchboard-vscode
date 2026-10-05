@@ -93,6 +93,43 @@ export interface PlanStepDataValidation {
   error?: string;
 }
 
+/** Data keys that identify structured config-file step payloads. */
+const CONFIG_METADATA_KEYS: ReadonlySet<string> = new Set([
+  'configPath',
+  'configType',
+  'baseUrl',
+  'format',
+  'patches',
+  'removePaths',
+  'providerName',
+  'providerId',
+  'mapPath',
+  'wireApi',
+  'envKey',
+  'identity',
+  'models',
+  'profileId'
+]);
+
+/**
+ * Validates an edit-config-file step's data at apply entry.
+ *
+ * Driver-less step data is ONLY accepted when it carries no structured
+ * configuration metadata (the true legacy pre-built-content pattern, e.g.
+ * `step.newValue` holding pre-rendered content). A record that declares
+ * config metadata (baseUrl, configPath, format, provider name, …) WITHOUT a
+ * driver is rejected: the applier would otherwise fall back to writing
+ * `step.newValue` verbatim, which historically replaced an entire TOML/JSON
+ * config file with the raw base URL.
+ */
+/**
+ * Detects structured configuration metadata in driver-less step data.
+ * Shared with the applier so validation and the write path agree.
+ */
+export function hasConfigMetadata(data: unknown): boolean {
+  return isRecord(data) && Object.keys(data).some(key => CONFIG_METADATA_KEYS.has(key));
+}
+
 /** Validates an edit-config-file step's data at apply entry. */
 export function validateConfigFileStepData(data: unknown): PlanStepDataValidation {
   if (!isRecord(data)) {
@@ -101,8 +138,12 @@ export function validateConfigFileStepData(data: unknown): PlanStepDataValidatio
     return { ok: true };
   }
   if (typeof data.driver !== 'string') {
-    // Driver-less data is the pre-built-content pattern (e.g. Claude Code):
-    // the applier writes step.newValue as-is.
+    if (hasConfigMetadata(data)) {
+      return {
+        ok: false,
+        error: 'config-file step declares configuration metadata but no driver — plans must declare a typed driver (json-object, jsonc-provider-map, yaml-model-array, toml-table) instead of relying on the verbatim raw-value fallback'
+      };
+    }
     return { ok: true };
   }
 

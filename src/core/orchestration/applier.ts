@@ -12,7 +12,7 @@ import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
-import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData } from './planStepData';
+import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
 import { patchCodexEnvFile } from '../../adapters/codex/codexEnvFile';
 
 /**
@@ -297,8 +297,17 @@ export class PlanApplier {
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
 
-    const driver = step.data.driver;
+    const driver = step.data?.driver;
     if (typeof driver !== 'string') {
+      // Fail closed: a driver-less payload that still declares config
+      // metadata must never fall through to the verbatim raw-value write —
+      // that is how ~/.codex/config.toml once became the bare base URL.
+      if (hasConfigMetadata(step.data)) {
+        throw new Error(
+          `Configuration file step for ${step.targetPath} declares step data without a driver; ` +
+          'refusing to write the raw value verbatim. Declare a typed driver instead.'
+        );
+      }
       return typeof step.newValue === 'string'
         ? step.newValue
         : JSON.stringify(step.newValue, null, 2);

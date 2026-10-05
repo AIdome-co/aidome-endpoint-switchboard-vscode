@@ -200,7 +200,18 @@ export class Switchboard {
     }
 
     if (!result.success) {
-      this.logger.error(`Plan failed: ${result.failedSteps.length} step(s) failed`);
+      this.logger.error(
+        `Plan failed: ${result.failedSteps.length} step(s) failed`,
+        undefined,
+        {
+          failedSteps: result.failedSteps.map(step => ({
+            id: step.id,
+            assistantKey: step.assistantKey,
+            action: step.action,
+            error: (step as unknown as { error?: string }).error
+          }))
+        }
+      );
     }
     
     return result;

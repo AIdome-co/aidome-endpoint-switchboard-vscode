@@ -311,7 +311,6 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
         assistantKey: 'claude-code',
         targetPath: '/home/user/.claude/settings.json',
         newValue: '{ "env": { "ANTHROPIC_BASE_URL": "https://gateway.example.com/v1" } }',
-        data: { format: 'json' },
       }),
       makeStep({
         action: 'set-vscode-setting',
