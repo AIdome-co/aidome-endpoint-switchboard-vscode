@@ -273,13 +273,22 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       }
       logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
     } else {
-      // Partial success: some assistants configured, some failed.
-      // The system is still usable — show which assistants succeeded and provide next steps.
+      // GAP 2: compute outcome categories ONCE — a step failure elsewhere in the
+      // plan must not flatten guided/unsupported/deferred into "failed".
       const succeeded = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.success)
+        .filter(([, r]) => r.status === 'configured')
+        .map(([k]) => k);
+      const guided = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'guided-required')
+        .map(([k]) => k);
+      const unsupported = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'unsupported')
+        .map(([k]) => k);
+      const deferred = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'deferred')
         .map(([k]) => k);
       const failed = [...result.assistantResults.entries()]
-        .filter(([, r]) => !r.success)
+        .filter(([, r]) => r.status === 'failed')
         .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
 
       if (succeeded.length > 0) {
@@ -288,18 +297,36 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         await profileStore.setActiveProfile(profile.id);
         updateStatusBar(profile.name);
         void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+        const parts = [
+          `Configured: ${succeeded.join(', ')}`,
+          guided.length > 0 ? `Manual follow-up required: ${guided.join(', ')}` : undefined,
+          unsupported.length > 0 ? `Unsupported for endpoint switching: ${unsupported.join(', ')}` : undefined,
+          deferred.length > 0 ? `Automatic configuration deferred for: ${deferred.join(', ')}` : undefined,
+          failed.length > 0 ? `Failed: ${failed.join(', ')}` : undefined
+        ].filter(Boolean);
         logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
-        await showError(
-          `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
-          `${failed.length} failed: ${failed.join(', ')}. Check the output channel for details.`,
-          'View Output'
-        );
+        await showWarning(parts.join('. '), 'View Output');
       } else {
-        logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
-        await showError(
-          `Configuration failed for all assistants. Check the output channel for details.`,
-          'View Output'
-        );
+        // Nothing configured: truthful incomplete messaging, never "0 configured".
+        if (unsupported.length > 0) {
+          await showWarning(
+            `No automatic configuration was applied. Unsupported for endpoint switching: ${unsupported.join(', ')}` +
+            (guided.length > 0 ? `. Manual follow-up required for: ${guided.join(', ')}` : '') +
+            (deferred.length > 0 ? `. Automatic configuration deferred for: ${deferred.join(', ')}` : '')
+          );
+        } else if (guided.length > 0 || deferred.length > 0) {
+          const parts = [
+            guided.length > 0 ? `Manual follow-up required for: ${guided.join(', ')}` : undefined,
+            deferred.length > 0 ? `Automatic configuration deferred for: ${deferred.join(', ')}` : undefined
+          ].filter(Boolean);
+          await showWarning(`No assistants were automatically configured. ${parts.join('. ')}`);
+        } else {
+          logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
+          await showError(
+            `Configuration failed for all assistants. Check the output channel for details.`,
+            'View Output'
+          );
+        }
       }
     }
   } catch (error) {

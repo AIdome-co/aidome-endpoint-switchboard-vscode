@@ -130,7 +130,7 @@ export async function assignProfileAssistants(
       .filter(([, assistantResult]) => assistantResult.status === 'configured')
       .map(([assistantKey]) => assistantKey);
     guidedAssistantKeys = [...result.assistantResults.entries()]
-      .filter(([, assistantResult]) => assistantResult.status === 'guided-required' || assistantResult.status === 'unsupported')
+      .filter(([, assistantResult]) => assistantResult.status === 'guided-required' || assistantResult.status === 'unsupported' || assistantResult.status === 'deferred')
       .map(([assistantKey]) => assistantKey);
     failedAssistantKeys = [...result.assistantResults.entries()]
       .filter(([, assistantResult]) => assistantResult.status === 'failed')

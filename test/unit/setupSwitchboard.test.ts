@@ -788,7 +788,7 @@ describe('setupSwitchboard', () => {
       failedSteps: [{ id: 'step-2', assistantKey: 'cline', action: 'set-vscode-setting', error: 'settings failed' }],
       assistantResults: new Map([
         ['kilocode', { status: 'configured', success: true }],
-        ['cline', { success: false, reason: 'settings failed' }]
+        ['cline', { status: 'failed', success: false, reason: 'settings failed' }]
       ])
     });
 
@@ -796,8 +796,9 @@ describe('setupSwitchboard', () => {
 
     expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
     expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.refreshAssistantsView');
-    expect(mockShowError).toHaveBeenCalledWith(
-      'Partial setup: 1 assistant(s) configured (kilocode). 1 failed: cline (settings failed). Check the output channel for details.',
+    // Outcome categories preserved under partial failure (not flattened).
+    expect(mockShowWarning).toHaveBeenCalledWith(
+      'Configured: kilocode. Failed: cline (settings failed)',
       'View Output'
     );
   });

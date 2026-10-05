@@ -119,7 +119,7 @@ export async function activateProfileAndReapplyMappings(
         // guided-required is not a failure of execution, but it is also not
         // a configured assistant: it lands in skipped (truthful incomplete).
         const guidedRequiredKeys = [...applyResult.assistantResults.entries()]
-          .filter(([, result]) => result.status === 'guided-required' || result.status === 'unsupported')
+          .filter(([, result]) => result.status === 'guided-required' || result.status === 'unsupported' || result.status === 'deferred')
           .map(([assistantKey]) => assistantKey);
         const appliedAssistantKeys = actionableAssistantKeys
           .filter(key => !failedAssistantKeys.includes(key) && !guidedRequiredKeys.includes(key));

@@ -296,6 +296,7 @@ export class Switchboard {
         return 'settings';
       case 'edit-config-file':
         return 'configFile';
+      case 'write-env-file':
       case 'set-env-var':
         return 'env';
       case 'show-guided-steps':

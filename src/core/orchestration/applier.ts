@@ -164,10 +164,15 @@ export class PlanApplier {
           if (unsupportedStep) {
             assistantResults.set(assistantKey, assistantResult('unsupported', unsupportedStep.data.message as string | undefined));
             this.logger.info(`[Applier] Assistant "${assistantKey}" is unsupported (guidance only)`);
-          } else {
+          } else if (steps.some(step => step.action === 'show-guided-steps')) {
             const reason = steps.find(step => step.action === 'show-guided-steps')?.data.message as string | undefined;
             assistantResults.set(assistantKey, assistantResult('guided-required', reason));
             this.logger.info(`[Applier] Assistant "${assistantKey}" executed guidance-only steps — guided-required, NOT configured`);
+          } else {
+            // GAP 3: nothing mutated and there are no manual instructions to
+            // follow — the operation is intentionally incomplete, NOT guided.
+            assistantResults.set(assistantKey, assistantResult('deferred', 'No configuration mutation was applied and no manual instructions are available'));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" applied no mutation and has no guidance — deferred, NOT configured`);
           }
         }
       } else if (assistantFailed) {
@@ -658,6 +663,14 @@ export class PlanApplier {
    * Reverses a single step using an applied step.
    */
   private async reverseStep(step: AppliedStep): Promise<void> {
+    // GAP 5: a configuration mutation that was intentionally skipped never
+    // happened — reverting it would only trigger spurious errors. Legacy
+    // steps (mutationApplied undefined) still roll back normally.
+    if (isConfigurationMutationAction(step.type) && step.mutationApplied === false) {
+      this.logger.debug(`Skipping rollback of ${step.type} on ${step.target}: the step was a no-op (nothing was applied)`);
+      return;
+    }
+
     this.logger.debug(`Reversing step of type: ${step.type}`);
 
     switch (step.type) {

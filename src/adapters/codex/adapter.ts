@@ -80,7 +80,9 @@ export class CodexAdapter extends BaseExtensionAdapter {
         // switch: when the newly applied profile has no saved secret,
         // remove ONLY the managed key (unrelated variables preserved).
         missingSecretBehavior: 'remove-managed-key',
-        authRef: profile.name,
+        // authRef is the SecretStorage lookup identity — profiles may have
+        // name !== authRef; the name is for human-readable messages only.
+        authRef: profile.authRef ?? profile.name,
         profileName: profile.name,
         envVarName: 'OPENAI_API_KEY'
       },

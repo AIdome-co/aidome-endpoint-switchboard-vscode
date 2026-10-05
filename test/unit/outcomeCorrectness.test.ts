@@ -114,7 +114,7 @@ async function newApplier(): Promise<PlanApplier> {
 }
 
 describe('P1: skipped VS Code setting writes are not mutations', () => {
-  it('unregistered setting: mutationApplied=false, assistant guided-required, no mapping', async () => {
+  it('unregistered setting: mutationApplied=false, assistant deferred, no mapping', async () => {
     mockVSCodeConfig.update.mockRejectedValue(new Error("It is not possible to register a configuration 'legacy.proxy' because it is not a registered configuration"));
 
     const plan = createPlan('p1', ['assist-vscode']);
@@ -124,7 +124,9 @@ describe('P1: skipped VS Code setting writes are not mutations', () => {
     const result = await applier.applyPlan(plan, 'Profile 1');
 
     const outcome = result.assistantResults.get('assist-vscode');
-    expect(outcome?.status).toBe('guided-required');
+    // GAP 3: the plan carries NO guidance step — a skipped no-op with no
+    // manual instructions is deferred, not guided-required.
+    expect(outcome?.status).toBe('deferred');
     expect(outcome?.success).toBe(false);
     // No configured mapping for a skipped write.
     const switchboard = new Switchboard(
