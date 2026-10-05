@@ -125,31 +125,31 @@ export class ClineAdapter extends BaseExtensionAdapter {
         data: { configPath: paths.secretsMirrorPath },
         reversible: true
       });
-      plan = addStep(plan, {
-        action: 'edit-config-file',
-        description: 'Sync Cline legacy secrets mirror with the profile credential',
-        assistantKey: 'cline',
-        targetPath: paths.secretsMirrorPath,
-        newValue: baseUrl,
-        data: {
-          driver: 'json-object',
-          configPath: paths.secretsMirrorPath,
-          configType: 'cline-legacy-secrets',
-          providerId: CLINE_PROVIDER_ID,
-          profileId: profile.id,
-          profileName: profile.name,
-          authRef: profile.authRef ?? profile.name,
-          baseUrl,
-          format: 'json',
-          secretPolicy: 'target-persisted-at-apply',
-          patches: [
-            { path: ['openAiApiKey'], source: 'secret', removeWhenMissing: true }
-          ],
-          clearAuthWhenMissing: false
-        },
-        reversible: true
-      });
     }
+    plan = addStep(plan, {
+      action: 'edit-config-file',
+      description: 'Sync Cline legacy secrets mirror with the profile credential',
+      assistantKey: 'cline',
+      targetPath: paths.secretsMirrorPath,
+      newValue: baseUrl,
+      data: {
+        driver: 'json-object',
+        configPath: paths.secretsMirrorPath,
+        configType: 'cline-legacy-secrets',
+        providerId: CLINE_PROVIDER_ID,
+        profileId: profile.id,
+        profileName: profile.name,
+        authRef: profile.authRef ?? profile.name,
+        baseUrl,
+        format: 'json',
+        secretPolicy: 'target-persisted-at-apply',
+        patches: [
+          { path: ['openAiApiKey'], source: 'secret', removeWhenMissing: true }
+        ],
+        clearAuthWhenMissing: false
+      },
+      reversible: true
+    });
 
     if (await fileExists(paths.globalStatePath)) {
       plan = addStep(plan, {

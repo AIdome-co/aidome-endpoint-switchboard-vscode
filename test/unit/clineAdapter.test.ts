@@ -158,8 +158,8 @@ describe('ClineAdapter', () => {
 
       expect(plan.assistantKeys).toEqual(['cline']);
       const paths = getClineConfigPaths();
-      // fileExists is mocked true, so the legacy secrets.json mirror step
-      // is planned too.
+      // The legacy secrets.json mirror is planned unconditionally: Cline's
+      // state manager reads the runtime key from it on this version.
       expect(editSteps).toHaveLength(4);
       expect(editSteps.map((step) => step.targetPath)).toEqual([
         paths.providerSettingsPath,
@@ -206,8 +206,12 @@ describe('ClineAdapter', () => {
 
       const plan = await adapter.buildPlan(mockProfile);
 
+      // The legacy secrets.json mirror write is unconditional (Cline's
+      // state manager reads the runtime key from it) — the file is created
+      // if missing; no backup step exists for it yet.
       expect(plan.steps.filter((step) => step.action === 'backup-file')).toHaveLength(0);
-      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(3);
+      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(4);
+      expect(plan.steps.some((step) => step.targetPath === getClineConfigPaths().secretsMirrorPath)).toBe(true);
       expect(plan.steps[0].newValue).toBe(mockProfile.baseUrl);
       expect(plan.steps[0].data.driver).toBe('json-object');
       expect(plan.steps[0].data.patches).toEqual(expect.arrayContaining([
