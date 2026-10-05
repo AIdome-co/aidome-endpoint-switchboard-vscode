@@ -24,6 +24,7 @@ import {
   getProfileActivationNotice
 } from './activateProfile';
 import { assignProfileAssistants } from './assignProfileAssistants';
+import { isConfigurationMutationAction } from '../core/orchestration/assistantOutcome';
 import {
   AUTO_DETECT_DIALECT_INFO_MESSAGE,
   DEFAULT_AUTH_OPTIONS,
@@ -45,6 +46,14 @@ interface ReapplyNotice {
   message: string;
 }
 
+/** An incomplete (not configured, NOT failed) automatic apply outcome, with real mutation evidence. */
+interface IncompleteAutomaticApply {
+  assistantKey: string;
+  status: 'guided-required' | 'unsupported' | 'deferred';
+  /** Whether the assistant's configuration actually mutated toward the profile. */
+  mutationApplied: boolean;
+}
+
 interface AutomaticProfileApplyResult {
   appliedAssistantKeys: string[];
   skippedAssistantKeys: string[];
@@ -55,6 +64,14 @@ interface AutomaticProfileApplyResult {
   deferredAssistantKeys: string[];
   /** All non-configured, non-failed keys (union of the three above). */
   incompleteAssistantKeys: string[];
+  /** Incomplete outcomes with per-assistant real-mutation evidence. */
+  incompleteResults: IncompleteAutomaticApply[];
+  /**
+   * Every assistant whose target apply actually mutated configuration —
+   * configured AND incomplete-but-mutated. This is the transactional
+   * rollback candidate set when a reassignment aborts.
+   */
+  mutatedAssistantKeys: string[];
 }
 
 const MANAGE_PROFILE_CREATION_TITLES = buildCreateProfileStepTitles(
@@ -807,6 +824,8 @@ async function applyAutomaticProfileToAssistants(
   const guidedAssistantKeys: string[] = [];
   const unsupportedAssistantKeys: string[] = [];
   const deferredAssistantKeys: string[] = [];
+  const incompleteResults: IncompleteAutomaticApply[] = [];
+  const mutatedAssistantKeys: string[] = [];
 
   for (const [index, assistantKey] of assistantKeys.entries()) {
     progress?.report({
@@ -825,9 +844,17 @@ async function applyAutomaticProfileToAssistants(
     // P1: status is the source of truth; `success` is only a compatibility
     // field. guided-required / unsupported / deferred are INCOMPLETE, not
     // hard failures — they must not trigger failure cleanup/abort logic.
+    // Mutation evidence is independent of status: a real configuration
+    // mutation = a mutation-action step whose write actually happened.
+    const mutationOccurred = applyResult.appliedSteps.some(step =>
+      step.assistantKey === assistantKey &&
+      isConfigurationMutationAction(step.action) &&
+      step.completed !== false
+    );
     const outcome = applyResult.assistantResults.get(assistantKey);
     if (outcome?.status === 'configured') {
       appliedAssistantKeys.push(assistantKey);
+      mutatedAssistantKeys.push(assistantKey);
       continue;
     }
 
@@ -844,12 +871,24 @@ async function applyAutomaticProfileToAssistants(
     switch (outcome.status) {
       case 'guided-required':
         guidedAssistantKeys.push(assistantKey);
+        incompleteResults.push({ assistantKey, status: 'guided-required', mutationApplied: mutationOccurred });
+        if (mutationOccurred) {
+          mutatedAssistantKeys.push(assistantKey);
+        }
         break;
       case 'unsupported':
         unsupportedAssistantKeys.push(assistantKey);
+        incompleteResults.push({ assistantKey, status: 'unsupported', mutationApplied: mutationOccurred });
+        if (mutationOccurred) {
+          mutatedAssistantKeys.push(assistantKey);
+        }
         break;
       case 'deferred':
         deferredAssistantKeys.push(assistantKey);
+        incompleteResults.push({ assistantKey, status: 'deferred', mutationApplied: mutationOccurred });
+        if (mutationOccurred) {
+          mutatedAssistantKeys.push(assistantKey);
+        }
         break;
       case 'failed':
       case undefined:
@@ -868,7 +907,9 @@ async function applyAutomaticProfileToAssistants(
     guidedAssistantKeys,
     unsupportedAssistantKeys,
     deferredAssistantKeys,
-    incompleteAssistantKeys: [...guidedAssistantKeys, ...unsupportedAssistantKeys, ...deferredAssistantKeys]
+    incompleteAssistantKeys: [...guidedAssistantKeys, ...unsupportedAssistantKeys, ...deferredAssistantKeys],
+    incompleteResults,
+    mutatedAssistantKeys
   };
 }
 
@@ -907,17 +948,32 @@ async function reassignMappedAssistantsToProfile(
         );
 
         if (targetResult.failedAssistantKeys.length > 0) {
-          if (targetResult.appliedAssistantKeys.length > 0) {
+          // P1: restore EVERY assistant whose target apply actually mutated
+          // configuration — configured AND incomplete-but-mutated
+          // (e.g. guided-required after a real config write). Non-mutating
+          // no-ops (guidance-only, unsupported/deferred without mutation,
+          // manual-only) have no state to roll back.
+          const restoreCandidates = targetResult.mutatedAssistantKeys;
+
+          if (restoreCandidates.length > 0) {
             const restoreResult = await applyAutomaticProfileToAssistants(
               switchboard,
               sourceProfile,
-              targetResult.appliedAssistantKeys,
+              restoreCandidates,
               progress,
               `Restoring ${sourceProfile.name} for`
             );
 
-            if (restoreResult.failedAssistantKeys.length === 0) {
-              for (const assistantKey of targetResult.appliedAssistantKeys) {
+            // Restoration is complete ONLY when EVERY candidate ended
+            // 'configured' — an incomplete (guided/deferred/unsupported)
+            // or failed restore means the source state was not fully
+            // recovered.
+            const restoreComplete = restoreResult.failedAssistantKeys.length === 0
+              && restoreResult.incompleteAssistantKeys.length === 0
+              && restoreResult.appliedAssistantKeys.length === restoreCandidates.length;
+
+            if (restoreComplete) {
+              for (const assistantKey of restoreCandidates) {
                 await profileStore.deleteAssistantMapping(assistantKey, targetProfile.id);
               }
 
@@ -940,12 +996,22 @@ async function reassignMappedAssistantsToProfile(
               undefined,
               {
                 failedAssistantKeys: targetResult.failedAssistantKeys,
-                restoreFailedAssistantKeys: restoreResult.failedAssistantKeys
+                restoreFailedAssistantKeys: restoreResult.failedAssistantKeys,
+                restoreIncompleteAssistantKeys: [
+                  ...restoreResult.guidedAssistantKeys,
+                  ...restoreResult.unsupportedAssistantKeys,
+                  ...restoreResult.deferredAssistantKeys
+                ]
               }
             );
+            const restoreIncompleteNames = [
+              ...restoreResult.guidedAssistantKeys,
+              ...restoreResult.unsupportedAssistantKeys,
+              ...restoreResult.deferredAssistantKeys
+            ];
             return {
               kind: 'error',
-              message: `Failed to reassign assistants to "${targetProfile.name}" and automatic restoration to "${sourceProfile.name}" was incomplete. Manual recovery may be required. Failed assistants: ${targetResult.failedAssistantKeys.join(', ')}. Restore failures: ${restoreResult.failedAssistantKeys.join(', ')}.`
+              message: `Failed to reassign assistants to "${targetProfile.name}" and automatic restoration to "${sourceProfile.name}" was incomplete. Manual recovery may be required. Failed assistants: ${targetResult.failedAssistantKeys.join(', ')}. Restore failures: ${restoreResult.failedAssistantKeys.join(', ')}${restoreIncompleteNames.length > 0 ? `. Restore incomplete: ${restoreIncompleteNames.join(', ')}` : ''}.`
             };
           }
 
