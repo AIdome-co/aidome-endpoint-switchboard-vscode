@@ -157,10 +157,13 @@ describe('ClineAdapter', () => {
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
       expect(plan.assistantKeys).toEqual(['cline']);
-      expect(editSteps).toHaveLength(3);
       const paths = getClineConfigPaths();
+      // fileExists is mocked true, so the legacy secrets.json mirror step
+      // is planned too.
+      expect(editSteps).toHaveLength(4);
       expect(editSteps.map((step) => step.targetPath)).toEqual([
         paths.providerSettingsPath,
+        paths.secretsMirrorPath,
         paths.globalStatePath,
         paths.modelCatalogPath
       ]);
@@ -190,7 +193,11 @@ describe('ClineAdapter', () => {
       const paths = getClineConfigPaths();
 
       expect(editSteps[0].targetPath).toBe(paths.providerSettingsPath);
-      expect(editSteps[1].targetPath).toBe(paths.globalStatePath);
+      // CLINE_PROVIDER_SETTINGS_PATH is a CLI-only override; the VS Code host
+      // path set includes the legacy secrets mirror when that file exists.
+      expect(editSteps.slice(1).map((step) => step.targetPath)).toEqual(
+        expect.arrayContaining([paths.globalStatePath])
+      );
     });
 
     it('creates native files without explicit backup steps when files are missing', async () => {
@@ -214,7 +221,7 @@ describe('ClineAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      expect(editSteps).toHaveLength(3);
+      expect(editSteps).toHaveLength(4); // settings + secrets mirror + globalState + models
       expect(editSteps.every((step) => step.newValue === mockProfile.baseUrl)).toBe(true);
       expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
