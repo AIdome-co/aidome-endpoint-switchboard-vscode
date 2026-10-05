@@ -17,6 +17,8 @@ export interface AppliedStep {
   backupPath?: string;     // for file-based changes
   createdFile?: boolean;   // true when rollback should delete a file created by apply
   timestamp: string;
+  /** For secret-resolving mutations: false when no saved credential was found (GAP 9). */
+  secretResolved?: boolean;
 }
 
 /**

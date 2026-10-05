@@ -13,6 +13,7 @@ import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
 import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
+import { type AssistantApplyResult, assistantResult, isConfigurationMutationAction } from './assistantOutcome';
 import { patchEnvFile } from '../providerConfig/envFileDriver';
 
 /**
@@ -24,7 +25,7 @@ export interface ApplierResult {
   failedSteps: PlanStep[];
   changeLogEntry: ChangeLogEntry;
   /** Per-assistant outcome summary for graceful degradation reporting. */
-  assistantResults: Map<string, { success: boolean; reason?: string }>;
+  assistantResults: Map<string, AssistantApplyResult>;
 }
 
 /**
@@ -57,7 +58,7 @@ export class PlanApplier {
     const allAppliedSteps: PlanStep[] = [];
     const allFailedSteps: PlanStep[] = [];
     const allChangeLogEntries: ChangeLogEntry[] = [];
-    const assistantResults = new Map<string, { success: boolean; reason?: string }>();
+    const assistantResults = new Map<string, AssistantApplyResult>();
 
     this.logger.info(`Applying plan ${plan.id} with ${plan.steps.length} steps across ${plan.assistantKeys.length} assistant(s)`);
 
@@ -112,10 +113,60 @@ export class PlanApplier {
         };
         await this.changeLog.recordApply(entry);
         allChangeLogEntries.push(entry);
-        assistantResults.set(assistantKey, { success: true });
-        this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
+        // GAP 1/2/10: executing steps is NOT the same as configuring the
+        // assistant. Only a real automatic configuration mutation makes the
+        // assistant configured; an assistant whose steps were purely
+        // informational/guidance is guided-required (or unsupported when the
+        // guidance explicitly declares it). Optional guidance shown AFTER a
+        // successful mutation does not downgrade the outcome.
+        const mutationSteps = appliedChangeSteps.filter(step => isConfigurationMutationAction(step.type));
+        // GAP 10: a REQUIRED (non-optional) guided step after partial
+        // automatic configuration means user action is still needed for the
+        // assistant to be usable — guided-required, even though the mutation
+        // itself succeeded.
+        const requiredGuidance = steps.find(step =>
+          step.action === 'show-guided-steps' && step.data.optional !== true);
+        if (mutationSteps.length > 0 && requiredGuidance) {
+          // GAP 9: a mutation step that needed a required secret but found
+          // none (the step returned early with guidance) must not report
+          // configured — required authentication is still incomplete.
+          assistantResults.set(assistantKey, assistantResult(
+            'guided-required',
+            requiredGuidance.data.message as string | undefined
+          ));
+          this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: required manual follow-up remains`);
+        } else if (mutationSteps.length > 0) {
+          // GAP 9: a mutation step that needed a required secret but found
+          // none (the step returned early with guidance) must not report
+          // configured — required authentication is still incomplete.
+          const missingSecretMutation = appliedChangeSteps.find(step =>
+            step.type === 'write-env-file' && (step as { secretResolved?: boolean }).secretResolved === false);
+          if (missingSecretMutation) {
+            assistantResults.set(assistantKey, assistantResult(
+              'guided-required',
+              'No saved profile credential was found — the configuration was applied but authentication remains incomplete'
+            ));
+            this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: automatic configuration completed but the required credential is missing`);
+          } else {
+            assistantResults.set(assistantKey, assistantResult('configured'));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
+          }
+        } else {
+          // No mutation executed: check whether any guidance step declares
+          // the assistant unsupported (Roo/Tabnine-style informational plans).
+          const unsupportedStep = steps.find(step =>
+            step.action === 'show-guided-steps' && step.data.limitation === 'unsupported');
+          if (unsupportedStep) {
+            assistantResults.set(assistantKey, assistantResult('unsupported', unsupportedStep.data.message as string | undefined));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" is unsupported (guidance only)`);
+          } else {
+            const reason = steps.find(step => step.action === 'show-guided-steps')?.data.message as string | undefined;
+            assistantResults.set(assistantKey, assistantResult('guided-required', reason));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" executed guidance-only steps — guided-required, NOT configured`);
+          }
+        }
       } else if (assistantFailed) {
-        assistantResults.set(assistantKey, { success: false, reason: failReason });
+        assistantResults.set(assistantKey, assistantResult('failed', failReason));
       }
     }
 
@@ -395,6 +446,9 @@ export class PlanApplier {
       : undefined;
     const secret = authRef ? await this.profileSecrets.getSecret(authRef) : undefined;
     if (secret === undefined || secret.trim().length === 0) {
+      // GAP 9: the step executed (guidance shown) but no credential was
+      // persisted — mark it so the outcome is guided-required, not configured.
+      appliedStep.secretResolved = false;
       // No saved credential: endpoint config stays applied, auth remains
       // guided (the plan carries an optional guided step for exactly this).
       // Failing here would roll back the working endpoint write.
@@ -407,6 +461,7 @@ export class PlanApplier {
 
     const backupPath = await patchEnvFile(targetPath, { [envVarName]: secret }, { fileLabel: 'env file' });
     appliedStep.backupPath = backupPath;
+    appliedStep.secretResolved = true;
     this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }
 

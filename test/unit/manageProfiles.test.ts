@@ -280,7 +280,7 @@ describe('manageProfiles edit reapply flow', () => {
         }
       ],
       failedSteps: [],
-      assistantResults: new Map([['cline', { success: true }]])
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
@@ -511,7 +511,7 @@ describe('manageProfiles delete reassign flow', () => {
         }
       ],
       failedSteps: [],
-      assistantResults: new Map([['cline', { success: true }]])
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })
@@ -620,7 +620,7 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['cline', { success: true }]])
+        assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       })
       .mockResolvedValueOnce({
         success: false,
@@ -636,7 +636,7 @@ describe('manageProfiles delete reassign flow', () => {
             error: 'settings update failed'
           }
         ],
-        assistantResults: new Map([['continue', { success: false }]])
+        assistantResults: new Map([['continue', { status: 'failed', success: false }]])
       })
       .mockResolvedValueOnce({
         success: true,
@@ -651,7 +651,7 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['cline', { success: true }]])
+        assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })
@@ -717,7 +717,7 @@ describe('manageProfiles delete reassign flow', () => {
           error: 'write failed'
         }
       ],
-      assistantResults: new Map([['cline', { success: false }]])
+      assistantResults: new Map([['cline', { status: 'failed', success: false }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })

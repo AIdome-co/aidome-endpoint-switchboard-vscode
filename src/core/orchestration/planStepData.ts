@@ -90,7 +90,8 @@ export interface SetEnvVarStepData {
 export interface WriteEnvFileStepData {
   envVarName: string;
   authRef?: string;
-  secretPolicy?: 'target-persisted-at-apply';
+  /** REQUIRED: an explicit persistence policy is mandatory for any step that resolves a secret from storage and persists it to disk. */
+  secretPolicy: 'target-persisted-at-apply';
   profileName?: string;
   preserveUnknown?: boolean;
   [key: string]: unknown;
@@ -207,11 +208,13 @@ export function validateWriteEnvFileStepData(data: unknown): PlanStepDataValidat
   if (data.authRef !== undefined && (typeof data.authRef !== 'string' || data.authRef.trim().length === 0)) {
     return { ok: false, error: 'write-env-file authRef must be a non-empty string when provided' };
   }
-  if (
-    data.secretPolicy !== undefined &&
-    data.secretPolicy !== 'target-persisted-at-apply'
-  ) {
-    return { ok: false, error: 'write-env-file secretPolicy must be "target-persisted-at-apply" when provided' };
+  // GAP 13: fail closed — persisting a secret to disk without a declared
+  // policy must be rejected at apply entry, not silently defaulted.
+  if (typeof data.secretPolicy !== 'string' || data.secretPolicy.trim().length === 0) {
+    return { ok: false, error: 'write-env-file requires an explicit secretPolicy ("target-persisted-at-apply") when persisting a credential' };
+  }
+  if (data.secretPolicy !== 'target-persisted-at-apply') {
+    return { ok: false, error: 'write-env-file secretPolicy must be "target-persisted-at-apply"' };
   }
   return { ok: true };
 }

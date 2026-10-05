@@ -127,17 +127,23 @@ export async function assignProfileAssistants(
     );
 
     succeededAssistantKeys = [...result.assistantResults.entries()]
-      .filter(([, assistantResult]) => assistantResult.success)
+      .filter(([, assistantResult]) => assistantResult.status === 'configured')
+      .map(([assistantKey]) => assistantKey);
+    guidedAssistantKeys = [...result.assistantResults.entries()]
+      .filter(([, assistantResult]) => assistantResult.status === 'guided-required' || assistantResult.status === 'unsupported')
       .map(([assistantKey]) => assistantKey);
     failedAssistantKeys = [...result.assistantResults.entries()]
-      .filter(([, assistantResult]) => !assistantResult.success)
+      .filter(([, assistantResult]) => assistantResult.status === 'failed')
       .map(([assistantKey, assistantResult]) => `${assistantKey}${assistantResult.reason ? ` (${assistantResult.reason})` : ''}`);
+
   }
 
   const detachedAssistantKeys: string[] = [];
   const detachedSwitches: string[] = [];
   const detachWarnings: string[] = [];
   const detachFailures: string[] = [];
+
+
 
   for (const assistantKey of deselectedAssistantKeys) {
     const outcome = await detachAssistantFromProfile(

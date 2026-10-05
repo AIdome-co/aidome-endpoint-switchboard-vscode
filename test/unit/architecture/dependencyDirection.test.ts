@@ -72,45 +72,41 @@ describe('GAP 10: dependency direction', () => {
     expect(violations).toEqual([]);
   });
 
-  it('generic core contains NO behavior branches on known provider names', () => {
-    // Provider-specific strings may appear in log data or comments coming from
-    // the step itself, but not as behavior branches. We check for the classic
-    // equality / comparison branch patterns.
-    const providerNames = [
-      'openai-codex',
-      'claude-code',
-      'kilo-code',
-      'github-copilot',
-      'roo-code',
-      'codegpt',
-      'tabnine',
-      'anythingllm',
-      'gemini-cli'
-    ];
+  it('generic core contains NO behavior branches on ANY registered provider key', () => {
+    // Provider keys are derived from the descriptor registry — no parallel
+    // hand-maintained list (GAP 12).
+    const providerKeys = getProviderConfigDescriptors().map(d => d.providerKey);
+    expect(providerKeys.length).toBeGreaterThan(0);
+    // Provider-specific strings may appear in log data or comments coming
+    // from the step itself, but not as behavior branches: equality against a
+    // quoted literal, switch-case labels, and set-membership probes.
     const branchPatterns = [
-      /===\s*['"]/,
-      /['"]\s*===/,
-      /!==\s*['"]/,
-      /['"]\s*!==/,
+      /===\s*['"]|['"]\s*===/,
+      /!==\s*['"]|['"]\s*!==/,
       /includes\(\s*['"]/,
       /startsWith\(\s*['"]/,
-      /endsWith\(\s*['"]/
+      /endsWith\(\s*['"]/,
+      /case\s+['"][^'"]+['"]\s*:/
     ];
     const violations: string[] = [];
     for (const file of GENERIC_CORE_FILES) {
       const source = readFileSync(file, 'utf-8');
-      for (const name of providerNames) {
+      // descriptors.ts contains upstream-repo URL evidence data, not
+      // behavior branches on our provider keys.
+      if (file.endsWith('descriptors.ts')) {
+        continue;
+      }
+      const isDescriptorDataFile = file.endsWith('assistantOutcome.ts');
+      for (const name of providerKeys) {
         for (const line of source.split('\n')) {
-          if (!line.includes(name)) {
+          if (!line.includes(`'${name}'`) && !line.includes(`"${name}"`)) {
             continue;
           }
-          // descriptors.ts contains upstream-repo URL evidence data, not
-          // behavior branches on our provider keys.
-          if (file.endsWith('descriptors.ts')) {
+          if (isDescriptorDataFile) {
             continue;
           }
           if (branchPatterns.some((pattern) => pattern.test(line))) {
-            violations.push(`${file}: branch on provider name: ${line.trim()}`);
+            violations.push(`${file}: branch on provider key: ${line.trim()}`);
           }
         }
       }

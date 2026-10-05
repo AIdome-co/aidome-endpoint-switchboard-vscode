@@ -197,7 +197,7 @@ describe('manageProfiles automatic reapply full failure', () => {
           error: 'apply failed',
         },
       ],
-      assistantResults: new Map([['cline', { success: false }]]),
+      assistantResults: new Map([['cline', { status: 'failed', success: false }]]),
     });
 
     await manageProfiles({} as any);

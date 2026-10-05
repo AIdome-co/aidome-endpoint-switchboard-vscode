@@ -186,7 +186,7 @@ describe('assignProfileAssistants', () => {
         profileName: profile.name,
         steps: []
       },
-      assistantResults: new Map([['cline', { success: true }]])
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick.mockResolvedValue([{ assistantKey: 'cline', label: 'Cline' }]);
     mockShowInformationMessage.mockResolvedValue('Apply');
@@ -341,7 +341,7 @@ describe('assignProfileAssistants', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['cline', { success: true }]])
+        assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       })
       .mockResolvedValueOnce({
         success: true,
@@ -356,7 +356,7 @@ describe('assignProfileAssistants', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['kilo-code', { success: true }]])
+        assistantResults: new Map([['kilo-code', { status: 'configured', success: true }]])
       });
     mockShowQuickPick.mockResolvedValue([{ assistantKey: 'cline', label: 'Cline' }]);
 
@@ -677,15 +677,17 @@ describe('assignProfileAssistants', () => {
         }
       ],
       assistantResults: new Map([
-        ['cline', { success: true }],
-        ['anythingllm', { success: false, reason: 'manual follow-up required' }]
+        ['cline', { status: 'configured', success: true }],
+        ['anythingllm', { status: 'guided-required', success: false, reason: 'manual follow-up required' }]
       ])
     });
 
     await assignProfileAssistants({} as any, profile.id);
 
-    expect(mockShowWarning).toHaveBeenCalledWith(
-      'Assigned "OpenAI Prod" to 1 assistant(s). Failures: anythingllm (manual follow-up required). Guided follow-up is required for: anythingllm.'
+    // GAP 6: guided-required is NOT a failure — it reports as a truthful
+    // guided follow-up on the success path.
+    expect(mockShowSuccess).toHaveBeenCalledWith(
+      'Assigned "OpenAI Prod" to 1 assistant(s). Guided follow-up is required for: anythingllm.'
     );
   });
 
@@ -774,7 +776,7 @@ describe('assignProfileAssistants', () => {
         }
       ],
       failedSteps: [],
-      assistantResults: new Map([['cline', { success: true }]])
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
 
     await assignProfileAssistants({} as any, profile.id);
@@ -800,7 +802,7 @@ describe('assignProfileAssistants', () => {
         }
       ],
       assistantResults: new Map([
-        ['cline', { success: false, reason: 'write failed' }]
+        ['cline', { status: 'failed', success: false, reason: 'write failed' }]
       ])
     });
 
@@ -827,7 +829,7 @@ describe('assignProfileAssistants', () => {
         }
       ],
       assistantResults: new Map([
-        ['cline', { success: false }]
+        ['cline', { status: 'failed', success: false }]
       ])
     });
 

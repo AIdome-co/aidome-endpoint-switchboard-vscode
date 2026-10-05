@@ -222,7 +222,10 @@ export class ClineAdapter extends BaseExtensionAdapter {
         tier: 'A',
         limitation: 'Cline API key is persisted into providers.json from the profile secret at apply time (target-persisted-at-apply), mirroring the Codex env-file credential flow.',
         configurationType: 'cline-provider-ui',
-        optional: false
+        // GAP 2: the credential is persisted automatically at apply
+        // (target-persisted-at-apply) — this guidance is advisory
+        // (fallback manual path), not a required user step.
+        optional: true
       },
       reversible: false
     });

@@ -694,7 +694,7 @@ describe('setupSwitchboard', () => {
     mockApplyPlan.mockResolvedValue({
       success: true,
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
-      assistantResults: new Map([['kilocode', { success: true }]])
+      assistantResults: new Map([['kilocode', { status: 'configured', success: true }]])
     });
     mockShowSuccess.mockResolvedValue('Verify');
     const context = makeContext();
@@ -739,7 +739,7 @@ describe('setupSwitchboard', () => {
     mockApplyPlan.mockResolvedValue({
       success: true,
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
-      assistantResults: new Map([['kilocode', { success: true }]])
+      assistantResults: new Map([['kilocode', { status: 'configured', success: true }]])
     });
 
     await setupSwitchboard(makeContext());
@@ -787,7 +787,7 @@ describe('setupSwitchboard', () => {
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
       failedSteps: [{ id: 'step-2', assistantKey: 'cline', action: 'set-vscode-setting', error: 'settings failed' }],
       assistantResults: new Map([
-        ['kilocode', { success: true }],
+        ['kilocode', { status: 'configured', success: true }],
         ['cline', { success: false, reason: 'settings failed' }]
       ])
     });

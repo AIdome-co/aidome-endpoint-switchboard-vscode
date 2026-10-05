@@ -170,7 +170,7 @@ describe('Cline native plan lifecycle', () => {
     const result = await applier.applyPlan(plan, profile.name);
 
     expect(result.success).toBe(true);
-    expect(result.assistantResults.get('cline')).toEqual({ success: true });
+    expect(result.assistantResults.get('cline')).toEqual({ status: 'configured', success: true });
     await expect(adapter.verify()).resolves.toMatchObject({ success: true });
 
     const providers = JSON.parse(await fs.readFile(

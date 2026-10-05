@@ -98,7 +98,7 @@ describe('activateProfileAndReapplyMappings', () => {
       appliedSteps: [],
       failedSteps: [],
       changeLogEntry: { id: 'entry-1', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'claude-code', profileName: 'claude-test3', steps: [] },
-      assistantResults: new Map([['claude-code', { success: true }]])
+      assistantResults: new Map([['claude-code', { status: 'configured', success: true }]])
     });
   });
 
@@ -333,8 +333,8 @@ describe('activateProfileAndReapplyMappings', () => {
       ],
       changeLogEntry: { id: 'entry-2', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
       assistantResults: new Map([
-        ['cline', { success: true }],
-        ['continue', { success: false }]
+        ['cline', { status: 'configured', success: true }],
+        ['continue', { status: 'failed', success: false }]
       ])
     });
 
@@ -390,7 +390,7 @@ describe('activateProfileAndReapplyMappings', () => {
       ],
       changeLogEntry: { id: 'entry-3', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
       assistantResults: new Map([
-        ['cline', { success: false }]
+        ['cline', { status: 'failed', success: false }]
       ])
     });
 
@@ -445,7 +445,7 @@ describe('activateProfileAndReapplyMappings', () => {
       failedSteps: [],
       changeLogEntry: { id: 'entry-4', timestamp: '2026-05-16T00:00:00.000Z', assistantKey: 'cline', profileName: profile.name, steps: [] },
       assistantResults: new Map([
-        ['cline', { success: true }]
+        ['cline', { status: 'configured', success: true }]
       ])
     });
     mockSetActiveProfile.mockRejectedValueOnce(new Error('Storage quota exceeded'));

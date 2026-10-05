@@ -1,17 +1,19 @@
 import * as vscode from 'vscode';
 import { Switchboard } from '../core/orchestration/switchboard';
-import { Plan, PlanStepAction } from '../core/orchestration/planBuilder';
+import { Plan } from '../core/orchestration/planBuilder';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { loadRegistry } from '../core/registry/registryLoader';
+import { CONFIGURATION_MUTATION_ACTIONS } from '../core/orchestration/assistantOutcome';
 import { updateStatusBar } from '../ui/statusBar';
 import { Logger } from '../util/log';
 
-const AUTOMATED_REAPPLY_ACTIONS = new Set<PlanStepAction>([
-  'set-vscode-setting',
-  'edit-config-file'
-]);
+// GAP 8: automated reapply must retain every real automatic configuration
+// mutation — including write-env-file — so profile switching moves BOTH the
+// endpoint config AND the required credential (Codex: config.toml + .env).
+// Guidance/verification/backup steps are intentionally excluded.
+const AUTOMATED_REAPPLY_ACTIONS = CONFIGURATION_MUTATION_ACTIONS;
 
 export interface ProfileActivationResult {
   status: 'success' | 'partial' | 'active-only' | 'failed';
@@ -112,9 +114,15 @@ export async function activateProfileAndReapplyMappings(
 
         const applyResult = await switchboard.applyPlan(reapplyPlan);
         const failedAssistantKeys = [...applyResult.assistantResults.entries()]
-          .filter(([, result]) => !result.success)
+          .filter(([, result]) => result.status === 'failed')
           .map(([assistantKey]) => assistantKey);
-        const appliedAssistantKeys = actionableAssistantKeys.filter(key => !failedAssistantKeys.includes(key));
+        // guided-required is not a failure of execution, but it is also not
+        // a configured assistant: it lands in skipped (truthful incomplete).
+        const guidedRequiredKeys = [...applyResult.assistantResults.entries()]
+          .filter(([, result]) => result.status === 'guided-required' || result.status === 'unsupported')
+          .map(([assistantKey]) => assistantKey);
+        const appliedAssistantKeys = actionableAssistantKeys
+          .filter(key => !failedAssistantKeys.includes(key) && !guidedRequiredKeys.includes(key));
 
         if (applyResult.success) {
           await profileStore.setActiveProfile(profile.id);

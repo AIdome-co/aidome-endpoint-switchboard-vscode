@@ -10,6 +10,7 @@ import { ProfileStore } from '../profiles/profileStore';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { Plan, createPlan, addStep, generateStepId } from './planBuilder';
 import { PlanApplier, ApplierResult } from './applier';
+import { isConfigurationMutationAction } from './assistantOutcome';
 import { Verifier, VerificationResult } from './verifier';
 import { detectExtensions, DetectedAssistant } from '../detection/detectExtensions';
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
@@ -165,9 +166,7 @@ export class Switchboard {
       // An assistant whose plan only displayed instructions stays unmapped.
       const mutatedAssistants = new Set(
         result.appliedSteps
-          .filter(step => step.action === 'set-vscode-setting'
-            || step.action === 'edit-config-file'
-            || step.action === 'set-env-var')
+          .filter(step => isConfigurationMutationAction(step.action))
           .map(step => step.assistantKey)
       );
 

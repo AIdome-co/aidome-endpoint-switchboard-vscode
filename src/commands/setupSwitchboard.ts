@@ -14,6 +14,7 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
+import { countConfiguredAssistants } from '../core/orchestration/assistantOutcome';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
@@ -219,8 +220,17 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
       
+      // GAP 5: count unique assistants whose final outcome is configured —
+      // NOT applied step count (one assistant can have many steps).
+      const configuredCount = countConfiguredAssistants(result.assistantResults);
+      const guidedKeys = [...result.assistantResults.entries()]
+        .filter(([, r]) => r.status === 'guided-required')
+        .map(([k]) => k);
+      const guidedSuffix = guidedKeys.length > 0
+        ? `. Manual follow-up required for: ${guidedKeys.join(', ')}`
+        : '';
       const action = await showSuccess(
-        `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
+        `Successfully configured ${configuredCount} assistant(s) to use ${profile.name}${guidedSuffix}`,
         'Verify'
       );
       if (action === 'Verify') {
