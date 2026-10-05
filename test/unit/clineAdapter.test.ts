@@ -285,6 +285,14 @@ describe('ClineAdapter', () => {
   });
 
   describe('verify', () => {
+    beforeEach(async () => {
+      // GAP 5: exact-profile verification requires the expected URL captured
+      // at plan-build time; seed it the way a real apply flow would.
+      // buildPlan's model discovery is exercised with the gateway disabled —
+      // it fails soft and the plan is built without models.
+      await adapter.buildPlan(mockProfile);
+    });
+
     it('verifies provider ID, active mode selection, and matching endpoint values', async () => {
       mockReadFileSafe.mockImplementation(async (filePath: string) => {
         if (filePath.endsWith('providers.json')) {
@@ -421,7 +429,9 @@ describe('ClineAdapter', () => {
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('do not match');
+      // GAP 5: exact-profile verification fires before the internal
+      // consistency check (neither URL matches the assigned profile).
+      expect(result.message).toContain('does not match the assigned profile base URL');
       expect(result.details).toMatchObject({
         providerBaseUrl: 'https://provider.example/v1',
         globalBaseUrl: 'https://different.example/v1'

@@ -115,19 +115,20 @@ describe('KiloCodeAdapter', () => {
   });
 
   describe('buildPlan', () => {
-    it('creates backup-file and edit-config-file steps for Kilo Code config', async () => {
+    it('marks the edit step backupRequired instead of emitting a duplicate backup-file step', async () => {
       mockFileExists.mockResolvedValue(true);
 
       const plan = await adapter.buildPlan(mockProfile);
 
       expect(plan.assistantKeys).toEqual(['kilo-code']);
 
+      // GAP 6: PlanApplier owns backup-before-write; the adapter only marks
+      // the preview metadata.
       const backupStep = plan.steps.find((s) => s.action === 'backup-file');
-      expect(backupStep).toBeDefined();
-      expect(backupStep?.targetPath).toContain('kilo.jsonc');
-      expect(backupStep?.assistantKey).toBe('kilo-code');
+      expect(backupStep).toBeUndefined();
 
       const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
+      expect(editStep?.data?.backupRequired).toBe(true);
       expect(editStep).toBeDefined();
       expect(editStep?.targetPath).toContain('kilo.jsonc');
       expect(editStep?.newValue).toBe(mockProfile.baseUrl);
@@ -149,6 +150,7 @@ describe('KiloCodeAdapter', () => {
 
       const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
       expect(editStep).toBeDefined();
+      expect(editStep?.data?.backupRequired).toBeUndefined();
     });
 
     it('includes all required step types', async () => {
@@ -157,9 +159,11 @@ describe('KiloCodeAdapter', () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       const actions = plan.steps.map((s) => s.action);
-      expect(actions).toContain('backup-file');
       expect(actions).toContain('edit-config-file');
       expect(actions).toContain('verify-endpoint');
+      // backupRequired preview metadata replaces the executable backup step.
+      const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
+      expect(editStep?.data?.backupRequired).toBe(true);
     });
 
     it('passes discovered models to the edit-config-file step when discovery returns slugs', async () => {
@@ -201,6 +205,12 @@ describe('KiloCodeAdapter', () => {
   });
 
   describe('verify', () => {
+    beforeEach(async () => {
+      // GAP 4: exact-profile verification requires the expected URL captured
+      // at plan-build time; seed it the way a real apply flow would.
+      await adapter.buildPlan(mockProfile);
+    });
+
     it('returns success when config file has aidome-gateway provider with baseURL', async () => {
       mockReadFileSafe.mockResolvedValue(JSON.stringify({
         $schema: 'https://app.kilo.ai/config.json',
@@ -242,7 +252,7 @@ describe('KiloCodeAdapter', () => {
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('does not have AIdome Gateway provider configured');
+      expect(result.message).toContain('does not have the AIdome Gateway provider configured');
     });
 
     it('returns failure when config file exists but is empty', async () => {
@@ -251,7 +261,85 @@ describe('KiloCodeAdapter', () => {
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('does not have AIdome Gateway provider configured');
+      expect(result.message).toContain('does not have the AIdome Gateway provider configured');
+    });
+
+    it('fails closed when the expected profile URL is unknown', async () => {
+      const fresh = new KiloCodeAdapter();
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            name: 'AIdome Gateway',
+            options: { baseURL: 'https://gateway.example.com/v1' }
+          }
+        }
+      }));
+      const result = await fresh.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('expected AIdome profile URL is unknown');
+      expect(result.details?.exactUrlMatchVerified).toBe(false);
+    });
+
+    it('fails when aidome-gateway baseURL differs from the assigned profile', async () => {
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({
+        provider: {
+          'aidome-gateway': {
+            name: 'AIdome Gateway',
+            options: { baseURL: 'https://stale.example.com/v1' }
+          }
+        }
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not match the assigned profile URL');
+    });
+
+    it('fails closed when the JSONC parser throws a non-Error value', async () => {
+      const jsonc = await import('../../src/util/jsonc');
+      const original = jsonc.parseJsonc;
+      mockReadFileSafe.mockResolvedValue('{}');
+      vi.spyOn(jsonc, 'parseJsonc').mockImplementation(() => {
+        throw 'non-error throw';
+      });
+      try {
+        const result = await adapter.verify();
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('not valid JSONC');
+        expect(result.message).toContain('non-error throw');
+      } finally {
+        vi.spyOn(jsonc, 'parseJsonc').mockRestore();
+        void original;
+      }
+    });
+
+    it('fails closed when the config file is not valid JSONC', async () => {
+      mockReadFileSafe.mockResolvedValue('{ not valid jsonc !!!');
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('not valid JSONC');
+    });
+
+    it('fails closed when the aidome-gateway entry is malformed (provider map not an object, entry null, options not an object)', async () => {
+      // provider map is a string
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({ provider: 'garbage' }));
+      expect((await adapter.verify()).success).toBe(false);
+
+      // provider entry is null
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({ provider: { 'aidome-gateway': null } }));
+      expect((await adapter.verify()).success).toBe(false);
+
+      // options is not an object
+      mockReadFileSafe.mockResolvedValue(JSON.stringify({
+        provider: { 'aidome-gateway': { options: 'garbage' } }
+      }));
+      const result = await adapter.verify();
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('does not match the assigned profile URL');
     });
 
     it('wraps unexpected errors into failed result', async () => {

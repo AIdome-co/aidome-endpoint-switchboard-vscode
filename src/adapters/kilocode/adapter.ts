@@ -16,12 +16,16 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { resolveKiloConfigTarget, getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
+import { parseJsonc } from '../../util/jsonc';
 import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 /**
  * Kilo Code assistant adapter.
  */
 export class KiloCodeAdapter extends BaseExtensionAdapter {
+  /** Profile base URL captured at buildPlan for exact-profile verification (GAP 4). */
+  private expectedBaseUrl: string | undefined;
+
   protected readonly extensionId = 'kilocode.kilo-code';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
@@ -59,17 +63,9 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       ? buildModelEntries(modelSlugs)
       : undefined;
 
+    // GAP 6: PlanApplier backs up the config before its edit-config-file
+    // step; backupRequired below is preview metadata, not a duplicate backup.
     const configExists = await fileExists(configPath);
-    if (configExists) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Kilo Code config file',
-        assistantKey: 'kilo-code',
-        targetPath: configPath,
-        data: { configPath },
-        reversible: true
-      });
-    }
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -88,6 +84,7 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
         },
         baseUrlPath: ['options', 'baseURL'],
         configPath: configPath,
+        ...(configExists ? { backupRequired: true } : {}),
         profileId: profile.id,
         baseUrl,
         format: 'jsonc',
@@ -115,6 +112,10 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
         reversible: false
       });
     }
+
+    // GAP 4: remember the assigned profile's URL so verification requires an
+    // exact match (fail closed when unknown).
+    this.expectedBaseUrl = baseUrl;
 
     plan = addStep(plan, {
       action: 'verify-endpoint',
@@ -147,21 +148,60 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const hasProviderConfig = content.includes('"aidome-gateway"') &&
-                              content.includes('baseURL');
-
-    if (!hasProviderConfig) {
+    // GAP 4: parse the JSONC document (never substring matching) and require
+    // the aidome-gateway provider entry with the EXACT expected profile URL.
+    let document: Record<string, unknown>;
+    try {
+      document = parseJsonc<Record<string, unknown>>(content);
+    } catch (error) {
       return {
         success: false,
-        message: 'Kilo Code config does not have AIdome Gateway provider configured',
+        message: `Kilo Code config file is not valid JSONC: ${error instanceof Error ? error.message : String(error)}`,
         details: { configPath }
+      };
+    }
+
+    if (this.expectedBaseUrl === undefined) {
+      return {
+        success: false,
+        message: 'Kilo Code provider configuration exists, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
+        details: { configPath, exactUrlMatchVerified: false }
+      };
+    }
+
+    const providerMap = document['provider'];
+    const providerEntry = (providerMap !== null && typeof providerMap === 'object' && !Array.isArray(providerMap)
+      ? (providerMap as Record<string, unknown>)['aidome-gateway']
+      : undefined);
+    if (providerEntry === undefined || providerEntry === null || typeof providerEntry !== 'object') {
+      return {
+        success: false,
+        message: 'Kilo Code config does not have the AIdome Gateway provider configured',
+        details: { configPath }
+      };
+    }
+
+    const options = (providerEntry as Record<string, unknown>)['options'];
+    const baseURL = options !== null && typeof options === 'object' && !Array.isArray(options)
+      ? (options as Record<string, unknown>)['baseURL']
+      : undefined;
+    const expectedBaseUrl = normalizeOpenAiBaseUrl(this.expectedBaseUrl);
+    if (typeof baseURL !== 'string' || normalizeOpenAiBaseUrl(baseURL) !== expectedBaseUrl) {
+      return {
+        success: false,
+        message: 'Kilo Code aidome-gateway baseURL does not match the assigned profile URL',
+        details: {
+          configPath,
+          configuredBaseUrl: typeof baseURL === 'string' ? baseURL : undefined,
+          expectedBaseUrl
+        }
       };
     }
 
     return {
       success: true,
       message: 'Kilo Code configuration verified',
-      details: { configPath }
+      details: { configPath, exactUrlMatchVerified: true }
     };
   }
 

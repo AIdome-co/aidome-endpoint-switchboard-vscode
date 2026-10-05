@@ -53,6 +53,9 @@ interface GlobalStateDocument {
 export class ClineAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = CLINE_EXTENSION_ID;
 
+  /** Profile base URL captured at buildPlan for exact-profile verification (GAP 5). */
+  private expectedBaseUrl: string | undefined;
+
   constructor(private readonly dependencies: AdapterDependencies = {}) {
     super();
   }
@@ -64,24 +67,18 @@ export class ClineAdapter extends BaseExtensionAdapter {
 
     const paths = getClineConfigPaths();
     const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
+    // Remember the assigned profile's URL so verification requires an exact
+    // match (fail closed when unknown — internally consistent files pointing
+    // at a different URL must NOT verify for this profile).
+    this.expectedBaseUrl = baseUrl;
     const models = await this.discoverModels(profile);
     const modelId = models[0]?.id;
     const modelCatalog = buildModelCatalog(models);
     let plan = createPlan(profile.id, ['cline']);
 
-    // PlanApplier also backs up edit-config-file steps immediately before
-    // writing. The explicit backup steps make the plan preview show the
-    // recoverability guarantee and match the other file-backed adapters.
-    if (await fileExists(paths.providerSettingsPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline provider settings',
-        assistantKey: 'cline',
-        targetPath: paths.providerSettingsPath,
-        data: { configPath: paths.providerSettingsPath },
-        reversible: true
-      });
-    }
+    // PlanApplier owns backup-before-write for edit-config-file; the
+    // backupRequired flag keeps the preview's recoverability guarantee
+    // without executing a duplicate backup operation.
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -93,6 +90,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
         driver: 'json-object',
         configPath: paths.providerSettingsPath,
         configType: 'cline-provider-settings',
+        backupRequired: true,
         providerId: CLINE_PROVIDER_ID,
         profileId: profile.id,
         profileName: profile.name,
@@ -116,16 +114,8 @@ export class ClineAdapter extends BaseExtensionAdapter {
       reversible: true
     });
 
-    if (await fileExists(paths.secretsMirrorPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline legacy secrets mirror',
-        assistantKey: 'cline',
-        targetPath: paths.secretsMirrorPath,
-        data: { configPath: paths.secretsMirrorPath },
-        reversible: true
-      });
-    }
+    // GAP 6: PlanApplier backs up paths.secretsMirrorPath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
     plan = addStep(plan, {
       action: 'edit-config-file',
       description: 'Sync Cline legacy secrets mirror with the profile credential',
@@ -136,6 +126,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
         driver: 'json-object',
         configPath: paths.secretsMirrorPath,
         configType: 'cline-legacy-secrets',
+        backupRequired: true,
         providerId: CLINE_PROVIDER_ID,
         profileId: profile.id,
         profileName: profile.name,
@@ -151,16 +142,8 @@ export class ClineAdapter extends BaseExtensionAdapter {
       reversible: true
     });
 
-    if (await fileExists(paths.globalStatePath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline global state',
-        assistantKey: 'cline',
-        targetPath: paths.globalStatePath,
-        data: { configPath: paths.globalStatePath },
-        reversible: true
-      });
-    }
+    // GAP 6: PlanApplier backs up paths.globalStatePath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -172,6 +155,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
         driver: 'json-object',
         configPath: paths.globalStatePath,
         configType: 'cline-global-state',
+        backupRequired: true,
         providerId: CLINE_LEGACY_PROVIDER_ID,
         profileId: profile.id,
         baseUrl,
@@ -189,16 +173,8 @@ export class ClineAdapter extends BaseExtensionAdapter {
       reversible: true
     });
 
-    if (await fileExists(paths.modelCatalogPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline model catalog',
-        assistantKey: 'cline',
-        targetPath: paths.modelCatalogPath,
-        data: { configPath: paths.modelCatalogPath },
-        reversible: true
-      });
-    }
+    // GAP 6: PlanApplier backs up paths.modelCatalogPath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
 
     plan = addStep(plan, {
       action: 'edit-config-file',
@@ -210,6 +186,7 @@ export class ClineAdapter extends BaseExtensionAdapter {
         driver: 'json-object',
         configPath: paths.modelCatalogPath,
         configType: 'cline-model-catalog',
+        backupRequired: true,
         profileId: profile.id,
         baseUrl,
         format: 'json',
@@ -316,6 +293,24 @@ export class ClineAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // GAP 5: exact-profile URL verification. The coordinated-store checks
+    // alone would accept internally-consistent files pointing at a different
+    // profile's URL.
+    const expectedBaseUrl = this.expectedBaseUrl !== undefined
+      ? normalizeOpenAiBaseUrl(this.expectedBaseUrl)
+      : undefined;
+    if (expectedBaseUrl === undefined) {
+      return {
+        success: false,
+        message: 'Cline configuration files are internally consistent, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
+        details: {
+          providerSettingsPath: paths.providerSettingsPath,
+          globalStatePath: paths.globalStatePath,
+          exactUrlMatchVerified: false
+        }
+      };
+    }
+
     const providerEntry = providerDocument.providers?.[CLINE_PROVIDER_ID];
     const providerSettings = providerEntry?.settings;
     const providerBaseUrl = providerSettings?.baseUrl;
@@ -357,6 +352,22 @@ export class ClineAdapter extends BaseExtensionAdapter {
         success: false,
         message: 'Cline globalState.json has no valid OpenAI-compatible base URL',
         details: { globalStatePath: paths.globalStatePath }
+      };
+    }
+
+    const providerUrlNormalized = normalizeOpenAiBaseUrl(providerBaseUrl);
+    const globalUrlNormalized = normalizeOpenAiBaseUrl(globalBaseUrl);
+    if (providerUrlNormalized !== expectedBaseUrl || globalUrlNormalized !== expectedBaseUrl) {
+      return {
+        success: false,
+        message: 'Cline configuration does not match the assigned profile base URL',
+        details: {
+          providerSettingsPath: paths.providerSettingsPath,
+          globalStatePath: paths.globalStatePath,
+          providerBaseUrl: sanitizeUrl(providerBaseUrl),
+          globalBaseUrl: sanitizeUrl(globalBaseUrl),
+          expectedBaseUrl: sanitizeUrl(expectedBaseUrl)
+        }
       };
     }
 

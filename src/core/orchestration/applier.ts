@@ -13,7 +13,7 @@ import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { renderConfigFileContent } from '../providerConfig/drivers';
 import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
-import { patchCodexEnvFile } from '../../adapters/codex/codexEnvFile';
+import { patchEnvFile } from '../providerConfig/envFileDriver';
 
 /**
  * Result of applying a plan.
@@ -405,7 +405,7 @@ export class PlanApplier {
       return;
     }
 
-    const backupPath = await patchCodexEnvFile(targetPath, { [envVarName]: secret });
+    const backupPath = await patchEnvFile(targetPath, { [envVarName]: secret }, { fileLabel: 'env file' });
     appliedStep.backupPath = backupPath;
     this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }

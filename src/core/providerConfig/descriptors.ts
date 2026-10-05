@@ -109,18 +109,20 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     targets: [
       { id: 'cline-provider-settings', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/settings/providers.json', priority: 1 },
       { id: 'cline-global-state', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/globalState.json', priority: 2 },
-      { id: 'cline-model-catalog', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/settings/models.json', priority: 3 }
+      { id: 'cline-model-catalog', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/settings/models.json', priority: 3 },
+      { id: 'cline-legacy-secrets', format: 'json', driver: 'json-object', path: '<CLINE_DATA_DIR>/secrets.json', priority: 4 }
     ],
     fields: [
       { field: 'baseUrl', path: 'providers.openai-compatible.settings.baseUrl', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
       { field: 'model', path: 'providers.openai-compatible.settings.model', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
+      { field: 'apiKey', path: 'providers.openai-compatible.settings.apiKey', valueKind: 'string', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true },
       { field: 'provider', path: 'globalState.planModeApiProvider', valueKind: 'string', requiredFor: ['openai.chat_completions'] },
       { field: 'provider', path: 'globalState.actModeApiProvider', valueKind: 'string', requiredFor: ['openai.chat_completions'] }
     ],
     driver: 'json-object',
     support: 'automatic',
     tier: 'A',
-    secretPolicy: 'external-auth-store',
+    secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-extension',
     discovery: {
       extensionIds: ['saoudrizwan.claude-dev'],
@@ -132,7 +134,10 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       exactUrlMatch: true,
       selectedProviderRequired: true,
       protocolRequired: false,
-      notes: ['Provider settings and legacy global state must remain coherent.']
+      notes: [
+        'Provider settings and legacy global state must remain coherent.',
+        'Exact-profile verification: both stored URLs must equal the assigned profile URL (fail closed when the expected profile is unknown).'
+      ]
     },
     drift: {
       sourceSymbols: ['resolveDataDirFromEnv', 'ProviderSettingsManager', 'openAiBaseUrl'],
@@ -145,7 +150,11 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
       'high',
       ['apps/vscode/src/shared/storage/storage-context.ts', 'apps/vscode/src/sdk/cline-session-factory.ts', 'apps/cli/DEVELOPMENT.md']
     ),
-    limitations: ['Provider-store and legacy-state writes must be coordinated.']
+    limitations: [
+      'Provider-store, legacy-state, catalog, and legacy secrets-mirror writes must be coordinated.',
+      'Credential persistence is target-persisted-at-apply: the profile secret is written into providers.openai-compatible.settings.apiKey and mirrored into secrets.json openAiApiKey (Cline\'s StateManager resolves the runtime API key from secrets.json on 4.1.22; newer releases migrate toward providers.json as the single source).',
+      'Cline remains a custom coordinated-store hook rather than a full ProviderConfigEngine flow — the multi-file write coordination is safer as a narrow adapter policy.'
+    ]
   },
   {
     providerKey: 'roo-code',

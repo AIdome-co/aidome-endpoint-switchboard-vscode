@@ -81,10 +81,26 @@ export interface SetEnvVarStepData {
   [key: string]: unknown;
 }
 
+/**
+ * Typed data for a generic `write-env-file` step (GAP 2): a reusable
+ * operation for any provider with an upstream-supported dotenv target.
+ * The secret is resolved by the applier immediately before writing and
+ * never appears in the plan itself.
+ */
+export interface WriteEnvFileStepData {
+  envVarName: string;
+  authRef?: string;
+  secretPolicy?: 'target-persisted-at-apply';
+  profileName?: string;
+  preserveUnknown?: boolean;
+  [key: string]: unknown;
+}
+
 export type PlanStepData =
   | ConfigFileStepData
   | SetVscodeSettingStepData
   | SetEnvVarStepData
+  | WriteEnvFileStepData
   | Record<string, unknown>;
 
 /** Validation failure with an actionable message. */
@@ -187,6 +203,15 @@ export function validateWriteEnvFileStepData(data: unknown): PlanStepDataValidat
   }
   if (typeof data.envVarName !== 'string' || data.envVarName.trim().length === 0) {
     return { ok: false, error: 'write-env-file requires a non-empty environment variable name' };
+  }
+  if (data.authRef !== undefined && (typeof data.authRef !== 'string' || data.authRef.trim().length === 0)) {
+    return { ok: false, error: 'write-env-file authRef must be a non-empty string when provided' };
+  }
+  if (
+    data.secretPolicy !== undefined &&
+    data.secretPolicy !== 'target-persisted-at-apply'
+  ) {
+    return { ok: false, error: 'write-env-file secretPolicy must be "target-persisted-at-apply" when provided' };
   }
   return { ok: true };
 }
