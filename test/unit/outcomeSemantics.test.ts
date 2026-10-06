@@ -401,4 +401,87 @@ describe('assistant outcome semantics', () => {
     expect(outcome?.status).toBe('failed');
     expect(outcome?.success).toBe(false);
   });
+
+  describe('P1: no-op credential gap does not terminate the assistant loop', () => {
+    function envStep(assistantKey: string, behavior: 'preserve' | 'remove-managed-key'): Plan['steps'][number] {
+      return {
+        id: `env-${assistantKey}-${Math.random().toString(36).slice(2, 7)}`,
+        action: 'write-env-file',
+        description: 'env credential',
+        assistantKey,
+        targetPath: path.join(tmpDir, `${assistantKey}.env`),
+        data: {
+          envVarName: 'SOME_KEY',
+          secretPolicy: 'target-persisted-at-apply',
+          missingSecretBehavior: behavior,
+          authRef: 'Profile 1',
+          profileName: 'Profile 1'
+        },
+        reversible: true
+      };
+    }
+    function configStep(assistantKey: string): Plan['steps'][number] {
+      return {
+        id: `cfg-${assistantKey}-${Math.random().toString(36).slice(2, 7)}`,
+        action: 'edit-config-file',
+        description: 'config write',
+        assistantKey,
+        targetPath: path.join(tmpDir, `${assistantKey}.json`),
+        data: {
+          configPath: path.join(tmpDir, `${assistantKey}.json`),
+          configType: 't', driver: 'json-object', format: 'json',
+          baseUrl: 'https://gw.example.com/v1',
+          patches: [{ path: ['x'], value: 1 }]
+        },
+        reversible: true
+      };
+    }
+
+    it('two assistants: A no-op credential gap (guided-required) does not stop B (configured)', async () => {
+      const plan = createPlan('p1', ['assistant-a', 'assistant-b']);
+      plan.steps.push(envStep('assistant-a', 'preserve'));
+      plan.steps.push(configStep('assistant-b'));
+
+      const result = await apply(plan);
+
+      expect(result.assistantResults.get('assistant-a')?.status).toBe('guided-required');
+      expect(result.assistantResults.get('assistant-b')?.status).toBe('configured');
+      // B's actual configuration write happened.
+      expect(fs.readFileSync(path.join(tmpDir, 'assistant-b.json'), 'utf-8')).toContain('"x"');
+    });
+
+    it('three assistants: all processed, none skipped', async () => {
+      const plan = createPlan('p1', ['assistant-a', 'assistant-b', 'assistant-c']);
+      plan.steps.push(envStep('assistant-a', 'preserve'));
+      plan.steps.push(configStep('assistant-b'));
+      plan.steps.push(configStep('assistant-c'));
+
+      const result = await apply(plan);
+
+      expect(result.assistantResults.size).toBe(3);
+      expect(result.assistantResults.get('assistant-a')?.status).toBe('guided-required');
+      expect(result.assistantResults.get('assistant-b')?.status).toBe('configured');
+      expect(result.assistantResults.get('assistant-c')?.status).toBe('configured');
+      expect(fs.readFileSync(path.join(tmpDir, 'assistant-c.json'), 'utf-8')).toContain('"x"');
+    });
+
+    it('later hard failure still executes and reports failed (success=false)', async () => {
+      const plan = createPlan('p1', ['assistant-a', 'assistant-b', 'assistant-c']);
+      plan.steps.push(envStep('assistant-a', 'preserve'));
+      plan.steps.push(configStep('assistant-b'));
+      plan.steps.push({
+        id: 'cfg-fail-c', action: 'edit-config-file', description: 'force failure', assistantKey: 'assistant-c',
+        targetPath: path.join(tmpDir, 'c.json'),
+        data: { configPath: path.join(tmpDir, 'c.json'), configType: 't', driver: 'json-object', format: 'json' },
+        reversible: true
+      });
+
+      const result = await apply(plan);
+
+      expect(result.assistantResults.get('assistant-a')?.status).toBe('guided-required');
+      expect(result.assistantResults.get('assistant-b')?.status).toBe('configured');
+      expect(result.assistantResults.get('assistant-c')?.status).toBe('failed');
+      expect(result.success).toBe(false);
+    });
+  });
 });

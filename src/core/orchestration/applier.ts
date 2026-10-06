@@ -179,18 +179,22 @@ export class PlanApplier {
               step.type === 'write-env-file'
               && step.mutationApplied === false
               && (step as { secretResolved?: boolean }).secretResolved === false);
+            // P1: no break/continue here — classify THIS assistant and let
+            // the outer per-assistant loop proceed to the next one. A
+            // `break` here exited the entire multi-assistant loop, silently
+            // skipping every later assistant while plan success stayed true.
             if (noOpCredentialGap) {
               assistantResults.set(assistantKey, assistantResult(
                 'guided-required',
                 'No saved profile credential was found — set the credential in the profile and reapply, or export it in the environment that launches the assistant'
               ));
               this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: no credential available and none was written`);
-              break;
+            } else {
+              // GAP 3: nothing mutated and there are no manual instructions to
+              // follow — the operation is intentionally incomplete, NOT guided.
+              assistantResults.set(assistantKey, assistantResult('deferred', 'No configuration mutation was applied and no manual instructions are available'));
+              this.logger.info(`[Applier] Assistant "${assistantKey}" applied no mutation and has no guidance — deferred, NOT configured`);
             }
-            // GAP 3: nothing mutated and there are no manual instructions to
-            // follow — the operation is intentionally incomplete, NOT guided.
-            assistantResults.set(assistantKey, assistantResult('deferred', 'No configuration mutation was applied and no manual instructions are available'));
-            this.logger.info(`[Applier] Assistant "${assistantKey}" applied no mutation and has no guidance — deferred, NOT configured`);
           }
         }
       } else if (assistantFailed) {
