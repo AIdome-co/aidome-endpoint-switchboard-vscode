@@ -139,17 +139,19 @@ export class PlanApplier {
           ));
           this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: required manual follow-up remains`);
         } else if (mutationSteps.length > 0) {
-          // GAP 9: a mutation step that needed a required secret but found
-          // none (the step returned early with guidance) must not report
-          // configured — required authentication is still incomplete.
-          const missingSecretMutation = appliedChangeSteps.find(step =>
-            step.type === 'write-env-file' && (step as { secretResolved?: boolean }).secretResolved === false);
-          if (missingSecretMutation) {
+          // GAP 9: authentication is incomplete when the required credential
+          // was not available — whether the env write was skipped entirely
+          // (no-op) or left stale state in place. A confirmed no-op with no
+          // credential available also leaves auth incomplete: guided-required.
+          const credentialGap = appliedChangeSteps.find(step =>
+            step.type === 'write-env-file'
+            && (step as { secretResolved?: boolean }).secretResolved === false);
+          if (credentialGap) {
             assistantResults.set(assistantKey, assistantResult(
               'guided-required',
               'No saved profile credential was found — the configuration was applied but authentication remains incomplete'
             ));
-            this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: automatic configuration completed but the required credential is missing`);
+            this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: the required credential is missing`);
           } else {
             assistantResults.set(assistantKey, assistantResult('configured'));
             this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
@@ -169,6 +171,22 @@ export class PlanApplier {
             assistantResults.set(assistantKey, assistantResult('guided-required', reason));
             this.logger.info(`[Applier] Assistant "${assistantKey}" executed guidance-only steps — guided-required, NOT configured`);
           } else {
+            // GAP 9: a confirmed no-op write-env-file (credential missing)
+            // leaves authentication incomplete — that is guided-required
+            // (the user must supply a credential), NOT deferred, even
+            // though no file was touched.
+            const noOpCredentialGap = appliedChangeSteps.find(step =>
+              step.type === 'write-env-file'
+              && step.mutationApplied === false
+              && (step as { secretResolved?: boolean }).secretResolved === false);
+            if (noOpCredentialGap) {
+              assistantResults.set(assistantKey, assistantResult(
+                'guided-required',
+                'No saved profile credential was found — set the credential in the profile and reapply, or export it in the environment that launches the assistant'
+              ));
+              this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: no credential available and none was written`);
+              break;
+            }
             // GAP 3: nothing mutated and there are no manual instructions to
             // follow — the operation is intentionally incomplete, NOT guided.
             assistantResults.set(assistantKey, assistantResult('deferred', 'No configuration mutation was applied and no manual instructions are available'));
@@ -453,7 +471,8 @@ export class PlanApplier {
         throw error;
       }
       fileExists = false;
-      appliedStep.createdFile = true;
+      // createdFile is set ONLY when a write below actually creates the
+      // file — a missing-credential early return must not claim one.
     }
 
     const authRef = typeof step.data.authRef === 'string' && step.data.authRef.trim().length > 0
@@ -462,6 +481,7 @@ export class PlanApplier {
     const secret = authRef ? await this.profileSecrets.getSecret(authRef) : undefined;
     if (secret === undefined || secret.trim().length === 0) {
       appliedStep.secretResolved = false;
+      appliedStep.mutationApplied = false; // truthful until a real write below
       // No saved credential: endpoint config stays applied, auth remains
       // guided. Behavior toward a possibly stale managed key is declared by
       // the step (never inferred from a provider name).
@@ -489,10 +509,14 @@ export class PlanApplier {
           );
           appliedStep.backupPath = backupPath;
           appliedStep.managedValueRemoved = true;
+          // The target state changed: this IS a real mutation (rollbackable).
+          appliedStep.mutationApplied = true;
           this.logger.info(
             `Removed stale managed key ${envVarName} from ${targetPath} (no saved profile credential for the newly applied profile)`
           );
         } else {
+          // Key absent, nothing written: a confirmed no-op.
+          appliedStep.mutationApplied = false;
           this.logger.info(`${envVarName} not present in ${targetPath} — nothing to remove`);
         }
       }
@@ -508,6 +532,10 @@ export class PlanApplier {
     appliedStep.backupPath = backupPath;
     appliedStep.secretResolved = true;
     appliedStep.mutationApplied = true;
+    if (!fileExists) {
+      // The write above created the file — NOW it is truthful to claim it.
+      appliedStep.createdFile = true;
+    }
     this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }
 

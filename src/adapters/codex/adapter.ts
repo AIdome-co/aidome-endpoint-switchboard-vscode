@@ -102,6 +102,8 @@ export class CodexAdapter extends BaseExtensionAdapter {
         ],
         envVarName: 'OPENAI_API_KEY',
         tier: 'A',
+        // Informational: the missing-credential outcome is decided by the
+        // write-env-file evidence (secretResolved), not by this note.
         optional: true
       },
       reversible: false

@@ -232,3 +232,96 @@ describe('Codex profile switching — credential safety', () => {
     expect(result.assistantResults.get('openai-codex')?.status).toBe('guided-required');
   });
 });
+
+describe('write-env-file mutation metadata (P2 — the producer must tell the truth)', () => {
+  function envStepOf(result: { changeLogEntry: { steps: Array<{ type?: string }> } }) {
+    return result.changeLogEntry.steps.find(step => step.type === 'write-env-file') as
+      { secretResolved?: boolean; managedValueRemoved?: boolean; mutationApplied?: boolean; createdFile?: boolean } | undefined;
+  }
+
+  it('stale managed-key removal IS a real mutation (secretResolved=false, managedValueRemoved=true, mutationApplied=true)', async () => {
+    await fs.writeFile(envPath, 'OPENAI_API_KEY=TOKEN_A\nOTHER=keep\n', 'utf-8');
+    mockGetSecret.mockResolvedValue(undefined);
+    const profileB = makeProfile('https://gateway-b.example.com/v1', 'Profile B');
+    const { result } = await applyForProfile(profileB);
+
+    const env = await fs.readFile(envPath, 'utf-8');
+    expect(env).not.toContain('OPENAI_API_KEY');
+    expect(env).toContain('OTHER=keep');
+    expect(result.assistantResults.get('openai-codex')?.status).toBe('guided-required');
+
+    const envStep = envStepOf(result);
+    expect(envStep?.secretResolved).toBe(false);
+    expect(envStep?.managedValueRemoved).toBe(true);
+    expect(envStep?.mutationApplied).toBe(true);
+  });
+
+  it('managed key ALREADY ABSENT is a confirmed no-op (mutationApplied=false)', async () => {
+    await fs.writeFile(envPath, 'OTHER=keep\n', 'utf-8');
+    const before = await fs.readFile(envPath, 'utf-8');
+    mockGetSecret.mockResolvedValue(undefined);
+    const profileB = makeProfile('https://gateway-b.example.com/v1', 'Profile B');
+    const { result } = await applyForProfile(profileB);
+
+    expect(await fs.readFile(envPath, 'utf-8')).toBe(before);
+    const envStep = envStepOf(result);
+    expect(envStep?.secretResolved).toBe(false);
+    expect(envStep?.managedValueRemoved).not.toBe(true);
+    expect(envStep?.mutationApplied).toBe(false);
+  });
+
+  it('preserve behavior is an explicit no-op (mutationApplied=false)', async () => {
+    await fs.writeFile(envPath, 'OPENAI_API_KEY=TOKEN_A\nOTHER=keep\n', 'utf-8');
+    mockGetSecret.mockResolvedValue(undefined);
+    const profile = makeProfile('https://gateway-b.example.com/v1', 'Profile B');
+    // Rebuild the write-env-file step with preserve behavior via the applier directly.
+    const { createPlan, addStep } = await import('../../src/core/orchestration/planBuilder');
+    const plan = createPlan(profile.id, ['openai-codex']);
+    plan.steps.push({
+      id: 'env-preserve', action: 'write-env-file', description: 'env', assistantKey: 'openai-codex',
+      targetPath: envPath,
+      data: { secretPolicy: 'target-persisted-at-apply', missingSecretBehavior: 'preserve', authRef: 'Profile B', profileName: 'Profile B', envVarName: 'OPENAI_API_KEY' },
+      reversible: true
+    });
+    const result = await applier.applyPlan(plan, 'Profile B');
+
+    expect(await fs.readFile(envPath, 'utf-8')).toContain('TOKEN_A'); // untouched
+    const envStep = envStepOf(result);
+    expect(envStep?.secretResolved).toBe(false);
+    expect(envStep?.mutationApplied).toBe(false);
+  });
+
+  it('normal credential write keeps mutationApplied=true + secretResolved=true', async () => {
+    mockGetSecret.mockResolvedValue('TOKEN_NEW');
+    const profile = makeProfile('https://gateway-a.example.com/v1', 'Profile A');
+    const { result } = await applyForProfile(profile);
+
+    expect(await fs.readFile(envPath, 'utf-8')).toContain('OPENAI_API_KEY=TOKEN_NEW');
+    const envStep = envStepOf(result);
+    expect(envStep?.secretResolved).toBe(true);
+    expect(envStep?.mutationApplied).toBe(true);
+  });
+
+  it('missing target file + missing credential: no file created, createdFile not claimed, mutationApplied=false', async () => {
+    // envPath deliberately NOT created.
+    mockGetSecret.mockResolvedValue(undefined);
+    const profileB = makeProfile('https://gateway-b.example.com/v1', 'Profile B');
+    const { result } = await applyForProfile(profileB);
+
+    await expect(fs.readFile(envPath, 'utf-8')).rejects.toThrow(); // still absent
+    const envStep = envStepOf(result);
+    expect(envStep?.mutationApplied).toBe(false);
+    expect(envStep?.createdFile).not.toBe(true);
+  });
+
+  it('missing target file + valid credential: file created AND createdFile=true now claimed', async () => {
+    mockGetSecret.mockResolvedValue('TOKEN_C');
+    const profile = makeProfile('https://gateway-c.example.com/v1', 'Profile C');
+    const { result } = await applyForProfile(profile);
+
+    expect(await fs.readFile(envPath, 'utf-8')).toContain('OPENAI_API_KEY=TOKEN_C');
+    const envStep = envStepOf(result);
+    expect(envStep?.createdFile).toBe(true);
+    expect(envStep?.mutationApplied).toBe(true);
+  });
+});
