@@ -139,21 +139,22 @@ describe('ClaudeCodeAdapter', () => {
       expect(plan.steps.find(s => s.action === 'backup-file')).toBeUndefined();
     });
 
-    it('should include patched settings content in edit-config-file step', async () => {
+    it('should include a typed JSON object driver without embedding config content', async () => {
       const plan = await adapter.buildPlan(mockProfile);
 
       const editStep = plan.steps.find(s => s.action === 'edit-config-file');
       expect(editStep).toBeDefined();
       expect(editStep?.targetPath).toBe('/home/user/.claude/settings.json');
       expect(editStep?.data.format).toBe('json');
-      expect(editStep?.data.configBuilder).toBe('claude-code-settings');
+      expect(editStep?.data.driver).toBe('json-object');
       expect(editStep?.data.envVars).toContain('ANTHROPIC_AUTH_TOKEN');
 
-      const updatedSettings = JSON.parse(editStep?.newValue as string);
-      expect(updatedSettings.env.ANTHROPIC_BASE_URL).toBe(mockProfile.baseUrl);
-      expect(updatedSettings.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
-      expect(updatedSettings.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
-      expect(updatedSettings.env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(editStep?.newValue).toBe(mockProfile.baseUrl);
+      expect(editStep?.data.driver).toBe('json-object');
+      expect(editStep?.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['env', 'ANTHROPIC_BASE_URL'], source: 'baseUrl' }),
+        expect.objectContaining({ path: ['env', 'ANTHROPIC_AUTH_TOKEN'], source: 'secret' })
+      ]));
     });
 
     it('should include VS Code login prompt setting and auth guidance', async () => {
@@ -193,22 +194,11 @@ describe('ClaudeCodeAdapter', () => {
   });
 
   describe('apply', () => {
-    it('should create a backup before writing existing settings', async () => {
-      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
+    it('leaves execution to the shared plan applier', async () => {
       const plan = await adapter.buildPlan(mockProfile);
-
-      await adapter.apply(plan);
-
-      expect(fsSafe.createBackup).toHaveBeenCalledWith('/home/user/.claude/settings.json');
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-    });
-
-    it('should throw when backup fails', async () => {
-      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
-      vi.spyOn(fsSafe, 'createBackup').mockResolvedValue(undefined);
-      const plan = await adapter.buildPlan(mockProfile);
-
-      await expect(adapter.apply(plan)).rejects.toThrow('Failed to create backup');
+      await expect(adapter.apply(plan)).resolves.toBeUndefined();
+      expect(fsSafe.createBackup).not.toHaveBeenCalled();
+      expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
     });
   });
 

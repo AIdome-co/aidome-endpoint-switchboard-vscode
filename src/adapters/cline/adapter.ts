@@ -5,7 +5,8 @@
  * setting. The native OpenAI-compatible provider lives in providers.json and
  * active provider/base-URL state lives in globalState.json.
  *
- * Upstream evidence: cline/cline 8bbdde2 (2026-08-14), apps/vscode package
+ * Upstream evidence: synchronized cline/cline reference recorded in the
+ * provider descriptor, apps/vscode package
  * configuration, provider-migration.ts, model-catalog/store.ts, and
  * cline-session-factory.ts. See CHANGELOG.md for the research links.
  */
@@ -16,11 +17,13 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { sanitizeUrl, validateUrl } from '../../core/profiles/profileValidator';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
+import type { AdapterDependencies } from '../adapterDependencies';
 import {
   CLINE_LEGACY_PROVIDER_ID,
   CLINE_PROVIDER_ID,
-  buildGlobalStateContent,
-  buildProviderSettingsContent,
   getClineConfigPaths,
   parseJsonObjectForVerification
 } from './clineConfigPatcher';
@@ -50,76 +53,181 @@ interface GlobalStateDocument {
 export class ClineAdapter extends BaseExtensionAdapter {
   protected readonly extensionId = CLINE_EXTENSION_ID;
 
+  /** Profile base URL captured at buildPlan for exact-profile verification (GAP 5). */
+  private expectedBaseUrl: string | undefined;
+
+  constructor(private readonly dependencies: AdapterDependencies = {}) {
+    super();
+  }
+
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     if (!validateUrl(profile.baseUrl)) {
       throw new Error('Invalid Cline endpoint URL');
     }
 
     const paths = getClineConfigPaths();
-    const [providerSettingsContent, globalStateContent] = await Promise.all([
-      readFileSafe(paths.providerSettingsPath),
-      readFileSafe(paths.globalStatePath)
-    ]);
-    const timestamp = new Date().toISOString();
+    const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
+    // Remember the assigned profile's URL so verification requires an exact
+    // match (fail closed when unknown — internally consistent files pointing
+    // at a different URL must NOT verify for this profile).
+    this.expectedBaseUrl = baseUrl;
+    const models = await this.discoverModels(profile);
+    const modelId = models[0]?.id;
+    const modelCatalog = buildModelCatalog(models);
     let plan = createPlan(profile.id, ['cline']);
 
-    // PlanApplier also backs up edit-config-file steps immediately before
-    // writing. The explicit backup steps make the plan preview show the
-    // recoverability guarantee and match the other file-backed adapters.
-    if (await fileExists(paths.providerSettingsPath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline provider settings',
-        assistantKey: 'cline',
-        targetPath: paths.providerSettingsPath,
-        data: { configPath: paths.providerSettingsPath },
-        reversible: true
-      });
-    }
+    // PlanApplier owns backup-before-write for edit-config-file; the
+    // backupRequired flag keeps the preview's recoverability guarantee
+    // without executing a duplicate backup operation.
 
     plan = addStep(plan, {
       action: 'edit-config-file',
-      description: `Set Cline OpenAI-compatible endpoint to ${sanitizeUrl(profile.baseUrl)}`,
+      description: `Set Cline OpenAI-compatible endpoint to ${sanitizeUrl(baseUrl)}`,
       assistantKey: 'cline',
       targetPath: paths.providerSettingsPath,
-      newValue: buildProviderSettingsContent(profile.baseUrl, providerSettingsContent, timestamp),
+      newValue: baseUrl,
       data: {
+        driver: 'json-object',
         configPath: paths.providerSettingsPath,
         configType: 'cline-provider-settings',
+        backupRequired: true,
         providerId: CLINE_PROVIDER_ID,
         profileId: profile.id,
-        baseUrl: profile.baseUrl,
-        format: 'json'
+        profileName: profile.name,
+        authRef: profile.authRef ?? profile.name,
+        baseUrl,
+        format: 'json',
+        secretPolicy: 'target-persisted-at-apply',
+        patches: [
+          { path: ['version'], value: 1 },
+          { path: ['modes'], value: {}, setWhenMissing: true },
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'provider'], value: CLINE_PROVIDER_ID },
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'baseUrl'], source: 'baseUrl' },
+          ...(modelId ? [{ path: ['providers', CLINE_PROVIDER_ID, 'settings', 'model'], value: modelId }] : []),
+          { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'apiKey'], source: 'secret', removeWhenMissing: true },
+          { path: ['providers', CLINE_PROVIDER_ID, 'updatedAt'], source: 'timestamp' },
+          { path: ['providers', CLINE_PROVIDER_ID, 'tokenSource'], value: 'manual' }
+        ],
+        clearAuthWhenMissing: true,
+        missingSecretMessage: `Cline API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
       },
       reversible: true
     });
 
-    if (await fileExists(paths.globalStatePath)) {
-      plan = addStep(plan, {
-        action: 'backup-file',
-        description: 'Backup Cline global state',
-        assistantKey: 'cline',
-        targetPath: paths.globalStatePath,
-        data: { configPath: paths.globalStatePath },
-        reversible: true
-      });
-    }
+    // GAP 6: PlanApplier backs up paths.secretsMirrorPath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
+    plan = addStep(plan, {
+      action: 'edit-config-file',
+      description: 'Sync Cline legacy secrets mirror with the profile credential',
+      assistantKey: 'cline',
+      targetPath: paths.secretsMirrorPath,
+      newValue: baseUrl,
+      data: {
+        driver: 'json-object',
+        configPath: paths.secretsMirrorPath,
+        configType: 'cline-legacy-secrets',
+        backupRequired: true,
+        providerId: CLINE_PROVIDER_ID,
+        profileId: profile.id,
+        profileName: profile.name,
+        authRef: profile.authRef ?? profile.name,
+        baseUrl,
+        format: 'json',
+        secretPolicy: 'target-persisted-at-apply',
+        patches: [
+          { path: ['openAiApiKey'], source: 'secret', removeWhenMissing: true }
+        ],
+        clearAuthWhenMissing: false
+      },
+      reversible: true
+    });
+
+    // GAP 6: PlanApplier backs up paths.globalStatePath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
 
     plan = addStep(plan, {
       action: 'edit-config-file',
       description: 'Select Cline OpenAI-compatible provider',
       assistantKey: 'cline',
       targetPath: paths.globalStatePath,
-      newValue: buildGlobalStateContent(profile.baseUrl, globalStateContent),
+      newValue: baseUrl,
       data: {
+        driver: 'json-object',
         configPath: paths.globalStatePath,
         configType: 'cline-global-state',
+        backupRequired: true,
         providerId: CLINE_LEGACY_PROVIDER_ID,
         profileId: profile.id,
-        baseUrl: profile.baseUrl,
-        format: 'json'
+        baseUrl,
+        format: 'json',
+        patches: [
+          { path: ['openAiBaseUrl'], source: 'baseUrl' },
+          { path: ['planModeApiProvider'], value: CLINE_LEGACY_PROVIDER_ID },
+          { path: ['actModeApiProvider'], value: CLINE_LEGACY_PROVIDER_ID },
+          ...(modelId ? [
+            { path: ['planModeOpenAiModelId'], value: modelId },
+            { path: ['actModeOpenAiModelId'], value: modelId }
+          ] : [])
+        ]
       },
       reversible: true
+    });
+
+    // GAP 6: PlanApplier backs up paths.modelCatalogPath before its edit-config-file step;
+    // backupRequired below is preview metadata, not a duplicate backup.
+
+    plan = addStep(plan, {
+      action: 'edit-config-file',
+      description: 'Update Cline OpenAI-compatible model catalog',
+      assistantKey: 'cline',
+      targetPath: paths.modelCatalogPath,
+      newValue: baseUrl,
+      data: {
+        driver: 'json-object',
+        configPath: paths.modelCatalogPath,
+        configType: 'cline-model-catalog',
+        backupRequired: true,
+        profileId: profile.id,
+        baseUrl,
+        format: 'json',
+        patches: [
+          { path: ['version'], value: 1 },
+          { path: ['providers', CLINE_PROVIDER_ID, 'provider', 'name'], value: 'OpenAI Compatible' },
+          { path: ['providers', CLINE_PROVIDER_ID, 'provider', 'baseUrl'], source: 'baseUrl' },
+          ...(modelId ? [{ path: ['providers', CLINE_PROVIDER_ID, 'provider', 'defaultModelId'], value: modelId }] : []),
+          ...(Object.keys(modelCatalog).length > 0 ? [{
+            path: ['providers', CLINE_PROVIDER_ID, 'models'],
+            value: modelCatalog,
+            mergeObject: true
+          }] : [])
+        ]
+      },
+      reversible: true
+    });
+
+    plan = addStep(plan, {
+      action: 'show-guided-steps',
+      description: 'Configure Cline gateway authentication',
+      assistantKey: 'cline',
+      data: {
+        message: 'Cline stores OpenAI-compatible credentials in its own provider store.',
+        steps: [
+          'Open Cline provider settings and select OpenAI Compatible.',
+          `Set the endpoint to ${baseUrl}.`,
+          'Enter the saved AIdome profile token in Cline’s API key field, then save.',
+          ...(modelId ? [`Select model ${modelId}.`] : ['Select a model returned by the gateway.']),
+          'Restart or reload Cline before sending a new task.'
+        ],
+        baseUrl,
+        tier: 'A',
+        limitation: 'Cline API key is persisted into providers.json from the profile secret at apply time (target-persisted-at-apply), mirroring the Codex env-file credential flow.',
+        configurationType: 'cline-provider-ui',
+        // GAP 2: the credential is persisted automatically at apply
+        // (target-persisted-at-apply) — this guidance is advisory
+        // (fallback manual path), not a required user step.
+        optional: true
+      },
+      reversible: false
     });
 
     plan = addStep(plan, {
@@ -129,13 +237,29 @@ export class ClineAdapter extends BaseExtensionAdapter {
       data: {
         providerSettingsPath: paths.providerSettingsPath,
         globalStatePath: paths.globalStatePath,
-        baseUrl: profile.baseUrl,
+        baseUrl,
         providerId: CLINE_PROVIDER_ID
       },
       reversible: false
     });
 
     return plan;
+  }
+
+  private async discoverModels(profile: EndpointProfile): Promise<DiscoveredModel[]> {
+    const cached = getCachedOpenAiModels(profile);
+    if (cached.length > 0) {
+      return cached;
+    }
+
+    if (!this.dependencies.profileSecrets) {
+      return [];
+    }
+
+    const token = profile.authRef
+      ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+      : undefined;
+    return discoverOpenAiModels(profile.baseUrl, token);
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
@@ -168,6 +292,24 @@ export class ClineAdapter extends BaseExtensionAdapter {
         details: {
           providerSettingsPath: paths.providerSettingsPath,
           globalStatePath: paths.globalStatePath
+        }
+      };
+    }
+
+    // GAP 5: exact-profile URL verification. The coordinated-store checks
+    // alone would accept internally-consistent files pointing at a different
+    // profile's URL.
+    const expectedBaseUrl = this.expectedBaseUrl !== undefined
+      ? normalizeOpenAiBaseUrl(this.expectedBaseUrl)
+      : undefined;
+    if (expectedBaseUrl === undefined) {
+      return {
+        success: false,
+        message: 'Cline configuration files are internally consistent, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
+        details: {
+          providerSettingsPath: paths.providerSettingsPath,
+          globalStatePath: paths.globalStatePath,
+          exactUrlMatchVerified: false
         }
       };
     }
@@ -216,6 +358,22 @@ export class ClineAdapter extends BaseExtensionAdapter {
       };
     }
 
+    const providerUrlNormalized = normalizeOpenAiBaseUrl(providerBaseUrl);
+    const globalUrlNormalized = normalizeOpenAiBaseUrl(globalBaseUrl);
+    if (providerUrlNormalized !== expectedBaseUrl || globalUrlNormalized !== expectedBaseUrl) {
+      return {
+        success: false,
+        message: 'Cline configuration does not match the assigned profile base URL',
+        details: {
+          providerSettingsPath: paths.providerSettingsPath,
+          globalStatePath: paths.globalStatePath,
+          providerBaseUrl: sanitizeUrl(providerBaseUrl),
+          globalBaseUrl: sanitizeUrl(globalBaseUrl),
+          expectedBaseUrl: sanitizeUrl(expectedBaseUrl)
+        }
+      };
+    }
+
     if (providerBaseUrl !== globalBaseUrl) {
       return {
         success: false,
@@ -229,16 +387,21 @@ export class ClineAdapter extends BaseExtensionAdapter {
       };
     }
 
+    const hasApiKey = typeof providerSettings?.apiKey === 'string'
+      && providerSettings.apiKey.trim().length > 0;
     return {
       success: true,
-      message: 'Cline native provider configuration verified',
+      message: hasApiKey
+        ? 'Cline native provider configuration verified'
+        : 'Cline native provider configuration verified (no API key set)',
       details: {
         providerSettingsPath: paths.providerSettingsPath,
         globalStatePath: paths.globalStatePath,
         providerId: CLINE_PROVIDER_ID,
         planModeApiProvider: planProvider,
         actModeApiProvider: actProvider,
-        baseUrlConfigured: true
+        baseUrlConfigured: true,
+        apiKeyConfigured: hasApiKey
       }
     };
   }
@@ -250,6 +413,20 @@ export class ClineAdapter extends BaseExtensionAdapter {
   getTier(): 'A' | 'B' | 'C' {
     return 'A';
   }
+}
+
+function buildModelCatalog(models: DiscoveredModel[]): Record<string, Record<string, unknown>> {
+  const catalog: Record<string, Record<string, unknown>> = {};
+  for (const model of models) {
+    catalog[model.id] = {
+      id: model.id,
+      name: model.name,
+      contextWindow: model.contextWindow ?? 128_000,
+      maxInputTokens: model.maxInputTokens ?? model.contextWindow ?? 128_000,
+      capabilities: model.capabilities ?? ['streaming', 'tools']
+    };
+  }
+  return catalog;
 }
 
 function normalizeProvider(value: unknown): string | undefined {

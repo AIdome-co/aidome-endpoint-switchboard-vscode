@@ -239,6 +239,7 @@
     "lint": "eslint src",
     "test": "vitest",
     "validate:registry": "vitest run --config vitest.validation.config.ts",
+    "validate:provider-evidence": "vitest run test/unit/providerEvidence.test.ts",
     "compile:e2e": "tsc -p ./tsconfig.e2e.json",
     "pretest:e2e": "npm run compile && npm run compile:e2e",
     "test:e2e": "vscode-test",
@@ -250,7 +251,8 @@
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",
-    "smol-toml": "^1.7.1"
+    "smol-toml": "^1.7.1",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",

@@ -20,7 +20,9 @@ describe('Cline config patcher', () => {
       expect(getClineConfigPaths()).toEqual({
         dataDir: path.join('/tmp/cline-home', 'data'),
         globalStatePath: path.join('/tmp/cline-home', 'data', 'globalState.json'),
-        providerSettingsPath: path.join('/tmp/cline-home', 'data', 'settings', 'providers.json')
+        providerSettingsPath: path.join('/tmp/cline-home', 'data', 'settings', 'providers.json'),
+        modelCatalogPath: path.join('/tmp/cline-home', 'data', 'settings', 'models.json'),
+        secretsMirrorPath: path.join('/tmp/cline-home', 'data', 'secrets.json')
       });
     } finally {
       if (originalDataDir === undefined) {

@@ -29,7 +29,9 @@ export class TabnineAdapter extends BaseExtensionAdapter {
       ],
       baseUrl: profile.baseUrl,
       limitation: 'proprietary-protocol',
-      tier: 'C'
+      tier: 'C',
+      // Explicit typed outcome metadata (never inferred from limitation text).
+      configurationStatus: 'unsupported'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
@@ -53,12 +55,16 @@ export class TabnineAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // Installed != configured: Tabnine cannot be configured for AIdome at
+    // all, so verification must NOT report success merely because the
+    // extension is present.
     return {
-      success: true,
-      message: 'Tabnine is installed. Note: Tabnine does not support custom endpoint configuration (Tier C).',
+      success: false,
+      message: 'Tabnine is installed, but it does not support custom endpoint configuration for AIdome (Tier C).',
       details: { 
         extension: true,
         tier: 'C',
+        configurationStatus: 'unsupported',
         limitation: 'Tabnine uses proprietary protocol and does not support OpenAI-compatible base URL switching'
       }
     };

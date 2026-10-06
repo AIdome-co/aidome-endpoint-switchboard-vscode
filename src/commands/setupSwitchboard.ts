@@ -14,6 +14,7 @@ import { updateStatusBar } from '../ui/statusBar';
 import { showPlan } from '../ui/output';
 import { renderDetectionSummary, renderPlanSummary } from '../ui/wizard/renderResults';
 import { Logger } from '../util/log';
+import { countConfiguredAssistants } from '../core/orchestration/assistantOutcome';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
@@ -210,17 +211,76 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       async () => await switchboard.applyPlan(plan)
     );
     
-    // Step 5/5 — Verify and report
-    logger.info('Setup wizard step 5/5: Reporting result');
+    // Step 5/5 — Report outcomes. assistantResults is the source of truth
+    // for UI categories; result.success only means "no step threw" and is
+    // used for execution-level logging, never for assistant classification.
     const elapsed = wizardTimer.stop();
 
-    if (result.success) {
+    // Outcome categories computed ONCE (shared by every path).
+    const configuredKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'configured')
+      .map(([k]) => k);
+    const guidedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'guided-required')
+      .map(([k]) => k);
+    const unsupportedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'unsupported')
+      .map(([k]) => k);
+    const deferredKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'deferred')
+      .map(([k]) => k);
+    const failedKeys = [...result.assistantResults.entries()]
+      .filter(([, r]) => r.status === 'failed')
+      .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
+
+    const incomplete = guidedKeys.length > 0 || unsupportedKeys.length > 0 || deferredKeys.length > 0 || failedKeys.length > 0;
+
+    if (configuredKeys.length === 0) {
+      // P2: NOTHING may disappear — hard failures are reported alongside the
+      // incomplete categories in the same message.
+      const categoryParts = [
+        guidedKeys.length > 0 ? `Manual follow-up required for: ${guidedKeys.join(', ')}` : undefined,
+        unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
+        deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined,
+        failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
+      ].filter(Boolean) as string[];
+
+      if (failedKeys.length > 0) {
+        // A hard failure exists and nothing succeeded — severity: error, but
+        // every category is still listed.
+        logger.error(`Setup failed in ${elapsed}ms: failed=[${failedKeys.join(', ')}]`);
+        await showError(
+          `No assistants were automatically configured. ${categoryParts.join('. ')}. Check the output channel for details.`,
+          'View Output'
+        );
+      } else if (categoryParts.length > 0) {
+        await showWarning(`No assistants were automatically configured. ${categoryParts.join('. ')}`);
+      } else {
+        await showError(
+          'Configuration failed and no assistant outcomes were reported. Check the output channel for details.',
+          'View Output'
+        );
+      }
+    } else if (incomplete) {
+      // Some assistants were configured — activate so they start routing.
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
-      
+      const parts = [
+        `Configured: ${configuredKeys.join(', ')}`,
+        guidedKeys.length > 0 ? `Manual follow-up required: ${guidedKeys.join(', ')}` : undefined,
+        unsupportedKeys.length > 0 ? `Unsupported for endpoint switching: ${unsupportedKeys.join(', ')}` : undefined,
+        deferredKeys.length > 0 ? `Automatic configuration deferred for: ${deferredKeys.join(', ')}` : undefined,
+        failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
+      ].filter(Boolean);
+      logger.info(`Setup partially complete in ${elapsed}ms: configured=[${configuredKeys.join(', ')}] failed=[${failedKeys.join(', ')}]`);
+      await showWarning(parts.join('. '), 'View Output');
+    } else {
+      await profileStore.setActiveProfile(profile.id);
+      updateStatusBar(profile.name);
+      void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
       const action = await showSuccess(
-        `Successfully configured ${result.appliedSteps.length} assistant(s) to use ${profile.name}`,
+        `Successfully configured ${configuredKeys.length} assistant(s) to use ${profile.name}`,
         'Verify'
       );
       if (action === 'Verify') {
@@ -228,37 +288,11 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
           progressTitle: `Verifying connection to ${profile.name}...`
         });
       }
-      logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
-    } else {
-      // Partial success: some assistants configured, some failed.
-      // The system is still usable — show which assistants succeeded and provide next steps.
-      const succeeded = [...result.assistantResults.entries()]
-        .filter(([, r]) => r.success)
-        .map(([k]) => k);
-      const failed = [...result.assistantResults.entries()]
-        .filter(([, r]) => !r.success)
-        .map(([k, r]) => `${k}${r.reason ? ` (${r.reason})` : ''}`);
-
-      if (succeeded.length > 0) {
-        // At least some assistants were configured — activate the profile so
-        // the successfully configured ones start routing through it.
-        await profileStore.setActiveProfile(profile.id);
-        updateStatusBar(profile.name);
-        void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
-        logger.info(`Setup partially complete in ${elapsed}ms: succeeded=[${succeeded.join(', ')}] failed=[${failed.join(', ')}]`);
-        await showError(
-          `Partial setup: ${succeeded.length} assistant(s) configured (${succeeded.join(', ')}). ` +
-          `${failed.length} failed: ${failed.join(', ')}. Check the output channel for details.`,
-          'View Output'
-        );
-      } else {
-        logger.error(`Setup failed in ${elapsed}ms: all ${failed.length} assistant(s) failed`);
-        await showError(
-          `Configuration failed for all assistants. Check the output channel for details.`,
-          'View Output'
-        );
-      }
     }
+    if (!result.success) {
+      logger.error(`Plan execution reported failures (${result.failedSteps.length} step(s) threw)`);
+    }
+    logger.info(`Setup complete: ${result.appliedSteps.length} steps applied in ${elapsed}ms`);
   } catch (error) {
     if (error instanceof UserCancellationError) {
       logger.info(`Setup cancelled by user at step: ${error.step}`);

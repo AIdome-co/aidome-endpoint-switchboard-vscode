@@ -61,29 +61,29 @@ describe('Config patchers — logger unavailable', () => {
     };
   });
 
-  it('Continue patcher falls back to empty config on malformed JSON', async () => {
+  it('Continue patcher fails closed on malformed JSON', async () => {
     mockReadFileSafe.mockResolvedValue('{ this is not json !!!');
 
-    await expect(patchContinueConfig(profile, '/path/config.json')).resolves.not.toThrow();
-    expect(mockWriteFileAtomic).toHaveBeenCalled();
+    await expect(patchContinueConfig(profile, '/path/config.json'))
+      .rejects.toThrow('malformed existing configuration file');
+    expect(mockWriteFileAtomic).not.toHaveBeenCalled();
   });
 
-  it('Codex patcher falls back to empty config on malformed TOML', async () => {
+  it('Codex patcher fails closed on malformed TOML', async () => {
     mockReadFileSafe.mockResolvedValue('this is not valid TOML {{[');
 
-    await expect(patchCodexConfig(profile, '/path/config.toml')).resolves.not.toThrow();
-    expect(mockWriteFileAtomic).toHaveBeenCalled();
+    await expect(patchCodexConfig(profile, '/path/config.toml'))
+      .rejects.toThrow('malformed existing configuration file');
+    expect(mockWriteFileAtomic).not.toHaveBeenCalled();
   });
 
-  it('Claude Code patcher falls back to empty settings on malformed JSONC', async () => {
-    const result = buildClaudeCodeSettingsContent(
+  it('Claude Code patcher fails closed on malformed JSONC', async () => {
+    expect(() => buildClaudeCodeSettingsContent(
       'https://gateway.example.com/v1',
       '{ broken jsonc !!!'
-    );
+    )).toThrow();
 
-    expect(result).toBeDefined();
-    expect(typeof result).toBe('string');
-    // Should contain the base URL from the profile
-    expect(result).toContain('https://gateway.example.com/v1');
+    // The build throws before any write can happen — patchClaudeCodeConfig
+    // propagates the failure without writing (file remains untouched).
   });
 });

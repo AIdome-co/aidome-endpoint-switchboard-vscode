@@ -90,7 +90,7 @@ describe('GeminiCliAdapter', () => {
       
       const mainGuidance = guidedSteps[0];
       expect(mainGuidance.assistantKey).toBe('gemini-cli');
-      expect(mainGuidance.data.limitation).toBe('no-base-url-override');
+      expect(mainGuidance.data.limitation).toBe('process-environment-guidance');
       expect(mainGuidance.data.tier).toBe('C');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
@@ -114,12 +114,12 @@ describe('GeminiCliAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should return success when CLI is detected', async () => {
+    it('should report installed but unverified when CLI is detected', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('installed');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.cli).toBe(true);

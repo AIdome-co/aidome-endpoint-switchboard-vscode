@@ -1,17 +1,19 @@
 import * as vscode from 'vscode';
 import { Switchboard } from '../core/orchestration/switchboard';
-import { Plan, PlanStepAction } from '../core/orchestration/planBuilder';
+import { Plan } from '../core/orchestration/planBuilder';
 import { ProfileSecrets } from '../core/profiles/profileSecrets';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { ProfileStore } from '../core/profiles/profileStore';
 import { loadRegistry } from '../core/registry/registryLoader';
+import { CONFIGURATION_MUTATION_ACTIONS } from '../core/orchestration/assistantOutcome';
 import { updateStatusBar } from '../ui/statusBar';
 import { Logger } from '../util/log';
 
-const AUTOMATED_REAPPLY_ACTIONS = new Set<PlanStepAction>([
-  'set-vscode-setting',
-  'edit-config-file'
-]);
+// GAP 8: automated reapply must retain every real automatic configuration
+// mutation — including write-env-file — so profile switching moves BOTH the
+// endpoint config AND the required credential (Codex: config.toml + .env).
+// Guidance/verification/backup steps are intentionally excluded.
+const AUTOMATED_REAPPLY_ACTIONS = CONFIGURATION_MUTATION_ACTIONS;
 
 export interface ProfileActivationResult {
   status: 'success' | 'partial' | 'active-only' | 'failed';
@@ -112,11 +114,25 @@ export async function activateProfileAndReapplyMappings(
 
         const applyResult = await switchboard.applyPlan(reapplyPlan);
         const failedAssistantKeys = [...applyResult.assistantResults.entries()]
-          .filter(([, result]) => !result.success)
+          .filter(([, result]) => result.status === 'failed')
           .map(([assistantKey]) => assistantKey);
-        const appliedAssistantKeys = actionableAssistantKeys.filter(key => !failedAssistantKeys.includes(key));
+        // guided-required is not a failure of execution, but it is also not
+        // a configured assistant: it lands in skipped (truthful incomplete).
+        const guidedRequiredKeys = [...applyResult.assistantResults.entries()]
+          .filter(([, result]) => result.status === 'guided-required' || result.status === 'unsupported' || result.status === 'deferred')
+          .map(([assistantKey]) => assistantKey);
+        const appliedAssistantKeys = actionableAssistantKeys
+          .filter(key => !failedAssistantKeys.includes(key) && !guidedRequiredKeys.includes(key));
 
-        if (applyResult.success) {
+        // Outcome truth: derive the activation result from per-assistant
+        // statuses, NOT from applyResult.success (which only means no step
+        // threw). guided-required/unsupported assistants are incomplete.
+        const completeIncompleteKeys = [...guidedRequiredKeys];
+        const allConfigured = appliedAssistantKeys.length > 0 &&
+          failedAssistantKeys.length === 0 && completeIncompleteKeys.length === 0;
+        const noneConfigured = appliedAssistantKeys.length === 0;
+
+        if (allConfigured) {
           await profileStore.setActiveProfile(profile.id);
           updateStatusBar(profile.name);
           logger.info(`Activated profile ${profile.name} and reapplied ${appliedAssistantKeys.join(', ')}`);
@@ -126,11 +142,11 @@ export async function activateProfileAndReapplyMappings(
             mappedAssistantKeys,
             appliedAssistantKeys,
             failedAssistantKeys: [],
-            skippedAssistantKeys
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
           };
         }
 
-        if (appliedAssistantKeys.length > 0) {
+        if (!noneConfigured) {
           await profileStore.setActiveProfile(profile.id);
           updateStatusBar(profile.name);
           logger.warning(
@@ -148,7 +164,28 @@ export async function activateProfileAndReapplyMappings(
             mappedAssistantKeys,
             appliedAssistantKeys,
             failedAssistantKeys,
-            skippedAssistantKeys
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
+          };
+        }
+
+        // Zero configured: guided/unsupported-only stays 'active-only'-adjacent
+        // (activation itself succeeded) but is reported truthfully as partial
+        // unless everything FAILED outright.
+        if (failedAssistantKeys.length === 0 && completeIncompleteKeys.length > 0) {
+          await profileStore.setActiveProfile(profile.id);
+          updateStatusBar(profile.name);
+          logger.warning(
+            `Activated profile ${profile.name} — no assistants were automatically configured`,
+            undefined,
+            { incompleteAssistantKeys: completeIncompleteKeys, skippedAssistantKeys }
+          );
+          return {
+            status: 'partial' as const,
+            profile,
+            mappedAssistantKeys,
+            appliedAssistantKeys: [],
+            failedAssistantKeys: [],
+            skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys]
           };
         }
 
@@ -163,7 +200,7 @@ export async function activateProfileAndReapplyMappings(
           mappedAssistantKeys,
           appliedAssistantKeys: [],
           failedAssistantKeys,
-          skippedAssistantKeys,
+          skippedAssistantKeys: [...skippedAssistantKeys, ...completeIncompleteKeys],
           errorMessage: `No assistant configurations were updated for "${profile.name}".`
         };
       } catch (error) {

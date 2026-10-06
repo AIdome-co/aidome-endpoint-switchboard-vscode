@@ -112,7 +112,8 @@ vi.mock('../../src/commands/activateProfile', () => ({
   activateProfileAndReapplyMappings: vi.fn(),
   buildAutomatedReapplyPlan: (plan: { steps: Array<{ action: string }> }) => ({
     ...plan,
-    steps: plan.steps.filter((step) => step.action === 'set-vscode-setting' || step.action === 'edit-config-file'),
+    // Mirrors production AUTOMATED_REAPPLY_ACTIONS = CONFIGURATION_MUTATION_ACTIONS.
+    steps: plan.steps.filter((step) => step.action === 'set-vscode-setting' || step.action === 'edit-config-file' || step.action === 'write-env-file'),
   }),
   getProfileActivationNotice: vi.fn(),
 }));
@@ -197,7 +198,15 @@ describe('manageProfiles automatic reapply full failure', () => {
           error: 'apply failed',
         },
       ],
-      assistantResults: new Map([['cline', { success: false }]]),
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: []
+      },
+
+      assistantResults: new Map([['cline', { status: 'failed', success: false }]]),
     });
 
     await manageProfiles({} as any);

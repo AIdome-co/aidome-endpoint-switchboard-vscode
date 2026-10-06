@@ -149,3 +149,9 @@ vite.config.ts.timestamp-*
 
 # Python maintenance tooling cache
 **/__pycache__/
+
+# Local debugging artifacts (do not commit)
+.playwright-cli/
+.playwright-mcp/
+.playwright-cli*
+audit.json

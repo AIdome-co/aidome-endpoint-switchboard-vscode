@@ -37,24 +37,15 @@ export function validateInputUrl(url: string): boolean {
  * @returns True if valid, false otherwise
  */
 export function validateUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    
-    // Reject dangerous schemes
-    const dangerousSchemes = ['javascript:', 'data:', 'file:', 'ftp:'];
-    if (dangerousSchemes.includes(parsed.protocol.toLowerCase())) {
-      return false;
-    }
-    
-    // Only allow https or http://localhost for dev
-    return (
-      parsed.protocol === 'https:' ||
-      (parsed.protocol === 'http:' && 
-       (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'))
-    );
-  } catch {
-    return false;
-  }
+  // Same policy as validateInputUrl: any parseable http/https URL is
+  // accepted. Profiles are created with validateInputUrl, which allows
+  // self-hosted plain-HTTP gateways (e.g. http://10.0.0.5:8100/v1); the
+  // driver layer must not reject URLs the creation flow already accepted —
+  // that inconsistency previously failed plan builds half-way and left
+  // assistants in mixed states. Dangerous schemes (javascript:, data:,
+  // file:, ftp:) are still rejected because URL parsing cannot yield
+  // http:/https: for them.
+  return validateInputUrl(url);
 }
 
 /**
@@ -109,7 +100,7 @@ export function validateProfile(profile: Partial<EndpointProfile>): ValidationRe
   if (!profile.baseUrl) {
     errors.push('Base URL is required');
   } else if (!validateUrl(profile.baseUrl)) {
-    errors.push('Base URL must be https:// or http://localhost for development');
+    errors.push('Base URL must be a valid http:// or https:// URL');
   }
 
   if (!profile.dialect) {

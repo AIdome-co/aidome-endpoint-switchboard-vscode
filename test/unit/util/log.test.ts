@@ -280,3 +280,21 @@ describe('Logger — withOperationId()', () => {
     expect(buf[1].operationId).toBe('setup-2');
   });
 });
+
+describe('Logger — error arg serialization', () => {
+  it('serializes Error args with name/message/stack instead of "[{}, null]"', () => {
+    const { logger, appendLine } = makeLogger();
+    logger.error('Failed to build plan for cline', new Error('Invalid Cline endpoint URL'));
+    const output = appendLine.mock.calls.map(c => String(c[0])).join('\n');
+    expect(output).toContain('Invalid Cline endpoint URL');
+    expect(output).not.toContain('[{}, null]');
+    expect(output).not.toContain('{}');
+  });
+
+  it('drops null/undefined args so they never render as null', () => {
+    const { logger, appendLine } = makeLogger();
+    logger.error('Plan failed: 1 step(s) failed', undefined);
+    const output = appendLine.mock.calls.map(c => String(c[0])).join('\n');
+    expect(output).not.toContain('null');
+  });
+});

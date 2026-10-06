@@ -8,8 +8,8 @@ import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestra
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
-import { fileExists, readFileSafe, createBackup, writeFileAtomic } from '../../util/fsSafe';
-import { buildClaudeCodeSettingsContent, getClaudeCodeSettingsPath } from './claudeCodeConfigPatcher';
+import { readFileSafe } from '../../util/fsSafe';
+import { getClaudeCodeSettingsPath } from './claudeCodeConfigPatcher';
 import { parseJsonc } from '../../util/jsonc';
 import { validateUrl } from '../../core/profiles/profileValidator';
 
@@ -41,8 +41,6 @@ export class ClaudeCodeAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getClaudeCodeSettingsPath();
-    const existingContent = await readFileSafe(configPath);
-    const updatedContent = buildClaudeCodeSettingsContent(profile, existingContent);
     let plan = createPlan(profile.id, ['claude-code']);
 
     plan = addStep(plan, {
@@ -50,21 +48,29 @@ export class ClaudeCodeAdapter extends BaseExtensionAdapter {
       description: 'Configure Claude Code gateway environment',
       assistantKey: 'claude-code',
       targetPath: configPath,
-      newValue: updatedContent,
+      newValue: profile.baseUrl,
       data: {
-        configBuilder: 'claude-code-settings',
+        driver: 'json-object',
         configPath,
         profileId: profile.id,
         profileName: profile.name,
         authRef: profile.authRef ?? profile.name,
         baseUrl: profile.baseUrl,
         format: 'json',
+        secretPolicy: 'target-persisted-at-apply',
+        patches: [
+          { path: ['env', 'ANTHROPIC_BASE_URL'], source: 'baseUrl' },
+          { path: ['env', 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'], value: '1' },
+          { path: ['env', 'ANTHROPIC_AUTH_TOKEN'], source: 'secret', removeWhenMissing: true }
+        ],
+        removePaths: [['env', 'ANTHROPIC_API_KEY']],
         envVars: [
           'ANTHROPIC_BASE_URL',
           'ANTHROPIC_AUTH_TOKEN',
           'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'
         ],
-        clearAuthWhenMissing: true
+        clearAuthWhenMissing: true,
+        missingSecretMessage: `Claude Code auth token was cleared for "${profile.name}" because no saved profile secret was found.`
       },
       reversible: true
     });
@@ -109,29 +115,6 @@ export class ClaudeCodeAdapter extends BaseExtensionAdapter {
     });
 
     return plan;
-  }
-
-  async apply(plan: Plan): Promise<void> {
-    for (const step of plan.steps.filter(item => item.assistantKey === 'claude-code')) {
-      if (step.action !== 'edit-config-file' || !step.targetPath) {
-        continue;
-      }
-
-      if (await fileExists(step.targetPath)) {
-        const backupPath = await createBackup(step.targetPath);
-        if (!backupPath) {
-          throw new Error(`Failed to create backup of ${step.targetPath}`);
-        }
-      }
-
-      const content = typeof step.newValue === 'string'
-        ? step.newValue
-        : JSON.stringify(step.newValue, null, 2);
-      const success = await writeFileAtomic(step.targetPath, content);
-      if (!success) {
-        throw new Error(`Failed to write Claude Code settings to ${step.targetPath}`);
-      }
-    }
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {

@@ -7,6 +7,9 @@ import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestra
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
+import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+
+const DESCRIPTOR = getProviderConfigDescriptor('gemini-cli');
 
 /**
  * Gemini CLI adapter.
@@ -27,19 +30,18 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     let plan = createPlan(profile.id, ['gemini-cli']);
 
     const guidanceData = {
-      message: 'Gemini CLI does not support custom base URL configuration',
+      message: 'Configure Gemini CLI through its gateway environment variables',
       steps: [
-        'The official Gemini CLI connects directly to Google\'s Gemini API',
-        'It does not expose a base_url override option',
-        'To route Gemini requests through AIdome:',
-        '  - Use an OpenAI-compatible assistant (like Cline or Continue) to connect to AIdome',
-        '  - Configure AIdome to route to Gemini upstream',
-        '  - This way AIdome handles the Gemini API calls on your behalf',
-        'Alternative: Use environment-based HTTP proxy (advanced, may not work reliably)'
+        'Set GOOGLE_GEMINI_BASE_URL in the environment that launches Gemini CLI',
+        `Use this endpoint value: ${profile.baseUrl}`,
+        'Set GEMINI_API_KEY in that same environment if the gateway requires authentication',
+        'Start a new Gemini CLI process after changing the environment variables',
+        'Switchboard keeps any saved profile credential in SecretStorage and does not modify the parent process environment'
       ],
       baseUrl: profile.baseUrl,
-      limitation: 'no-base-url-override',
-      tier: 'C'
+      limitation: 'process-environment-guidance',
+      envVarName: 'GOOGLE_GEMINI_BASE_URL',
+      tier: DESCRIPTOR?.tier ?? 'C'
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
@@ -64,12 +66,14 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     }
 
     return {
-      success: true,
-      message: 'Gemini CLI is installed. Note: Gemini CLI does not support custom endpoint configuration (Tier C).',
+      success: false,
+      message: 'Gemini CLI is installed, but gateway environment configuration must be verified in the launching process',
       details: { 
         cli: true,
-        tier: 'C',
-        limitation: 'Gemini CLI does not support base URL override'
+        tier: DESCRIPTOR?.tier ?? 'C',
+        configurationStatus: 'manual-configuration-required',
+        environmentVariable: 'GOOGLE_GEMINI_BASE_URL',
+        limitation: 'Switchboard cannot inspect or change the environment of an already running CLI parent process'
       }
     };
   }

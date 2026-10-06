@@ -8,7 +8,7 @@
  */
 export interface ConfigFileHint {
   path: string;
-  format: 'json' | 'yaml' | 'toml';
+  format: 'json' | 'jsonc' | 'yaml' | 'toml';
   fields: string[];
 }
 

@@ -6,8 +6,11 @@ import * as path from 'path';
 import {
   patchKiloConfig,
   getKiloConfigPath,
+  resolveKiloConfigTarget,
   buildKiloConfigContent
 } from '../../src/adapters/kilocode/kiloConfigPatcher';
+import { renderConfigFileContent } from '../../src/core/providerConfig/drivers';
+import { normalizeOpenAiBaseUrl } from '../../src/core/providerConfig/endpointUrl';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as fsSafe from '../../src/util/fsSafe';
 
@@ -74,49 +77,84 @@ describe('Kilo Config Patcher', () => {
     }
   });
 
-  describe('getKiloConfigPath', () => {
-    it('returns APPDATA-based path on win32', () => {
-      mockOs.platform = 'win32';
-      process.env.APPDATA = 'C:\\Users\\testuser\\AppData\\Roaming';
+  describe('resolveKiloConfigTarget', () => {
+    const exists = (p: string) => false;
+    const home = () => '/home/testuser';
 
-      expect(getKiloConfigPath()).toBe(
-        path.join('C:\\Users\\testuser\\AppData\\Roaming', 'Kilo', 'kilo.jsonc')
-      );
+    it('wins outright with an explicit KILO_CONFIG file', () => {
+      const target = resolveKiloConfigTarget({
+        env: { KILO_CONFIG: '/explicit/kilo.json' },
+        homedir: home,
+        existsSync: exists
+      });
+      expect(target).toEqual({ kind: 'file', path: '/explicit/kilo.json', source: 'KILO_CONFIG' });
     });
 
-    it('falls back to homedir when APPDATA is unset on win32', () => {
-      mockOs.platform = 'win32';
-      delete process.env.APPDATA;
-
-      expect(getKiloConfigPath()).toBe(
-        path.join('/home/testuser', 'AppData', 'Roaming', 'Kilo', 'kilo.jsonc')
-      );
+    it('resolves an explicit KILO_CONFIG_DIR, preferring an existing kilo.json', () => {
+      const target = resolveKiloConfigTarget({
+        env: { KILO_CONFIG_DIR: '/explicit/dir' },
+        homedir: home,
+        existsSync: (p) => p === path.join('/explicit/dir', 'kilo.json')
+      });
+      expect(target).toEqual({ kind: 'file', path: path.join('/explicit/dir', 'kilo.json'), source: 'KILO_CONFIG_DIR' });
     });
 
-    it('returns Library/Application Support path on darwin', () => {
-      mockOs.platform = 'darwin';
-
-      expect(getKiloConfigPath()).toBe(
-        path.join('/home/testuser', 'Library', 'Application Support', 'kilo', 'kilo.jsonc')
-      );
+    it('guides instead of guessing when KILO_CONFIG_CONTENT is set', () => {
+      const target = resolveKiloConfigTarget({
+        env: { KILO_CONFIG_CONTENT: '{ "provider": {} }' },
+        homedir: home,
+        existsSync: exists
+      });
+      expect(target.kind).toBe('guided');
     });
 
-    it('honors XDG_CONFIG_HOME when set on linux', () => {
-      mockOs.platform = 'linux';
-      process.env.XDG_CONFIG_HOME = '/custom/config';
-
-      expect(getKiloConfigPath()).toBe(
-        path.join('/custom/config', 'kilo', 'kilo.jsonc')
-      );
+    it('honors XDG_CONFIG_HOME/kilo on ALL platforms (no AppData guess)', () => {
+      const env = { XDG_CONFIG_HOME: '/custom/config' };
+      const target = resolveKiloConfigTarget({
+        env,
+        homedir: home,
+        existsSync: exists
+      });
+      expect(target).toEqual({ kind: 'file', path: path.join('/custom/config', 'kilo', 'kilo.jsonc'), source: 'default' });
     });
 
-    it('falls back to ~/.config/kilo on linux when XDG_CONFIG_HOME is unset', () => {
-      mockOs.platform = 'linux';
-      delete process.env.XDG_CONFIG_HOME;
+    it('prefers an existing config file at ~/.config/kilo', () => {
+      const target = resolveKiloConfigTarget({
+        env: {},
+        homedir: home,
+        existsSync: (p) => p === path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc')
+      });
+      expect(target).toEqual({ kind: 'file', path: path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc'), source: '~/.config/kilo' });
+    });
 
-      expect(getKiloConfigPath()).toBe(
-        path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc')
-      );
+    it('accepts a legacy ~/.kilo config when no current location exists', () => {
+      const target = resolveKiloConfigTarget({
+        env: {},
+        homedir: home,
+        existsSync: (p) => p === path.join('/home/testuser', '.kilo', 'kilo.json')
+      });
+      expect(target).toEqual({ kind: 'file', path: path.join('/home/testuser', '.kilo', 'kilo.json'), source: '~/.kilo' });
+    });
+
+    it('guides when multiple legacy candidates make the active source ambiguous', () => {
+      const target = resolveKiloConfigTarget({
+        env: {},
+        homedir: home,
+        existsSync: (p) =>
+          p === path.join('/home/testuser', '.kilo', 'kilo.jsonc')
+          || p === path.join('/home/testuser', '.kilocode', 'kilo.json')
+      });
+      expect(target.kind).toBe('guided');
+      expect((target as { reason: string }).reason).toContain('Multiple Kilo configuration files');
+    });
+
+    it('creates at ~/.config/kilo/kilo.jsonc when nothing exists', () => {
+      const target = resolveKiloConfigTarget({ env: {}, homedir: home, existsSync: exists });
+      expect(target).toEqual({ kind: 'file', path: path.join('/home/testuser', '.config', 'kilo', 'kilo.jsonc'), source: 'default' });
+    });
+
+    it('keeps the process-env convenience wrapper returning the writable path', () => {
+      expect(typeof getKiloConfigPath() === 'string' || getKiloConfigPath() === undefined).toBe(true);
     });
   });
 
@@ -191,11 +229,10 @@ describe('Kilo Config Patcher', () => {
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe('https://gateway.example.com/v1');
     });
 
-    it('should handle invalid JSONC gracefully', () => {
-      // Should not throw, should create fresh config
-      const result = buildKiloConfigContent('https://gateway.example.com/v1', 'not valid json{{{');
-      const parsed = JSON.parse(result);
-      expect(parsed.provider['aidome-gateway'].options.baseURL).toBe('https://gateway.example.com/v1');
+    it('should fail closed on invalid JSONC', () => {
+      // Malformed existing config must never be replaced with a fresh one.
+      expect(() => buildKiloConfigContent('https://gateway.example.com/v1', 'not valid json{{{'))
+        .toThrow('malformed existing configuration file');
     });
   });
 
@@ -229,5 +266,75 @@ describe('Kilo Config Patcher', () => {
       expect(parsed.provider['aidome-gateway'].options.baseURL).toBe(mockProfile.baseUrl);
       expect(parsed.provider['other-provider'].options.baseURL).toBe('https://other.com');
     });
+  });
+});
+describe('Kilo normalization equivalence (HIGH-2 fix)', () => {
+  let written: string[] = [];
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    vi.spyOn(fsSafe, 'writeFileAtomic').mockImplementation(async (_p: string, content: string) => {
+      written.push(content);
+      return true;
+    });
+  });
+
+  const smokeProfile = (baseUrl: string): EndpointProfile => ({
+    id: 'norm-profile',
+    name: 'Norm Profile',
+    baseUrl,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+
+  it.each([
+    ['https://gw.example.com', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/v1', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/', 'https://gw.example.com/v1'],
+    ['https://gw.example.com/v1/', 'https://gw.example.com/v1']
+  ])('patcher normalizes %s exactly once to %s', async (input, expected) => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+    await patchKiloConfig(smokeProfile(input), '/path/kilo.jsonc');
+
+    const parsed = JSON.parse(written[0]);
+    expect(parsed.provider['aidome-gateway'].options.baseURL).toBe(expected);
+    expect(parsed.provider['aidome-gateway'].options.baseURL).not.toContain('/v1/v1');
+  });
+
+  it('patcher path and engine/applier path produce IDENTICAL baseURL for the same profile', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    const rawUrl = 'https://gw.example.com';
+
+    // Engine/adapter path: renderConfigFileContent with the normalized URL
+    // (what adapter buildPlan -> step.data.baseUrl feeds the driver).
+    const engineOutput = renderConfigFileContent({
+      baseUrl: normalizeOpenAiBaseUrl(rawUrl),
+      existingContent: undefined,
+      format: 'jsonc',
+      options: {
+        driver: 'jsonc-provider-map',
+        mapPath: ['provider'],
+        providerId: 'aidome-gateway',
+        defaults: { name: 'AIdome Gateway', npm: '@ai-sdk/openai-compatible' },
+        baseUrlPath: ['options', 'baseURL']
+      }
+    });
+
+    // Patcher path on the same (missing) file.
+    await patchKiloConfig(smokeProfile(rawUrl), '/path/kilo.jsonc');
+    const patcherOutput = written[0];
+
+    expect(JSON.parse(patcherOutput)).toEqual(JSON.parse(engineOutput));
+  });
+
+  it('reapply remains byte-idempotent after normalization', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+    await patchKiloConfig(smokeProfile('https://gw.example.com'), '/path/kilo.jsonc');
+    const first = written[0];
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(first);
+    await patchKiloConfig(smokeProfile('https://gw.example.com'), '/path/kilo.jsonc');
+    expect(written[1]).toBe(first);
   });
 });

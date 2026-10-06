@@ -17,6 +17,12 @@ export interface AppliedStep {
   backupPath?: string;     // for file-based changes
   createdFile?: boolean;   // true when rollback should delete a file created by apply
   timestamp: string;
+  /** For secret-resolving mutations: false when no saved credential was found (GAP 9). */
+  secretResolved?: boolean;
+  /** False when the operation intentionally skipped its write (e.g. unregistered setting) — such steps are NOT mutations. */
+  mutationApplied?: boolean;
+  /** True when a missing-secret 'remove-managed-key' operation removed the managed env key. */
+  managedValueRemoved?: boolean;
 }
 
 /**

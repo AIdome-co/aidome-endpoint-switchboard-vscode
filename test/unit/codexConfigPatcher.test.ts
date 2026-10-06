@@ -12,6 +12,13 @@ vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/util/paths', () => ({
   expandTilde: (path: string) => path.replace('~', '/home/user')
 }));
+vi.mock('os', () => ({
+  homedir: () => '/home/user',
+}));
+vi.mock('fs', () => ({
+  existsSync: () => false,
+  readdirSync: () => [],
+}));
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: vi.fn(() => ({
@@ -42,6 +49,20 @@ describe('Codex Config Patcher', () => {
       const path = getCodexConfigPath();
       expect(path).toContain('.codex/config.toml');
     });
+
+    it('honors an explicit configuration path override', () => {
+      const original = process.env.CODEX_CONFIG_PATH;
+      process.env.CODEX_CONFIG_PATH = '~/snap-config/config.toml';
+      try {
+        expect(getCodexConfigPath()).toBe('/home/user/snap-config/config.toml');
+      } finally {
+        if (original === undefined) {
+          delete process.env.CODEX_CONFIG_PATH;
+        } else {
+          process.env.CODEX_CONFIG_PATH = original;
+        }
+      }
+    });
   });
 
   describe('patchCodexConfig', () => {
@@ -54,7 +75,7 @@ describe('Codex Config Patcher', () => {
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
       expect(writtenContent).toContain(`base_url = "${mockProfile.baseUrl}"`);
       expect(writtenContent).toContain('wire_api = "responses"');
       expect(writtenContent).toContain('model_provider = "aidome"');
@@ -65,7 +86,7 @@ describe('Codex Config Patcher', () => {
 model_provider = "openai"
 model = "gpt-3.5-turbo"
 
-[providers.openai]
+[model_providers.openai]
 base_url = "https://api.openai.com/v1"
 `;
       
@@ -77,20 +98,20 @@ base_url = "https://api.openai.com/v1"
       expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
       
-      expect(writtenContent).toContain('[providers.aidome]');
+      expect(writtenContent).toContain('[model_providers.aidome]');
       expect(writtenContent).toContain(`base_url = "${mockProfile.baseUrl}"`);
       expect(writtenContent).toContain('model_provider = "aidome"');
-      expect(writtenContent).toContain('[providers.openai]'); // Should preserve existing provider
+      expect(writtenContent).toContain('[model_providers.openai]'); // Should preserve existing provider
     });
 
-    it('should set default model if not present', async () => {
+    it('should not invent a model when one is not present', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
       await patchCodexConfig(mockProfile, '/path/to/config.toml');
 
       const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
-      expect(writtenContent).toContain('model = "gpt-4"');
+      expect(writtenContent).not.toContain('model = "gpt-4"');
     });
 
     it('should preserve existing model', async () => {
@@ -107,33 +128,15 @@ model = "custom-model"
       expect(writtenContent).toContain('model = "custom-model"');
     });
 
-    it('should handle invalid TOML gracefully', async () => {
+    it('should fail closed on invalid TOML and never write', async () => {
       const invalidConfig = 'this is not valid TOML {{[';
       
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(invalidConfig);
       vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
 
-      // Should not throw, should create new config
-      await patchCodexConfig(mockProfile, '/path/to/config.toml');
-
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-      const writtenContent = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
-      expect(writtenContent).toContain('[providers.aidome]');
-    });
-
-
-    it('should fall back for malformed config when logging fails', async () => {
-      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('this is not valid TOML {{[');
-      vi.spyOn(fsSafe, 'writeFileAtomic').mockResolvedValue(true);
-      vi.mocked(Logger.getInstance).mockImplementationOnce(() => {
-        throw new Error('logger unavailable');
-      });
-
-      await expect(patchCodexConfig(mockProfile, '/path/to/config.toml')).resolves.toBeUndefined();
-
-      expect(fsSafe.writeFileAtomic).toHaveBeenCalled();
-      const writtenContent = vi.mocked(fsSafe.writeFileAtomic).mock.calls[0][1];
-      expect(writtenContent).toContain('[providers.aidome]');
+      await expect(patchCodexConfig(mockProfile, '/path/to/config.toml'))
+        .rejects.toThrow('malformed existing configuration file');
+      expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
     });
 
     it('should set wire_api to responses', async () => {

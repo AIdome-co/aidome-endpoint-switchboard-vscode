@@ -21,6 +21,9 @@ export interface ClineConfigPaths {
   dataDir: string;
   globalStatePath: string;
   providerSettingsPath: string;
+  modelCatalogPath: string;
+  /** Legacy secret mirror (<dataDir>/secrets.json) — kept coherent with providers.json. */
+  secretsMirrorPath: string;
 }
 
 /**
@@ -39,7 +42,9 @@ export function getClineConfigPaths(): ClineConfigPaths {
   return {
     dataDir,
     globalStatePath: path.join(dataDir, 'globalState.json'),
-    providerSettingsPath
+    providerSettingsPath,
+    modelCatalogPath: path.join(dataDir, 'settings', 'models.json'),
+    secretsMirrorPath: path.join(dataDir, 'secrets.json')
   };
 }
 
