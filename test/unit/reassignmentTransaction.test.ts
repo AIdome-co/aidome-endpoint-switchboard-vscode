@@ -1,11 +1,13 @@
 /**
- * P1: transactional reassignment restoration regression.
+ * P1/P2: transactional reassignment restoration regression.
  *
  * Runs the REAL applyAutomaticProfileToAssistants + reassign semantics via
  * Manage Profiles's Delete Profile → Reassign flow (Switchboard mocked at
- * its public buildPlan/applyPlan seam), asserting the FULL transaction:
- * target mutation happened, hard failure happened, restoration ran against
- * the source, and mapping/profile state ends consistent with the source.
+ * its public buildPlan/applyPlan seam). The applyPlan mock returns the
+ * PRODUCTION ApplierResult shape: executed PlanSteps in appliedSteps
+ * (completed:true even for skipped no-ops) AND a changeLogEntry whose
+ * AppliedStep record carries the real mutationApplied flag — the same
+ * evidence source the production mutation classifier reads.
  */
 
 import { describe, beforeEach, afterEach, it, expect, vi } from 'vitest';
@@ -29,6 +31,7 @@ const {
   mockDeleteAssistantMapping,
   mockSaveAssistantMapping,
   mockGetActiveProfileId,
+  mockConfigUpdate,
 } = vi.hoisted(() => ({
   mockBuildPlan: vi.fn(),
   mockApplyPlan: vi.fn(),
@@ -45,7 +48,14 @@ const {
   mockSaveAssistantMapping: vi.fn().mockResolvedValue(undefined),
   mockGetActiveProfileId: vi.fn(),
   mockShowQuickPick: vi.fn(),
+  mockConfigUpdate: vi.fn(),
 }));
+
+const sharedManagedConfig = {
+  get: vi.fn(),
+  update: mockConfigUpdate,
+  inspect: vi.fn()
+};
 
 vi.mock('vscode', () => ({
   window: {
@@ -57,7 +67,7 @@ vi.mock('vscode', () => ({
     createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), append: vi.fn(), show: vi.fn(), clear: vi.fn() })),
     withProgress: (_options: unknown, task: (progress: unknown) => Promise<unknown>) => task({ report: vi.fn() })
   },
-  workspace: { getConfiguration: () => ({ get: vi.fn(), update: vi.fn(), inspect: vi.fn() }) },
+  workspace: { getConfiguration: () => sharedManagedConfig },
   ConfigurationTarget: { Global: 1, Workspace: 2 },
   ProgressLocation: { Notification: 15 },
   QuickPickItemKind: { Separator: -1, Default: 0 },
@@ -123,9 +133,10 @@ vi.mock('../../src/ui/notifications', () => ({
 }));
 
 import { manageProfiles } from '../../src/commands/manageProfiles';
-
-// Production reapply filter (mirrors AUTOMATED_REAPPLY_ACTIONS = CONFIGURATION_MUTATION_ACTIONS).
-const AUTOMATED_ACTIONS = new Set(['set-vscode-setting', 'edit-config-file', 'write-env-file']);
+import { PlanApplier } from '../../src/core/orchestration/applier';
+import { createPlan } from '../../src/core/orchestration/planBuilder';
+import type { AppliedStep, ChangeLogEntry } from '../../src/core/orchestration/changeLog';
+import type { AssistantApplyResult } from '../../src/core/orchestration/assistantOutcome';
 
 const sourceProfile = {
   id: 'profile-a', name: 'OpenAI Prod', baseUrl: 'https://gateway-a.example.com/v1',
@@ -138,6 +149,11 @@ const targetProfile = {
   createdAt: '2026-05-18T00:00:00.000Z', updatedAt: '2026-05-18T00:00:00.000Z'
 };
 
+/** Full truthful status union (mirrors AssistantApplyStatus). */
+type ApplyStatus = 'configured' | 'guided-required' | 'unsupported' | 'deferred' | 'failed';
+
+type MutationAction = 'edit-config-file' | 'set-vscode-setting' | 'write-env-file';
+
 interface StepLike {
   id: string;
   action: string;
@@ -148,131 +164,178 @@ interface StepLike {
   [key: string]: unknown;
 }
 interface PlanLike {
+  id: string;
   profileId: string;
   assistantKeys: string[];
   steps: StepLike[];
   [key: string]: unknown;
 }
 
+interface AssistantSpec {
+  assistantKey: string;
+  status: ApplyStatus;
+  /**
+   * The REAL mutationApplied flag the AppliedStep record carries for the
+   * executed mutation step. undefined = legacy step without the field
+   * (production treats an executed mutation action as a mutation).
+   */
+  mutationApplied?: boolean;
+  /** Raw buildPlan action for this assistant (default edit-config-file). */
+  action?: MutationAction | 'show-guided-steps';
+  reason?: string;
+}
+
+interface RestoreSpec {
+  status: ApplyStatus;
+  mutationApplied?: boolean;
+  reason?: string;
+}
+
+const TS = '2026-05-18T00:00:00.000Z';
+
 function planFor(profileId: string, steps: StepLike[]): PlanLike {
   return {
     id: `plan-${profileId}-${steps.map(step => step.assistantKey).join('-')}`,
     profileId,
     assistantKeys: [...new Set(steps.map(step => step.assistantKey))],
-    createdAt: '2026-05-18T00:00:00.000Z',
+    createdAt: TS,
     status: 'pending',
     steps
   };
 }
 
-function applyOutcome(assistantKey: string, status: 'configured' | 'guided-required' | 'failed', mutated: boolean, reason?: string) {
-  const appliedSteps: Array<StepLike & { completed?: boolean }> = mutated
-    ? [{ id: `ap-${assistantKey}`, action: 'edit-config-file', assistantKey, completed: true }]
-    : [];
-  const assistantResults = new Map([
-    [assistantKey,
-      status === 'configured'
-        ? { status: 'configured', success: true }
-        : status === 'failed'
-          ? { status: 'failed', success: false, reason: reason ?? 'write failed' }
-          : { status: 'guided-required', success: false, reason: reason ?? 'credential missing' }]
-  ]);
-  const failedSteps = status === 'failed'
-    ? [{ id: `fs-${assistantKey}`, action: 'edit-config-file', assistantKey, error: reason ?? 'write failed' } as StepLike]
-    : [];
+function assistantResultShape(status: ApplyStatus, reason?: string): AssistantApplyResult {
   return {
-    success: status !== 'failed',
-    appliedSteps,
-    failedSteps,
-    assistantResults
+    status,
+    success: status === 'configured',
+    ...(reason !== undefined ? { reason } : {})
   };
 }
 
 /**
- * Drives the Delete → Reassign transaction through manageProfiles.
- * buildPlan returns one automatic edit-config-file step per requested
- * assistant; applyPlan returns the scripted per-assistant outcomes in
- * order. Returns every plan passed to applyPlan plus the sequence of
- * outcomes it was scripted with.
+ * Builds the PRODUCTION-shaped ApplierResult for a single-assistant plan:
+ * appliedSteps always carries the executed PlanSteps (completed:true, even
+ * for skipped no-ops), while changeLogEntry.steps carries the AppliedStep
+ * record with the real mutationApplied flag. A failed assistant rolls its
+ * steps back → no change-log entry → the composite fallback (steps: []).
  */
-async function runReassignFlow(
-  outcomeSequence: Array<{ assistantKey: string; status: 'configured' | 'guided-required' | 'failed'; mutated: boolean; reason?: string }>,
-  restoreOutcome: 'configured' | 'guided-required' | 'failed' = 'configured'
-): Promise<PlanLike[]> {
-  const plans: PlanLike[] = [];
-  let applyCall = 0;
-  void applyCall;
+function applierResultFor(plan: PlanLike, spec: { status: ApplyStatus; mutationApplied?: boolean; reason?: string }) {
+  const key = plan.assistantKeys[0];
+  const steps = plan.steps.filter(step => step.assistantKey === key);
 
-  mockGetProfiles
-    .mockResolvedValueOnce([sourceProfile, targetProfile])   // main menu source listing
-    .mockResolvedValueOnce([sourceProfile, targetProfile])   // reassign target listing
-    .mockResolvedValue([sourceProfile, targetProfile]);      // any later listing
-  mockGetActiveProfileId.mockResolvedValue(sourceProfile.id);
-  // showMainMenu, deleteProfileFlow, and any later listing all see the
-  // SOURCE mappings (the mapping store never actually changes; deletions
-  // are asserted via mockDeleteAssistantMapping).
-  mockGetAssistantMappings.mockResolvedValue(outcomeSequence.map(entry => ({
-    assistantKey: entry.assistantKey,
+  if (spec.status === 'failed') {
+    return {
+      success: false,
+      appliedSteps: [] as Array<StepLike & { completed?: boolean }>,
+      failedSteps: steps.map(step => ({ ...step, completed: false, error: spec.reason ?? 'write failed' })),
+      changeLogEntry: {
+        id: plan.id,
+        timestamp: TS,
+        assistantKey: key,
+        profileName: plan.profileId,
+        steps: [] as AppliedStep[]
+      } satisfies ChangeLogEntry,
+      assistantResults: new Map([[key, assistantResultShape('failed', spec.reason ?? 'write failed')]])
+    };
+  }
+
+  return {
+    success: true,
+    appliedSteps: steps.map(step => ({ ...step, completed: true })),
+    failedSteps: [] as Array<StepLike & { completed?: boolean }>,
+    changeLogEntry: {
+      id: `${plan.id}-${key}`,
+      timestamp: TS,
+      assistantKey: key,
+      profileName: plan.profileId,
+      steps: steps.map(step => ({
+        type: step.action,
+        target: step.targetPath ?? '',
+        timestamp: TS,
+        ...(spec.mutationApplied !== undefined ? { mutationApplied: spec.mutationApplied } : {})
+      })) as unknown as AppliedStep[]
+    } satisfies ChangeLogEntry,
+    assistantResults: new Map([[key, assistantResultShape(spec.status, spec.reason)]])
+  };
+}
+
+/** In-memory mapping store mirroring ProfileStore semantics for the flow. */
+let mappings: Array<{ assistantKey: string; profileId: string; appliedMode: string; appliedAt: string }>;
+
+function seedMappings(specs: AssistantSpec[]): void {
+  mappings = specs.map(spec => ({
+    assistantKey: spec.assistantKey,
     profileId: sourceProfile.id,
     appliedMode: 'configFile',
-    appliedAt: '2026-05-18T00:00:00.000Z'
-  })));
+    appliedAt: TS
+  }));
+}
+
+/**
+ * Drives the Delete → Reassign transaction through manageProfiles.
+ * buildPlan returns the RAW plan (one step per requested assistant, action
+ * per spec); the REAL buildAutomatedReapplyPlan inside manageProfiles filters
+ * it exactly as in production. applyPlan returns production-shaped results
+ * scripted per assistant. Returns every plan passed to applyPlan.
+ */
+async function runReassignFlow(
+  outcomeSequence: AssistantSpec[],
+  restoreSpec: RestoreSpec = { status: 'configured', mutationApplied: true }
+): Promise<PlanLike[]> {
+  const plans: PlanLike[] = [];
+
+  mockGetProfiles
+    .mockResolvedValue([sourceProfile, targetProfile]);
+  mockGetActiveProfileId.mockResolvedValue(sourceProfile.id);
+
+  seedMappings(outcomeSequence);
+  mockGetAssistantMappings.mockImplementation(async () => mappings.map(entry => ({ ...entry })));
+  mockSaveAssistantMapping.mockImplementation(async (mapping: { assistantKey: string; profileId: string; appliedMode?: string; appliedAt?: string }) => {
+    const index = mappings.findIndex(m => m.assistantKey === mapping.assistantKey && m.profileId === mapping.profileId);
+    const record = {
+      assistantKey: mapping.assistantKey,
+      profileId: mapping.profileId,
+      appliedMode: mapping.appliedMode ?? 'configFile',
+      appliedAt: mapping.appliedAt ?? TS
+    };
+    if (index >= 0) {
+      mappings[index] = record;
+    } else {
+      mappings.push(record);
+    }
+    return undefined;
+  });
+  mockDeleteAssistantMapping.mockImplementation(async (assistantKey: string, profileId: string) => {
+    mappings = mappings.filter(m => !(m.assistantKey === assistantKey && m.profileId === profileId));
+    return undefined;
+  });
 
   mockBuildPlan.mockImplementation(async (profile: { id: string }, keys: string[]) =>
-    planFor(profile.id, keys.map(key => ({
-      id: `step-${key}-${profile.id}`,
-      action: 'edit-config-file',
-      description: `Rewrite ${key} config`,
-      assistantKey: key,
-      reversible: true
-    }))));
+    planFor(profile.id, keys.map(key => {
+      const spec = outcomeSequence.find(entry => entry.assistantKey === key);
+      const action = spec?.action ?? 'edit-config-file';
+      return {
+        id: `step-${key}-${profile.id}`,
+        action,
+        description: `${action} for ${key}`,
+        assistantKey: key,
+        targetPath: action === 'show-guided-steps' ? undefined : `${key}.target`,
+        data: action === 'show-guided-steps' ? { message: 'manual steps' } : {},
+        reversible: action !== 'show-guided-steps'
+      } satisfies StepLike;
+    })));
 
   mockApplyPlan.mockImplementation(async (reapplyPlan: PlanLike) => {
     plans.push(reapplyPlan);
-    const automated = reapplyPlan as PlanLike;
-    const isRestore = reapplyPlan.profileId === sourceProfile.id;
-    const scripted = isRestore
-      ? undefined
-      : outcomeSequence.find(entry => entry.assistantKey === reapplyPlan.assistantKeys[0]);
-    // One scripted outcome per applyPlan call (single-assistant reapply).
-    if (!scripted) {
-      // Source restore reapply: outcome scripted per test (restoreOutcome).
-      const restoredStatus = restoreOutcome;
-      return {
-        success: restoredStatus !== 'failed',
-        appliedSteps: restoredStatus === 'configured'
-          ? automated.steps.map(step => ({ ...step, completed: true }))
-          : [],
-        failedSteps: restoredStatus === 'failed'
-          ? automated.steps.map(step => ({ ...step, error: 'restore write failed' }))
-          : [],
-        assistantResults: new Map(automated.steps.map(step => [
-          step.assistantKey,
-          restoredStatus === 'configured'
-            ? { status: 'configured', success: true }
-            : restoredStatus === 'failed'
-              ? { status: 'failed', success: false, reason: 'restore write failed' }
-              : { status: 'guided-required', success: false, reason: 'credential missing' }
-        ]))
-      };
+    const key = reapplyPlan.assistantKeys[0];
+    if (reapplyPlan.profileId === sourceProfile.id) {
+      return applierResultFor(reapplyPlan, restoreSpec);
     }
-    return {
-      success: scripted.status !== 'failed',
-      appliedSteps: scripted.mutated
-        ? automated.steps.filter(step => step.assistantKey === scripted.assistantKey).map(step => ({ ...step, completed: true }))
-        : [],
-      failedSteps: scripted.status === 'failed'
-        ? automated.steps.filter(step => step.assistantKey === scripted.assistantKey).map(step => ({ ...step, error: scripted.reason ?? 'write failed' }))
-        : [],
-      assistantResults: new Map([[
-        scripted.assistantKey,
-        scripted.status === 'configured'
-          ? { status: 'configured', success: true }
-          : scripted.status === 'failed'
-            ? { status: 'failed', success: false, reason: scripted.reason ?? 'write failed' }
-            : { status: 'guided-required', success: false, reason: scripted.reason ?? 'credential missing' }
-      ]])
-    };
+    const spec = outcomeSequence.find(entry => entry.assistantKey === key);
+    if (!spec) {
+      throw new Error(`No scripted outcome for assistant ${key} against ${reapplyPlan.profileId}`);
+    }
+    return applierResultFor(reapplyPlan, spec);
   });
 
   const quickPick = mockShowQuickPick;
@@ -287,121 +350,316 @@ async function runReassignFlow(
   return plans;
 }
 
-describe('P1: transactional reassignment restoration', () => {
+describe('P1/P2: transactional reassignment restoration', () => {
   let tempDirValue: string;
 
-  function ensureTempDir() {
-    tempDirValue = tempDirValue ?? fs.mkdtempSync(path.join(os.tmpdir(), 'reassign-'));
-  }
-
   beforeEach(async () => {
-    if (tempDirValue) {
-      await fs.rm(tempDirValue, { recursive: true, force: true });
-    }
     tempDirValue = await fs.mkdtemp(path.join(os.tmpdir(), 'reassign-'));
-    for (const spy of [mockBuildPlan, mockApplyPlan, mockShowSuccess, mockShowWarning, mockShowError, mockDeleteProfile, mockSetActiveProfile, mockUpdateStatusBar, mockDeleteAssistantMapping, mockSaveAssistantMapping]) {
+    for (const spy of [mockBuildPlan, mockApplyPlan, mockShowSuccess, mockShowWarning, mockShowError, mockDeleteProfile, mockSetActiveProfile, mockUpdateStatusBar, mockDeleteAssistantMapping, mockSaveAssistantMapping, mockShowQuickPick, mockGetProfiles, mockGetAssistantMappings, mockGetActiveProfileId]) {
       spy.mockReset();
     }
     mockDeleteProfile.mockResolvedValue(undefined);
     mockDeleteAssistantMapping.mockResolvedValue(undefined);
     mockSaveAssistantMapping.mockResolvedValue(undefined);
     mockGetSecret.mockResolvedValue('secret-token');
+    mockConfigUpdate.mockReset();
+    mockConfigUpdate.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
     await fs.rm(tempDirValue, { recursive: true, force: true });
   });
 
-  it('guided-required WITH target mutation is a restore candidate; restored to source on abort', async () => {
-    // Codex: mutated toward B + guided-required; Continue: hard failure.
+  it('CRITICAL: deferred no-op (mutationApplied=false in the AppliedStep) is NOT a restore candidate', async () => {
+    // Copilot's set-vscode-setting EXECUTED (completed:true in appliedSteps —
+    // the old classifier read that as a mutation) but the AppliedStep record
+    // says mutationApplied=false: nothing was written. Continue hard-fails.
     await runReassignFlow([
-      { assistantKey: 'openai-codex', status: 'guided-required', mutated: true, reason: 'credential missing' },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
+      { assistantKey: 'github-copilot', status: 'deferred', mutationApplied: false, action: 'set-vscode-setting', reason: 'unregistered setting' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
     ]);
 
-    // The reassignment aborted (delete NOT called).
     expect(mockDeleteProfile).not.toHaveBeenCalled();
+    // Copilot was NOT in any source reapply: plan #1 = target apply (copilot),
+    // #2 = target apply (continue), NO profile-a restore plan.
+    const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
+    expect(applyProfileIds).toEqual(['profile-b', 'profile-b']);
+    expect(mockApplyPlan.mock.calls.some(call =>
+      (call[0] as PlanLike).profileId === sourceProfile.id &&
+      (call[0] as PlanLike).assistantKeys.includes('github-copilot')
+    )).toBe(false);
+    // No mutation happened at all → abort without restoration path.
+    expect(mockShowError).toHaveBeenCalledWith(
+      'Failed to reassign assistants to "OpenAI Stage". The original profile was kept. Failed assistants: continue.'
+    );
+    // Mappings are untouched: both assistants still map to the source.
+    expect(mappings.map(m => `${m.assistantKey}->${m.profileId}`).sort())
+      .toEqual(['continue->profile-a', 'github-copilot->profile-a']);
+  });
+
+  it('guided-required WITH real mutation (edit-config-file, mutationApplied=true) IS restored', async () => {
+    await runReassignFlow([
+      { assistantKey: 'openai-codex', status: 'guided-required', mutationApplied: true, reason: 'credential missing' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+    ]);
+
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
+    expect(applyProfileIds).toEqual(['profile-b', 'profile-b', 'profile-a']);
+    const restorePlan = mockApplyPlan.mock.calls[2][0] as PlanLike;
+    expect(restorePlan.assistantKeys).toEqual(['openai-codex']);
     expect(mockShowError).toHaveBeenCalledWith(
       'Failed to reassign assistants to "OpenAI Stage". The original profile was kept and previously switched assistants were restored to "OpenAI Prod". Failed assistants: continue.'
     );
+  });
 
-    // Restoration: the source-profile reapply plan was invoked for Codex —
-    // plan #1 = target apply (codex), #2 = target apply (continue),
-    // #3 = source restore (codex).
+  it('guided-required with legacy AppliedStep (mutationApplied undefined) IS a restore candidate', async () => {
+    await runReassignFlow([
+      { assistantKey: 'openai-codex', status: 'guided-required', mutationApplied: undefined, reason: 'credential missing' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+    ]);
+
     const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
     expect(applyProfileIds).toEqual(['profile-b', 'profile-b', 'profile-a']);
     const restorePlan = mockApplyPlan.mock.calls[2][0] as PlanLike;
     expect(restorePlan.assistantKeys).toEqual(['openai-codex']);
   });
 
-  it('configured + guided-mutated assistants are BOTH restored when a third hard-fails', async () => {
+  it('write-env-file real mutation + guided-required (Codex stale-key case) IS restored', async () => {
     await runReassignFlow([
-      { assistantKey: 'cline', status: 'configured', mutated: true },
-      { assistantKey: 'openai-codex', status: 'guided-required', mutated: true, reason: 'credential missing' },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
+      { assistantKey: 'openai-codex', status: 'guided-required', mutationApplied: true, action: 'write-env-file', reason: 'no saved credential' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
     ]);
 
-    expect(mockDeleteProfile).not.toHaveBeenCalled();
-    expect(mockShowError).toHaveBeenCalledWith(
-      'Failed to reassign assistants to "OpenAI Stage". The original profile was kept and previously switched assistants were restored to "OpenAI Prod". Failed assistants: continue.'
-    );
-
-    // Restoration reapply covers BOTH Cline and Codex — not just Cline.
-    // Restore loop applies the SOURCE profile once per candidate.
     const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
-    expect(applyProfileIds).toEqual(['profile-b', 'profile-b', 'profile-b', 'profile-a', 'profile-a']);
-    const restoreKeys = mockApplyPlan.mock.calls.slice(3).map(call => (call[0] as PlanLike).assistantKeys[0]);
-    expect(new Set(restoreKeys).has('cline')).toBe(true);
-    expect(new Set(restoreKeys).has('openai-codex')).toBe(true);
+    expect(applyProfileIds).toEqual(['profile-b', 'profile-b', 'profile-a']);
+    const restorePlan = mockApplyPlan.mock.calls[2][0] as PlanLike;
+    expect(restorePlan.assistantKeys).toEqual(['openai-codex']);
   });
 
-  it('guided-only NO-mutation assistant is NOT restored (no state to roll back)', async () => {
+  it('guided-only (show-guided-steps only) is filtered to a skip — never applied, never restored', async () => {
     await runReassignFlow([
-      { assistantKey: 'anythingllm', status: 'guided-required', mutated: false, reason: 'manual follow-up required' },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
+      { assistantKey: 'anythingllm', status: 'guided-required', mutationApplied: false, action: 'show-guided-steps', reason: 'manual follow-up required' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
     ]);
 
-    // No configured/mutated assistant exists → no restoration plan runs at
-    // all (abort with "before any assistant configuration was switched").
+    // buildAutomatedReapplyPlan drops guidance-only steps → the assistant is
+    // SKIPPED before applyPlan (no reapply plan, no restore candidate).
     const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
+    expect(applyProfileIds).toEqual(['profile-b']);
+    expect(mockApplyPlan.mock.calls.some(call => (call[0] as PlanLike).assistantKeys.includes('anythingllm'))).toBe(false);
+    expect(mockShowError).toHaveBeenCalledWith(
+      'Failed to reassign assistants to "OpenAI Stage". The original profile was kept. Failed assistants: continue.'
+    );
+  });
+
+  it('unsupported assistant with no real mutation is NOT a restore candidate', async () => {
+    await runReassignFlow([
+      { assistantKey: 'tabnine', status: 'unsupported', mutationApplied: false, reason: 'endpoint switching unsupported' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+    ]);
+
+    const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
+    // Target apply ran for tabnine (its reapply plan was non-empty), but the
+    // AppliedStep record shows no mutation → no restoration reapply.
     expect(applyProfileIds).toEqual(['profile-b', 'profile-b']);
     expect(mockShowError).toHaveBeenCalledWith(
       'Failed to reassign assistants to "OpenAI Stage". The original profile was kept. Failed assistants: continue.'
     );
   });
 
-  it('deferred no-op assistant is NOT restored', async () => {
-    await runReassignFlow([
-      { assistantKey: 'github-copilot', status: 'guided-required', mutated: false, reason: 'skipped' },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
-    ]);
+  it('incomplete restoration (restore ends guided-required) reports manual recovery — no void placeholder', async () => {
+    // Target: Cline configured (mutated), Continue failed. The source restore
+    // for Cline returns guided-required → restoration is NOT complete.
+    await runReassignFlow(
+      [
+        { assistantKey: 'cline', status: 'configured', mutationApplied: true },
+        { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+      ],
+      { status: 'guided-required', mutationApplied: true, reason: 'credential missing' }
+    );
 
-    const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
-    // No restoration reapply — nothing mutated.
-    expect(applyProfileIds).toEqual(['profile-b', 'profile-b']);
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(mockShowError).toHaveBeenCalledTimes(1);
+    const message = mockShowError.mock.calls[0][0] as string;
+    expect(message).toContain('automatic restoration to "OpenAI Prod" was incomplete');
+    expect(message).toContain('Manual recovery may be required');
+    expect(message).toContain('Failed assistants: continue');
+    expect(message).toContain('Restore incomplete: cline');
+    expect(message).toContain('Restore failures: ');
+    // The only mapping deletion is the failed assistant's own cleanup
+    // (continue @ target); Cline's target mapping is NOT deleted —
+    // target-mapping deletion happens only after complete restoration.
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledTimes(1);
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('continue', targetProfile.id);
+    expect(mockDeleteAssistantMapping.mock.calls.some(call => call[0] === 'cline')).toBe(false);
+    expect(mappings.map(m => `${m.assistantKey}->${m.profileId}`).sort())
+      .toEqual(['cline->profile-a', 'continue->profile-a']);
   });
 
-  it('restoration ending guided-required is INCOMPLETE (hard error, not "restored")', async () => {
-    // Target: Cline configured, Continue failed. The source restore returns
-    // guided-required — restoration is NOT complete → hard error naming it.
-    await runReassignFlow([
-      { assistantKey: 'cline', status: 'configured', mutated: true },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
-    ]);
-    // Override the restore outcome: re-run with a guided restore by
-    // scripting the THIRD apply as guided-required.
-    void 0;
+  it('restoration hard failure reports Restore failures and keeps mappings', async () => {
+    await runReassignFlow(
+      [
+        { assistantKey: 'cline', status: 'configured', mutationApplied: true },
+        { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+      ],
+      { status: 'failed', reason: 'restore write failed' }
+    );
+
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(mockShowError).toHaveBeenCalledTimes(1);
+    const message = mockShowError.mock.calls[0][0] as string;
+    expect(message).toContain('was incomplete');
+    expect(message).toContain('Restore failures: cline');
+    // Only the failed assistant's own cleanup deletes a target mapping.
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledTimes(1);
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('continue', targetProfile.id);
+    expect(mappings.map(m => `${m.assistantKey}->${m.profileId}`).sort())
+      .toEqual(['cline->profile-a', 'continue->profile-a']);
   });
 
-  it('successful restoration keeps source mappings and aborts cleanly', async () => {
+  it('successful restoration deletes ONLY target mappings and keeps source mappings', async () => {
     await runReassignFlow([
-      { assistantKey: 'cline', status: 'configured', mutated: true },
-      { assistantKey: 'continue', status: 'failed', mutated: false, reason: 'write failed' }
+      { assistantKey: 'cline', status: 'configured', mutationApplied: true },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
     ]);
 
     expect(mockDeleteProfile).not.toHaveBeenCalled();
+    // Every restored candidate's TARGET mapping is removed...
+    expect(mockDeleteAssistantMapping).toHaveBeenCalledWith('cline', targetProfile.id);
+    // ...and never the SOURCE mapping (the assistant stays on the source).
+    const deleteCalls = mockDeleteAssistantMapping.mock.calls as Array<[string, string]>;
+    expect(deleteCalls.some(([key, profileId]) => key === 'cline' && profileId === sourceProfile.id)).toBe(false);
+    expect(deleteCalls.some(([key, profileId]) => key === 'continue' && profileId === sourceProfile.id)).toBe(false);
+    // 'continue' (the hard failure) only gets its failed-apply cleanup delete.
+    expect(deleteCalls.filter(([key]) => key === 'continue'))
+      .toEqual([['continue', targetProfile.id]]);
+    // Final mapping state: both assistants still map to the source profile.
+    expect(mappings.map(m => `${m.assistantKey}->${m.profileId}`).sort())
+      .toEqual(['cline->profile-a', 'continue->profile-a']);
     expect(mockShowError).toHaveBeenCalledWith(
       'Failed to reassign assistants to "OpenAI Stage". The original profile was kept and previously switched assistants were restored to "OpenAI Prod". Failed assistants: continue.'
     );
+  });
+
+  it('configured AND guided-mutated assistants are BOTH restored when a third hard-fails', async () => {
+    await runReassignFlow([
+      { assistantKey: 'cline', status: 'configured', mutationApplied: true },
+      { assistantKey: 'openai-codex', status: 'guided-required', mutationApplied: true, reason: 'credential missing' },
+      { assistantKey: 'continue', status: 'failed', mutationApplied: false, reason: 'write failed' }
+    ]);
+
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    const applyProfileIds = mockApplyPlan.mock.calls.map(call => (call[0] as PlanLike).profileId);
+    expect(applyProfileIds).toEqual(['profile-b', 'profile-b', 'profile-b', 'profile-a', 'profile-a']);
+    const restoreKeys = mockApplyPlan.mock.calls.slice(3).map(call => (call[0] as PlanLike).assistantKeys[0]);
+    expect(new Set(restoreKeys).has('cline')).toBe(true);
+    expect(new Set(restoreKeys).has('openai-codex')).toBe(true);
+    expect(mockShowError).toHaveBeenCalledWith(
+      'Failed to reassign assistants to "OpenAI Stage". The original profile was kept and previously switched assistants were restored to "OpenAI Prod". Failed assistants: continue.'
+    );
+  });
+});
+
+describe('P2: real PlanApplier mutation + restore evidence (integration)', () => {
+  let tmpDir: string;
+  const GATEWAY_A = 'https://gateway-a.example.com/v1';
+  const GATEWAY_B = 'https://gateway-b.example.com/v1';
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reassign-applier-'));
+    mockConfigUpdate.mockReset();
+    mockConfigUpdate.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function newApplier(): PlanApplier {
+    const store = new Map<string, unknown>();
+    return new PlanApplier({
+      globalState: {
+        get: (key: string, d?: unknown) => store.has(key) ? store.get(key) : d,
+        update: (key: string, value: unknown) => { store.set(key, value); return Promise.resolve(); }
+      }
+    } as never);
+  }
+
+  function configStep(assistantKey: string, file: string, baseUrl: string) {
+    return {
+      id: `step-${assistantKey}-${baseUrl}`,
+      action: 'edit-config-file' as const,
+      description: `Rewrite ${assistantKey} endpoint`,
+      assistantKey,
+      targetPath: file,
+      data: {
+        configPath: file,
+        configType: 't',
+        driver: 'json-object',
+        format: 'json',
+        baseUrl,
+        patches: [{ path: ['baseUrl'], value: baseUrl }]
+      },
+      reversible: true
+    };
+  }
+
+  it('target apply mutates gateway-b with mutationApplied=true; restore writes gateway-a back', async () => {
+    const applier = newApplier();
+    const file = path.join(tmpDir, 'cline-providers.json');
+    await fs.writeFile(file, `${JSON.stringify({ baseUrl: GATEWAY_A }, null, 2)}\n`);
+
+    // TARGET apply: gateway-b.
+    const targetPlan = createPlan('profile-b', ['cline']);
+    targetPlan.steps.push(configStep('cline', file, GATEWAY_B));
+    const targetResult = await applier.applyPlan(targetPlan, 'OpenAI Stage');
+
+    expect(targetResult.success).toBe(true);
+    expect(targetResult.assistantResults.get('cline')?.status).toBe('configured');
+    // The REAL AppliedStep record carries the mutation evidence.
+    const targetApplied = targetResult.changeLogEntry.steps[0];
+    expect(targetApplied.type).toBe('edit-config-file');
+    expect(targetApplied.mutationApplied).toBe(true);
+    expect(JSON.parse(await fs.readFile(file, 'utf-8'))).toEqual({ baseUrl: GATEWAY_B });
+
+    // RESTORE (abort): reapply the source → gateway-a comes back.
+    const restorePlan = createPlan('profile-a', ['cline']);
+    restorePlan.steps.push(configStep('cline', file, GATEWAY_A));
+    const restoreResult = await applier.applyPlan(restorePlan, 'OpenAI Prod');
+
+    expect(restoreResult.assistantResults.get('cline')?.status).toBe('configured');
+    expect(restoreResult.changeLogEntry.steps[0].mutationApplied).toBe(true);
+    expect(JSON.parse(await fs.readFile(file, 'utf-8'))).toEqual({ baseUrl: GATEWAY_A });
+  });
+
+  it('real skipped no-op records completed=true in appliedSteps but mutationApplied=false in the change log', async () => {
+    const applier = newApplier();
+    const plan = createPlan('profile-b', ['github-copilot']);
+    plan.steps.push({
+      id: 'step-copilot-setting',
+      action: 'set-vscode-setting',
+      description: 'Set Copilot proxy override',
+      assistantKey: 'github-copilot',
+      targetPath: 'unregistered.extension.setting',
+      data: {},
+      reversible: true
+    });
+    // Simulate VS Code rejecting the setting as unregistered — the same
+    // wording applyVSCodeSetting matches to classify the step as a no-op.
+    mockConfigUpdate.mockRejectedValueOnce(new Error(
+      "It is not possible to register a configuration 'unregistered.extension.setting' because it is not a registered configuration"
+    ));
+
+    const result = await applier.applyPlan(plan, 'OpenAI Stage');
+
+    // The step EXECUTED (plan-step completion says success)…
+    expect(result.appliedSteps).toHaveLength(1);
+    expect(result.appliedSteps[0].completed).toBe(true);
+    // …but the AppliedStep record truthfully says nothing was written, and
+    // the assistant is deferred — the exact evidence the reassignment
+    // classifier must read instead of PlanStep.completed.
+    expect(result.changeLogEntry.steps[0].mutationApplied).toBe(false);
+    expect(result.assistantResults.get('github-copilot')?.status).toBe('deferred');
   });
 });

@@ -844,13 +844,23 @@ async function applyAutomaticProfileToAssistants(
     // P1: status is the source of truth; `success` is only a compatibility
     // field. guided-required / unsupported / deferred are INCOMPLETE, not
     // hard failures — they must not trigger failure cleanup/abort logic.
-    // Mutation evidence is independent of status: a real configuration
-    // mutation = a mutation-action step whose write actually happened.
-    const mutationOccurred = applyResult.appliedSteps.some(step =>
-      step.assistantKey === assistantKey &&
-      isConfigurationMutationAction(step.action) &&
-      step.completed !== false
-    );
+    // Mutation evidence is independent of status AND independent of plan-step
+    // completion: PlanStep.completed only records that the step EXECUTED, not
+    // that a write happened (a skipped no-op — e.g. set-vscode-setting on an
+    // unregistered setting — still lands in appliedSteps with completed:true).
+    // The truthful record is the AppliedStep change-log entry, whose
+    // mutationApplied flag is false exactly when nothing was written.
+    // The reapply plan is single-assistant (buildPlan(profile, [assistantKey])),
+    // so changeLogEntry carries exactly this assistant's AppliedSteps; the
+    // assistantKey guard keeps that assumption explicit. A mutation is real
+    // when the action classifies as one AND the write actually happened
+    // (mutationApplied undefined = legacy step that executed = mutation).
+    const mutationOccurred =
+      applyResult.changeLogEntry.assistantKey === assistantKey &&
+      applyResult.changeLogEntry.steps.some(step =>
+        isConfigurationMutationAction(step.type) &&
+        step.mutationApplied !== false
+      );
     const outcome = applyResult.assistantResults.get(assistantKey);
     if (outcome?.status === 'configured') {
       appliedAssistantKeys.push(assistantKey);

@@ -198,6 +198,14 @@ describe('manageProfiles automatic reapply full failure', () => {
           error: 'apply failed',
         },
       ],
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: []
+      },
+
       assistantResults: new Map([['cline', { status: 'failed', success: false }]]),
     });
 

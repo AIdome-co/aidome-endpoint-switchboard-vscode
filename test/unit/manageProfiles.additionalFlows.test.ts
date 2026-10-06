@@ -215,6 +215,30 @@ function applyResult(assistantKey: string, success: boolean) {
             error: `${assistantKey} failed`,
           },
         ],
+    // Production shape: the AppliedStep change-log record. A failed assistant
+    // rolled its steps back → the composite fallback entry with no steps.
+    changeLogEntry: success
+      ? {
+          id: `plan-${assistantKey}`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey,
+          profileName: profile.id,
+          steps: [
+            {
+              type: 'edit-config-file',
+              target: `${assistantKey}.target`,
+              timestamp: '2026-05-18T00:00:00.000Z',
+              mutationApplied: true,
+            },
+          ],
+        }
+      : {
+          id: `plan-${assistantKey}`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey,
+          profileName: profile.id,
+          steps: [],
+        },
     assistantResults: new Map([[assistantKey, { status: success ? 'configured' : 'failed', success }]]),
   };
 }
@@ -226,6 +250,20 @@ function incompleteResult(assistantKey: string, status: 'guided-required' | 'uns
     success: true,
     appliedSteps: [automaticPlan(profile.id, assistantKey, `step-${assistantKey}`).steps[0]],
     failedSteps: [],
+    changeLogEntry: {
+      id: `plan-${assistantKey}`,
+      timestamp: '2026-05-18T00:00:00.000Z',
+      assistantKey,
+      profileName: profile.id,
+      steps: [
+        {
+          type: 'edit-config-file',
+          target: `${assistantKey}.target`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          mutationApplied: true,
+        },
+      ],
+    },
     assistantResults: new Map([[assistantKey, { status, success: false, ...(reason ? { reason } : {}) }]]),
   };
 }

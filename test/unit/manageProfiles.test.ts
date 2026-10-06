@@ -280,6 +280,14 @@ describe('manageProfiles edit reapply flow', () => {
         }
       ],
       failedSteps: [],
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+      },
+
       assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
@@ -511,6 +519,14 @@ describe('manageProfiles delete reassign flow', () => {
         }
       ],
       failedSteps: [],
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+      },
+
       assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
@@ -620,6 +636,14 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
+        changeLogEntry: {
+          id: 'plan-cline',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'cline',
+          profileName: 'plan',
+          steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+        },
+
         assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       })
       .mockResolvedValueOnce({
@@ -636,6 +660,14 @@ describe('manageProfiles delete reassign flow', () => {
             error: 'settings update failed'
           }
         ],
+        changeLogEntry: {
+          id: 'plan-continue',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'continue',
+          profileName: 'plan',
+          steps: []
+        },
+
         assistantResults: new Map([['continue', { status: 'failed', success: false }]])
       })
       .mockResolvedValueOnce({
@@ -651,6 +683,14 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
+        changeLogEntry: {
+          id: 'plan-cline',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'cline',
+          profileName: 'plan',
+          steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+        },
+
         assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       });
     mockShowQuickPick
@@ -717,6 +757,14 @@ describe('manageProfiles delete reassign flow', () => {
           error: 'write failed'
         }
       ],
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: []
+      },
+
       assistantResults: new Map([['cline', { status: 'failed', success: false }]])
     });
     mockShowQuickPick
