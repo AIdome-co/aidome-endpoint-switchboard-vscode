@@ -10,6 +10,7 @@ import { ProfileStore } from '../profiles/profileStore';
 import { ProfileSecrets } from '../profiles/profileSecrets';
 import { Plan, createPlan, addStep, generateStepId } from './planBuilder';
 import { PlanApplier, ApplierResult } from './applier';
+import { isConfigurationMutationAction } from './assistantOutcome';
 import { Verifier, VerificationResult } from './verifier';
 import { detectExtensions, DetectedAssistant } from '../detection/detectExtensions';
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
@@ -101,7 +102,7 @@ export class Switchboard {
 
     for (const assistantKey of assistantKeys) {
       // Get adapter for this assistant
-      const adapter = await getAdapter(assistantKey);
+      const adapter = await getAdapter(assistantKey, { profileSecrets: this.profileSecrets });
       
       if (!adapter) {
         this.logger.warning(`No adapter found for assistant: ${assistantKey}`);
@@ -159,10 +160,32 @@ export class Switchboard {
     
     if (result.appliedSteps.length > 0) {
       this.logger.info(`Applied ${result.appliedSteps.length} step(s) in ${timer.stop()}ms`);
-      
-      // Update mappings in profile store
+
+      // Guided output is NOT successful configuration: only assistants that
+      // received a real mutation (setting/file/env) get a mapping persisted.
+      // An assistant whose plan only displayed instructions stays unmapped.
+      const mutatedAssistants = new Set(
+        result.appliedSteps
+          .filter(step => isConfigurationMutationAction(step.action))
+          .map(step => step.assistantKey)
+      );
+
+      // Mapping truthfulness (GAP 7): persist a mapping ONLY when the
+      // assistant's final outcome is 'configured' AND a real mutation
+      // occurred — partial mutation + required guidance is not a configured
+      // state and must not be stored as one.
+      const configuredAssistants = new Set(
+        [...result.assistantResults.entries()]
+          .filter(([, r]) => r.status === 'configured')
+          .map(([k]) => k)
+      );
       const mappingFailures: string[] = [];
+      const mappedAssistants = new Set<string>();
       for (const step of result.appliedSteps) {
+        if (!configuredAssistants.has(step.assistantKey) || mappedAssistants.has(step.assistantKey)) {
+          continue;
+        }
+        mappedAssistants.add(step.assistantKey);
         try {
           await this.profileStore.saveAssistantMapping({
             assistantKey: step.assistantKey,
@@ -184,7 +207,18 @@ export class Switchboard {
     }
 
     if (!result.success) {
-      this.logger.error(`Plan failed: ${result.failedSteps.length} step(s) failed`);
+      this.logger.error(
+        `Plan failed: ${result.failedSteps.length} step(s) failed`,
+        undefined,
+        {
+          failedSteps: result.failedSteps.map(step => ({
+            id: step.id,
+            assistantKey: step.assistantKey,
+            action: step.action,
+            error: (step as unknown as { error?: string }).error
+          }))
+        }
+      );
     }
     
     return result;
@@ -205,6 +239,20 @@ export class Switchboard {
         const authToken = profile.authRef ? await this.profileSecrets.getSecret(profile.authRef) : undefined;
         const result = await this.verifier.verifyEndpoint(profile, false, authToken);
         results[profile.id] = result;
+
+        const modelCheck = result.checks.find(check => check.name === 'model-list');
+        const modelIds = Array.isArray(modelCheck?.details?.modelIds)
+          ? modelCheck.details.modelIds.filter((model): model is string => typeof model === 'string')
+          : [];
+        if (modelIds.length > 0) {
+          profile.capabilitiesCache = {
+            version: profile.capabilitiesCache?.version ?? 'unknown',
+            supportedDialects: profile.capabilitiesCache?.supportedDialects ?? [profile.dialect],
+            supportedModels: modelIds,
+            features: profile.capabilitiesCache?.features ?? [],
+            endpoints: profile.capabilitiesCache?.endpoints ?? {}
+          };
+        }
         
         // Update last verified timestamp
         if (result.status === 'success') {
@@ -248,6 +296,7 @@ export class Switchboard {
         return 'settings';
       case 'edit-config-file':
         return 'configFile';
+      case 'write-env-file':
       case 'set-env-var':
         return 'env';
       case 'show-guided-steps':

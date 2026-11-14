@@ -51,9 +51,13 @@ describe('ProfileValidator', () => {
       expect(validateUrl('ftp://example.com')).toBe(false);
     });
 
-    it('should reject http:// for non-localhost', () => {
-      expect(validateUrl('http://example.com')).toBe(false);
-      expect(validateUrl('http://api.aidome.cloud')).toBe(false);
+    it('should accept plain-http self-hosted gateway URLs (same policy as validateInputUrl)', () => {
+      // Regression: self-hosted gateways like http://80.240.29.183:8100/v1 are
+      // accepted at profile creation; the driver layer must accept them too.
+      expect(validateUrl('http://example.com')).toBe(true);
+      expect(validateUrl('http://api.aidome.cloud')).toBe(true);
+      expect(validateUrl('http://80.240.29.183:8100/v1')).toBe(true);
+      expect(validateUrl('http://internal-host:8080')).toBe(true);
     });
 
     it('should reject invalid URLs', () => {
@@ -188,7 +192,7 @@ describe('ProfileValidator', () => {
       expect(result.errors.some(e => e.includes('Dialect is required'))).toBe(true);
     });
 
-    it('should warn about non-https non-localhost URLs', () => {
+    it('should warn (not error) about plain-http non-localhost URLs', () => {
       const profile = {
         name: 'my-profile',
         baseUrl: 'http://example.com',
@@ -196,8 +200,9 @@ describe('ProfileValidator', () => {
       };
 
       const result = validateProfile(profile);
-      // This would fail URL validation, so it's an error not a warning
-      expect(result.valid).toBe(false);
+      // Plain-http self-hosted gateways are valid; they produce a warning.
+      expect(result.valid).toBe(true);
+      expect(result.warnings.some(w => w.includes('http://'))).toBe(true);
     });
 
     it('should warn about AIdome profiles without tenant', () => {

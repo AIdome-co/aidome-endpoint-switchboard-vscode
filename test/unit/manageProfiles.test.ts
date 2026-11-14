@@ -280,7 +280,15 @@ describe('manageProfiles edit reapply flow', () => {
         }
       ],
       failedSteps: [],
-      assistantResults: new Map([['cline', { success: true }]])
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+      },
+
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile })
@@ -511,7 +519,15 @@ describe('manageProfiles delete reassign flow', () => {
         }
       ],
       failedSteps: [],
-      assistantResults: new Map([['cline', { success: true }]])
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+      },
+
+      assistantResults: new Map([['cline', { status: 'configured', success: true }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })
@@ -620,7 +636,15 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['cline', { success: true }]])
+        changeLogEntry: {
+          id: 'plan-cline',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'cline',
+          profileName: 'plan',
+          steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+        },
+
+        assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       })
       .mockResolvedValueOnce({
         success: false,
@@ -636,7 +660,15 @@ describe('manageProfiles delete reassign flow', () => {
             error: 'settings update failed'
           }
         ],
-        assistantResults: new Map([['continue', { success: false }]])
+        changeLogEntry: {
+          id: 'plan-continue',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'continue',
+          profileName: 'plan',
+          steps: []
+        },
+
+        assistantResults: new Map([['continue', { status: 'failed', success: false }]])
       })
       .mockResolvedValueOnce({
         success: true,
@@ -651,7 +683,15 @@ describe('manageProfiles delete reassign flow', () => {
           }
         ],
         failedSteps: [],
-        assistantResults: new Map([['cline', { success: true }]])
+        changeLogEntry: {
+          id: 'plan-cline',
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey: 'cline',
+          profileName: 'plan',
+          steps: [{ type: 'edit-config-file', target: 'cline.target', timestamp: '2026-05-18T00:00:00.000Z', mutationApplied: true }]
+        },
+
+        assistantResults: new Map([['cline', { status: 'configured', success: true }]])
       });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })
@@ -717,7 +757,15 @@ describe('manageProfiles delete reassign flow', () => {
           error: 'write failed'
         }
       ],
-      assistantResults: new Map([['cline', { success: false }]])
+      changeLogEntry: {
+        id: 'plan-cline',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        assistantKey: 'cline',
+        profileName: 'plan',
+        steps: []
+      },
+
+      assistantResults: new Map([['cline', { status: 'failed', success: false }]])
     });
     mockShowQuickPick
       .mockResolvedValueOnce({ label: '$(list-unordered) OpenAI Prod', profile: sourceProfile })

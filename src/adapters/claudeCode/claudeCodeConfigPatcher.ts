@@ -9,6 +9,7 @@ import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../u
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { expandTilde } from '../../util/paths';
 import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
+import { normalizeAnthropicBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
@@ -61,7 +62,9 @@ export function buildClaudeCodeSettingsContent(
 
   const nextEnv: Record<string, string> = {
     ...env,
-    ANTHROPIC_BASE_URL: baseUrl,
+    // Claude Code appends `/v1/messages` to ANTHROPIC_BASE_URL itself; a
+    // `/v1`-suffixed profile URL would produce `/v1/v1/messages` (404).
+    ANTHROPIC_BASE_URL: normalizeAnthropicBaseUrl(baseUrl),
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
   if (anthropicAuthToken) {
@@ -108,24 +111,14 @@ function parseClaudeCodeSettings(content?: string): ClaudeCodeSettings {
     return {};
   }
 
-  try {
-    const parsed = parseJsonc<unknown>(content);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as ClaudeCodeSettings;
-    }
-  } catch (error) {
-    // Fire-and-forget: log the parse failure without blocking the sync call path.
-    // Logging is best-effort; malformed settings must still fall back.
-    void import('../../util/log')
-      .then(({ Logger }) => {
-        Logger.getInstance().warning(
-          `Claude Code settings file is malformed, starting with empty settings: ${error instanceof Error ? error.message : String(error)}`
-        );
-      })
-      .catch(() => undefined);
+  // Fail closed: a malformed existing settings file must never be silently
+  // replaced with freshly generated partial settings. Abort the mutation so
+  // the original file is preserved and the failure is reported.
+  const parsed = parseJsonc<unknown>(content);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Claude Code settings document root must be a JSON object');
   }
-
-  return {};
+  return parsed as ClaudeCodeSettings;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

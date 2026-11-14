@@ -6,11 +6,11 @@
     {
       "key": "github-copilot",
       "displayName": "GitHub Copilot",
-      "url": "https://github.com/microsoft/vscode-copilot-chat.git",
+      "url": "https://github.com/microsoft/vscode.git",
       "branch": "main",
-      "path": "github-copilot",
-      "status": "archived-reference",
-      "notes": "Official public Copilot Chat source repository; the registry relies on the VS Code Copilot extension behavior."
+      "path": "vscode",
+      "status": "active",
+      "notes": "Canonical CURRENT source is the active Copilot implementation in microsoft/vscode (extensions/copilot), not the archived microsoft/vscode-copilot-chat repository."
     },
     {
       "key": "cline",

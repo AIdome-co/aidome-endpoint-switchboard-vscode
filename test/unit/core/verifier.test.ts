@@ -387,4 +387,95 @@ describe('Verifier', () => {
       expect.stringContaining('ECONNREFUSED')
     );
   });
+
+  it('sends the test prompt through Responses and validates typed SSE events', async () => {
+    const responseStream = [
+      'event: response.created\ndata: {"type":"response.created"}',
+      'event: response.completed\ndata: {"type":"response.completed"}',
+      'data: [DONE]'
+    ].join('\n\n');
+
+    httpRequestMock.mockImplementation(async (url: string, options?: { body?: unknown }) => {
+      if (url === 'http://localhost:3000/v1') {
+        return { status: 200, statusText: 'OK', headers: {}, body: {} };
+      }
+      if (url === 'http://localhost:3000/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'anthropic/claude-haiku-4-5-20251001' }] }
+        };
+      }
+      if (url === 'http://localhost:3000/v1/responses') {
+        if (typeof options?.body === 'object' && options.body !== null && 'stream' in options.body) {
+          return { status: 200, statusText: 'OK', headers: { 'content-type': 'text/event-stream' }, body: responseStream };
+        }
+        throw new MockHttpError(400, 'Bad Request', 'HTTP 400: Bad Request');
+      }
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      includeTestPrompt: true,
+      authToken: 'aid_pat_test_token'
+    });
+
+    const testPromptStep = report.steps.find((step) => step.name === 'test-prompt');
+    expect(testPromptStep).toMatchObject({
+      status: 'passed',
+      message: 'Test prompt received a valid streamed Responses response'
+    });
+    const testPromptCall = httpRequestMock.mock.calls.find(([, options]) =>
+      typeof options?.body === 'object'
+      && options.body !== null
+      && 'stream' in options.body
+    );
+    expect(testPromptCall?.[0]).toBe('http://localhost:3000/v1/responses');
+    expect(testPromptCall?.[1]).toMatchObject({
+      headers: {
+        Authorization: 'Bearer aid_pat_test_token',
+        Accept: 'text/event-stream'
+      },
+      body: {
+        model: 'anthropic/claude-haiku-4-5-20251001',
+        stream: true
+      }
+    });
+  });
+
+  it('fails the Responses test prompt when SSE data omits the top-level event type', async () => {
+    const responseStream = 'event: response.created\ndata: {"response":{}}\n\ndata: [DONE]\n\n';
+
+    httpRequestMock.mockImplementation(async (url: string, options?: { body?: unknown }) => {
+      if (url === 'http://localhost:3000/v1') {
+        return { status: 200, statusText: 'OK', headers: {}, body: {} };
+      }
+      if (url === 'http://localhost:3000/v1/models') {
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: { data: [{ id: 'anthropic/claude-haiku-4-5-20251001' }] }
+        };
+      }
+      if (url === 'http://localhost:3000/v1/responses') {
+        if (typeof options?.body === 'object' && options.body !== null && 'stream' in options.body) {
+          return { status: 200, statusText: 'OK', headers: { 'content-type': 'text/event-stream' }, body: responseStream };
+        }
+        throw new MockHttpError(400, 'Bad Request', 'HTTP 400: Bad Request');
+      }
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const report = await verifier.runVerificationPipeline(profile, {
+      includeTestPrompt: true,
+      authToken: 'aid_pat_test_token'
+    });
+
+    expect(report.steps.find((step) => step.name === 'test-prompt')).toMatchObject({
+      status: 'failed',
+      message: 'Responses stream events must include a top-level type field; Codex-compatible clients cannot parse this stream'
+    });
+  });
 });

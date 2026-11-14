@@ -9,6 +9,7 @@ export type PlanStepAction =
   | 'set-vscode-setting'
   | 'edit-config-file'
   | 'set-env-var'
+  | 'write-env-file'
   | 'backup-file'
   | 'verify-endpoint'
   | 'show-guided-steps';

@@ -122,50 +122,18 @@ export async function writeFileAtomic(filePath: string, content: string, retries
 }
 
 /**
- * Safely writes a file.
- * Handles file locked errors (EBUSY/EACCES) with retry.
- * Resolves symlinks before writing.
+ * Safely writes a file atomically.
+ * Consolidated onto `writeFileAtomic`: every generic write in the codebase
+ * must be crash-safe (temp file + rename), so the legacy non-atomic
+ * implementation was replaced with a delegation. Handles file locked errors
+ * (EBUSY/EACCES) with retry.
  * @param filePath The file path
  * @param content The content to write
  * @param retries Number of retries on lock errors (default: 1)
  * @returns Promise resolving to true if successful
  */
 export async function safeWriteFile(filePath: string, content: string, retries: number = 1): Promise<boolean> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      // Resolve symlinks before writing
-      let realPath = filePath;
-      try {
-        realPath = await fs.realpath(filePath);
-      } catch {
-        // File doesn't exist yet, use original path
-      }
-      
-      await fs.mkdir(path.dirname(realPath), { recursive: true });
-      await fs.writeFile(realPath, content, 'utf-8');
-      return true;
-    } catch (error) {
-      const isLockError = error && typeof error === 'object' && 'code' in error && 
-                         (error.code === 'EBUSY' || error.code === 'EACCES');
-      
-      // Retry on lock errors
-      if (isLockError && attempt < retries) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        continue;
-      }
-      
-      const logger = await getLogger();
-      if (isLockError) {
-        logger.error(`File is locked and cannot be written: ${filePath}. Please close any applications using this file and try again.`);
-      } else {
-        logger.warning(`Failed to write file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      
-      return false;
-    }
-  }
-  
-  return false;
+  return writeFileAtomic(filePath, content, retries);
 }
 
 /**

@@ -4,13 +4,18 @@
  */
 
 import { parse, stringify } from 'smol-toml';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { expandTilde } from '../../util/paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 interface CodexProvider {
+  name?: string;
   base_url?: string;
-  api_key?: string;
+  env_key?: string;
   wire_api?: string;
   [key: string]: unknown;
 }
@@ -18,7 +23,7 @@ interface CodexProvider {
 interface CodexConfig {
   model_provider?: string;
   model?: string;
-  providers?: Record<string, CodexProvider>;
+  model_providers?: Record<string, CodexProvider>;
   [key: string]: unknown;
 }
 
@@ -27,6 +32,42 @@ interface CodexConfig {
  * @returns Config file path
  */
 export function getCodexConfigPath(): string {
+  const explicitConfigPath = process.env.CODEX_CONFIG_PATH?.trim();
+  if (explicitConfigPath) {
+    return expandTilde(explicitConfigPath);
+  }
+
+  const configuredHome = process.env.CODEX_HOME?.trim();
+  if (configuredHome) {
+    return path.join(expandTilde(configuredHome), 'config.toml');
+  }
+
+  // Snap runs Codex with a confined HOME (for example
+  // ~/snap/codex/34). The extension host does not inherit that HOME, so
+  // prefer the current numeric snap revision when it has a config file.
+  const snapUserData = process.env.SNAP_USER_DATA?.trim();
+  if (snapUserData) {
+    const snapConfig = path.join(snapUserData, 'config.toml');
+    if (fs.existsSync(snapConfig)) {
+      return snapConfig;
+    }
+  }
+
+  const snapRoot = path.join(os.homedir(), 'snap', 'codex');
+  try {
+    const revisions = fs.readdirSync(snapRoot)
+      .filter(revision => /^\d+$/.test(revision))
+      .sort((left, right) => Number(right) - Number(left));
+    const snapConfig = revisions
+      .map(revision => path.join(snapRoot, revision, 'config.toml'))
+      .find(candidate => fs.existsSync(candidate));
+    if (snapConfig) {
+      return snapConfig;
+    }
+  } catch {
+    // A missing snap installation is normal; use the standard Codex path.
+  }
+
   return expandTilde('~/.codex/config.toml');
 }
 
@@ -53,39 +94,45 @@ export async function patchCodexConfig(
  */
 export function buildCodexConfigContent(
   baseUrl: string,
-  existingContent?: string
+  existingContent?: string,
+  model?: string
 ): string {
   let config: CodexConfig;
 
   if (existingContent) {
     try {
       config = parse(existingContent) as CodexConfig;
-    } catch {
-      // If parse fails, start with empty config
-      config = {};
+    } catch (error) {
+      // Fail closed: never replace a malformed user configuration with a
+      // regenerated partial file. Abort so the original file is preserved.
+      throw new Error(
+        `Codex cannot modify a malformed existing configuration file: ${error instanceof Error ? error.message : String(error)}. ` +
+        'Fix or remove ~/.codex/config.toml manually, then retry — the original file was left untouched.'
+      );
     }
   } else {
     config = {};
   }
 
-  // Initialize providers section if it doesn't exist
-  if (!config.providers) {
-    config.providers = {};
+  // Current Codex uses model_providers for user-defined providers.
+  if (!config.model_providers) {
+    config.model_providers = {};
   }
 
   // Configure AIdome provider
-  config.providers.aidome = {
-    base_url: baseUrl,
-    wire_api: 'responses' // OpenAI Responses API (Codex's preferred wire format)
-    // Note: API key is stored in SecretStorage, not in config file
+  const existingProvider = config.model_providers.aidome ?? {};
+  config.model_providers.aidome = {
+    ...existingProvider,
+    name: typeof existingProvider.name === 'string' ? existingProvider.name : 'aidome',
+    base_url: normalizeOpenAiBaseUrl(baseUrl),
+    wire_api: 'responses',
+    env_key: typeof existingProvider.env_key === 'string' ? existingProvider.env_key : 'OPENAI_API_KEY'
   };
 
   // Set AIdome as the default model provider
   config.model_provider = 'aidome';
-
-  // Set a default model if not already set
-  if (!config.model) {
-    config.model = 'gpt-4';
+  if (model?.trim()) {
+    config.model = model.trim();
   }
 
   // Convert back to TOML and write

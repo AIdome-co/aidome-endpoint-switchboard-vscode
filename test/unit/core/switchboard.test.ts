@@ -170,8 +170,8 @@ describe('Switchboard Claude auth secret hydration', () => {
         },
       ],
       assistantResults: new Map([
-        ['claude-code', { success: true }],
-        ['cline', { success: false, reason: 'settings failed' }],
+        ['claude-code', { status: 'configured', success: true }],
+        ['cline', { status: 'failed', success: false, reason: 'settings failed' }],
       ]),
     });
 
@@ -198,5 +198,93 @@ describe('Switchboard Claude auth secret hydration', () => {
         appliedMode: 'configFile',
       })
     );
+  });
+});
+
+describe('Switchboard guided-output truthfulness', () => {
+  const profile: EndpointProfile = {
+    id: 'profile-guided',
+    name: 'Guided Profile',
+    profileType: 'aidome',
+    baseUrl: 'https://gateway.example.com/v1',
+    dialect: 'openai.chat_completions',
+    createdAt: '2026-05-20T00:00:00.000Z',
+    updatedAt: '2026-05-20T00:00:00.000Z',
+  };
+
+  it('does not persist a mapping for an assistant whose plan only displayed guidance', async () => {
+    const profileStore = {
+      getProfiles: vi.fn().mockResolvedValue([profile]),
+      saveAssistantMapping: vi.fn().mockResolvedValue(undefined),
+      saveProfile: vi.fn(),
+    };
+    mockApplyPlan.mockResolvedValue({
+      success: true,
+      appliedSteps: [
+        {
+          id: 'step-g',
+          action: 'show-guided-steps',
+          description: 'Roo Code configuration guidance',
+          assistantKey: 'roo-code',
+          data: {},
+          reversible: false,
+        },
+      ],
+      failedSteps: [],
+      assistantResults: new Map([['roo-code', { status: 'guided-required', success: false }]]),
+    });
+
+    const switchboard = new Switchboard(
+      {} as any,
+      { assistants: [], dialectCatalog: {} } as any,
+      profileStore as any,
+      { getSecret: mockGetSecret } as any
+    );
+
+    await switchboard.applyPlan({
+      id: 'plan-guided',
+      profileId: profile.id,
+      assistantKeys: ['roo-code'],
+      createdAt: '2026-05-20T00:00:00.000Z',
+      status: 'pending',
+      steps: [],
+    });
+
+    expect(profileStore.saveAssistantMapping).not.toHaveBeenCalled();
+  });
+
+  it('persists exactly one mapping per mutated assistant', async () => {
+    const profileStore = {
+      getProfiles: vi.fn().mockResolvedValue([profile]),
+      saveAssistantMapping: vi.fn().mockResolvedValue(undefined),
+      saveProfile: vi.fn(),
+    };
+    mockApplyPlan.mockResolvedValue({
+      success: true,
+      appliedSteps: [
+        { id: 's1', action: 'edit-config-file', description: 'a', assistantKey: 'claude-code', data: {}, reversible: true },
+        { id: 's2', action: 'edit-config-file', description: 'b', assistantKey: 'claude-code', data: {}, reversible: true },
+      ],
+      failedSteps: [],
+      assistantResults: new Map([['claude-code', { status: 'configured', success: true }]]),
+    });
+
+    const switchboard = new Switchboard(
+      {} as any,
+      { assistants: [], dialectCatalog: {} } as any,
+      profileStore as any,
+      { getSecret: mockGetSecret } as any
+    );
+
+    await switchboard.applyPlan({
+      id: 'plan-single',
+      profileId: profile.id,
+      assistantKeys: ['claude-code'],
+      createdAt: '2026-05-20T00:00:00.000Z',
+      status: 'pending',
+      steps: [],
+    });
+
+    expect(profileStore.saveAssistantMapping).toHaveBeenCalledTimes(1);
   });
 });

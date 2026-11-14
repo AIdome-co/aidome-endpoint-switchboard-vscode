@@ -1,44 +1,18 @@
-/**
- * Unit tests for CodeGPT adapter.
- */
+/** Unit tests for the guided-only CodeGPT adapter. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CodeGptAdapter } from '../../src/adapters/codegpt/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
-import * as settingsScanner from '../../src/adapters/generic/settingsScanner';
 
-// Mock vscode module
-const mockExtension = {
-  packageJSON: {
-    contributes: {
-      configuration: {
-        properties: {
-          'codegpt.apiUrl': {},
-          'codegpt.provider': {}
-        }
-      }
-    }
-  }
-};
+const mockExtension = { packageJSON: {} };
 
 vi.mock('vscode', () => ({
-  extensions: {
-    getExtension: vi.fn()
-  },
-  workspace: {
-    getConfiguration: vi.fn(() => ({
-      get: vi.fn()
-    }))
-  }
+  extensions: { getExtension: vi.fn() }
 }));
 
 vi.mock('../../src/util/log', () => ({
   Logger: {
-    getInstance: () => ({
-      error: vi.fn(),
-      warning: vi.fn(),
-      info: vi.fn(),
-    })
+    getInstance: () => ({ error: vi.fn(), warning: vi.fn(), info: vi.fn() })
   }
 }));
 
@@ -58,166 +32,56 @@ describe('CodeGptAdapter', () => {
     vi.clearAllMocks();
   });
 
-  describe('detect', () => {
-    it('should return true when CodeGPT extension is detected', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
+  it('detects CodeGPT by its extension ID', async () => {
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
 
-      const result = await adapter.detect();
+    await expect(adapter.detect()).resolves.toBe(true);
+    expect(vscode.extensions.getExtension).toHaveBeenCalledWith('DanielSanMedium.dscodegpt');
+  });
 
-      expect(result).toBe(true);
-      expect(vscode.extensions.getExtension).toHaveBeenCalledWith('CodeGPT.codegpt');
-    });
+  it('builds exactly one guided step and does not scan or mutate settings', async () => {
+    const plan = await adapter.buildPlan(mockProfile);
 
-    it('should return false when extension is not detected', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].action).toBe('show-guided-steps');
+    expect(plan.steps[0].targetPath).toBeUndefined();
+    expect(plan.steps[0].data.baseUrl).toBe(mockProfile.baseUrl);
+    expect(plan.steps[0].data.configurationType).toBe('in-extension-ui');
+    expect(plan.steps[0].data.limitation).toContain('cannot be safely inferred');
+    expect((plan.steps[0].data.steps as string[]).join('\n')).toContain('Manage my AI Models');
+  });
 
-      const result = await adapter.detect();
+  it('rejects unsafe endpoint URLs before building guidance', async () => {
+    await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+      .rejects.toThrow('unsupported scheme');
+  });
 
-      expect(result).toBe(false);
-    });
+  it('does not claim endpoint verification for an installed extension', async () => {
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as never);
 
-    it('should return false on error', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('Test error');
-      });
-
-      const result = await adapter.detect();
-
-      expect(result).toBe(false);
+    const result = await adapter.verify();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('model-management panel');
+    expect(result.details).toMatchObject({
+      extension: true,
+      configurationStatus: 'manual-configuration-required'
     });
   });
 
-  describe('buildPlan', () => {
-    it('should create a plan with settings when keys are discovered', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://old-url.com');
+  it('reports a missing extension', async () => {
+    const vscode = await import('vscode');
+    vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
 
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan).toBeDefined();
-      expect(plan.profileId).toBe(mockProfile.id);
-      expect(plan.assistantKeys).toContain('codegpt');
-      expect(plan.steps.length).toBeGreaterThan(0);
-
-      const settingStep = plan.steps.find(s => s.action === 'set-vscode-setting');
-      expect(settingStep).toBeDefined();
-      expect(settingStep?.newValue).toBe(mockProfile.baseUrl);
-    });
-
-    it('should fall back to guided mode when no settings keys found', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      expect(plan).toBeDefined();
-      const guidedSteps = plan.steps.filter(s => s.action === 'show-guided-steps');
-      expect(guidedSteps.length).toBeGreaterThan(0);
-      
-      const mainGuidance = guidedSteps[0];
-      expect(mainGuidance.assistantKey).toBe('codegpt');
-      expect(mainGuidance.data.baseUrl).toBe(mockProfile.baseUrl);
-      expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
-      expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
-    });
-
-    it('should include provider setting when discovered', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([
-        { key: 'codegpt.provider', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const plan = await adapter.buildPlan(mockProfile);
-
-      const providerStep = plan.steps.find(s => 
-        s.action === 'set-vscode-setting' && 
-        s.targetPath?.includes('provider')
-      );
-      expect(providerStep).toBeDefined();
-      expect(providerStep?.newValue).toBe('openai-compatible');
-    });
+    const result = await adapter.verify();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('not installed');
   });
 
-  describe('verify', () => {
-    it('should return failure when extension is not installed', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(undefined);
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('not installed');
-    });
-
-    it('should return failure when no settings are configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue(undefined);
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('No CodeGPT endpoint settings configured');
-      expect(result.details?.tier).toBe('B');
-    });
-
-    it('should return success when settings are configured', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
-      vi.spyOn(settingsScanner, 'discoverBaseUrlSettings').mockReturnValue([
-        { key: 'codegpt.apiUrl', confidence: 1.0, reason: 'High confidence match' }
-      ]);
-      vi.spyOn(settingsScanner, 'discoverProviderSettings').mockReturnValue([]);
-      vi.spyOn(settingsScanner, 'getSettingValue').mockReturnValue('https://aidome.example.com/v1');
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('verified');
-      expect(result.details?.configuredSettings).toBeDefined();
-    });
-
-    it('should handle errors gracefully', async () => {
-      const vscode = await import('vscode');
-      vi.spyOn(vscode.extensions, 'getExtension').mockImplementation(() => {
-        throw new Error('Test error');
-      });
-
-      const result = await adapter.verify();
-
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('Error verifying');
-    });
-  });
-
-  describe('getDisplayName', () => {
-    it('should return correct display name', () => {
-      expect(adapter.getDisplayName()).toBe('CodeGPT');
-    });
-  });
-
-  describe('getTier', () => {
-    it('should return tier B', () => {
-      expect(adapter.getTier()).toBe('B');
-    });
+  it('leaves execution to the shared plan applier and reports tier B', async () => {
+    await expect(adapter.apply(await adapter.buildPlan(mockProfile))).resolves.toBeUndefined();
+    expect(adapter.getDisplayName()).toBe('CodeGPT');
+    expect(adapter.getTier()).toBe('B');
   });
 });

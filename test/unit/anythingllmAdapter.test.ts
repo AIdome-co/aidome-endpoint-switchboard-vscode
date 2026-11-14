@@ -151,23 +151,23 @@ describe('AnythingLlmAdapter', () => {
   });
 
   describe('verify', () => {
-    it('should return success when AnythingLLM is detected', async () => {
+    it('should report detected but unverified when AnythingLLM is detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(true);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('detected');
       expect(result.details?.detected).toBe(true);
       expect(result.details?.tier).toBe('B');
     });
 
-    it('should return success with guidance when not detected', async () => {
+    it('should return an unverified result with guidance when not detected', async () => {
       vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.message).toContain('not auto-detected');
       expect(result.details?.detected).toBe(false);
       expect(result.details?.tier).toBe('B');
@@ -187,9 +187,8 @@ describe('AnythingLlmAdapter', () => {
 
       const result = await adapter.verify();
 
-      // verify() wraps detect() which catches errors and returns false
-      // So verify() still returns success: true with detected: false
-      expect(result.success).toBe(true);
+      // verify() reports that endpoint configuration remains unverified.
+      expect(result.success).toBe(false);
       expect(result.details?.detected).toBe(false);
     });
   });

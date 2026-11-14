@@ -11,6 +11,7 @@ const {
   mockGetExtension,
   mockFileExists,
   mockReadFileSafe,
+  mockHttpRequest,
   mockLoggerError,
   mockLoggerInfo,
   mockLoggerWarning
@@ -18,6 +19,7 @@ const {
   mockGetExtension: vi.fn(),
   mockFileExists: vi.fn(),
   mockReadFileSafe: vi.fn(),
+  mockHttpRequest: vi.fn(),
   mockLoggerError: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn()
@@ -42,6 +44,10 @@ vi.mock('../../src/util/log', () => ({
 vi.mock('../../src/util/fsSafe', () => ({
   fileExists: mockFileExists,
   readFileSafe: mockReadFileSafe
+}));
+
+vi.mock('../../src/util/http', () => ({
+  httpRequest: mockHttpRequest
 }));
 
 describe('ClineAdapter', () => {
@@ -102,6 +108,7 @@ describe('ClineAdapter', () => {
         actModeOpenAiModelId: 'keep-this-model'
       });
     });
+    mockHttpRequest.mockReset();
     mockLoggerError.mockReset();
     mockLoggerInfo.mockReset();
     mockLoggerWarning.mockReset();
@@ -150,38 +157,32 @@ describe('ClineAdapter', () => {
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
       expect(plan.assistantKeys).toEqual(['cline']);
-      expect(editSteps).toHaveLength(2);
       const paths = getClineConfigPaths();
+      // The legacy secrets.json mirror is planned unconditionally: Cline's
+      // state manager reads the runtime key from it on this version.
+      expect(editSteps).toHaveLength(4);
       expect(editSteps.map((step) => step.targetPath)).toEqual([
         paths.providerSettingsPath,
-        paths.globalStatePath
+        paths.secretsMirrorPath,
+        paths.globalStatePath,
+        paths.modelCatalogPath
       ]);
       expect(plan.steps.some((step) => step.action === 'set-vscode-setting')).toBe(false);
       expect(plan.steps.some((step) => step.action === 'verify-endpoint')).toBe(true);
 
-      const providers = JSON.parse(String(editSteps[0].newValue)) as {
-        providers: Record<string, { settings?: Record<string, unknown> }>;
-        modes: Record<string, unknown>;
-        lastUsedProvider: string;
-      };
-      expect(providers.providers.anthropic.settings?.apiKey).toBe('keep-this-provider');
-      expect(providers.providers['openai-compatible'].settings).toMatchObject({
-        provider: 'openai-compatible',
-        baseUrl: mockProfile.baseUrl,
-        apiKey: 'keep-this-key',
-        model: 'keep-this-model'
-      });
-      expect(providers.modes.voiceInput).toEqual({ providerId: 'anthropic', modelId: 'claude' });
-      expect(providers.lastUsedProvider).toBe('anthropic');
-
-      const globalState = JSON.parse(String(editSteps[1].newValue)) as Record<string, unknown>;
-      expect(globalState).toMatchObject({
-        unrelatedSetting: true,
-        openAiBaseUrl: mockProfile.baseUrl,
-        planModeApiProvider: 'openai',
-        actModeApiProvider: 'openai',
-        actModeOpenAiModelId: 'keep-this-model'
-      });
+      expect(editSteps[0].newValue).toBe(mockProfile.baseUrl);
+      expect(editSteps[0].data.driver).toBe('json-object');
+      expect(editSteps[0].data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'baseUrl'], source: 'baseUrl' }),
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'apiKey'], source: 'secret', removeWhenMissing: true })
+      ]));
+      expect(editSteps[0].data.secretPolicy).toBe('target-persisted-at-apply');
+      expect(editSteps[0].data.authRef).toBe(mockProfile.name);
+      expect(editSteps[0].data.clearAuthWhenMissing).toBe(true);
+      expect(editSteps[1].newValue).toBe(mockProfile.baseUrl);
+      expect(editSteps[1].data.driver).toBe('json-object');
+      expect(JSON.stringify(plan)).not.toContain('keep-this-provider');
+      expect(JSON.stringify(plan)).not.toContain('keep-this-key');
     });
 
     it('follows the VS Code host path even when the CLI-only provider path override is set', async () => {
@@ -192,7 +193,11 @@ describe('ClineAdapter', () => {
       const paths = getClineConfigPaths();
 
       expect(editSteps[0].targetPath).toBe(paths.providerSettingsPath);
-      expect(editSteps[1].targetPath).toBe(paths.globalStatePath);
+      // CLINE_PROVIDER_SETTINGS_PATH is a CLI-only override; the VS Code host
+      // path set includes the legacy secrets mirror when that file exists.
+      expect(editSteps.slice(1).map((step) => step.targetPath)).toEqual(
+        expect.arrayContaining([paths.globalStatePath])
+      );
     });
 
     it('creates native files without explicit backup steps when files are missing', async () => {
@@ -201,30 +206,28 @@ describe('ClineAdapter', () => {
 
       const plan = await adapter.buildPlan(mockProfile);
 
+      // The legacy secrets.json mirror write is unconditional (Cline's
+      // state manager reads the runtime key from it) — the file is created
+      // if missing; no backup step exists for it yet.
       expect(plan.steps.filter((step) => step.action === 'backup-file')).toHaveLength(0);
-      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(2);
-      expect(JSON.parse(String(plan.steps[0].newValue))).toMatchObject({
-        version: 1,
-        providers: {
-          'openai-compatible': {
-            settings: {
-              provider: 'openai-compatible',
-              baseUrl: mockProfile.baseUrl
-            }
-          }
-        }
-      });
+      expect(plan.steps.filter((step) => step.action === 'edit-config-file')).toHaveLength(4);
+      expect(plan.steps.some((step) => step.targetPath === getClineConfigPaths().secretsMirrorPath)).toBe(true);
+      expect(plan.steps[0].newValue).toBe(mockProfile.baseUrl);
+      expect(plan.steps[0].data.driver).toBe('json-object');
+      expect(plan.steps[0].data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['version'], value: 1 })
+      ]));
     });
 
-    it('recovers from malformed or unsupported native JSON using a schema-valid replacement', async () => {
+    it('does not read native files or embed their content while building a plan', async () => {
       mockReadFileSafe.mockResolvedValue('{not-json');
 
       const plan = await adapter.buildPlan(mockProfile);
       const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
 
-      expect(() => JSON.parse(String(editSteps[0].newValue))).not.toThrow();
-      expect(() => JSON.parse(String(editSteps[1].newValue))).not.toThrow();
-      expect(JSON.parse(String(editSteps[0].newValue)).version).toBe(1);
+      expect(editSteps).toHaveLength(4); // settings + secrets mirror + globalState + models
+      expect(editSteps.every((step) => step.newValue === mockProfile.baseUrl)).toBe(true);
+      expect(mockReadFileSafe).not.toHaveBeenCalled();
     });
 
     it('rejects unsafe or unsupported endpoint URLs before reading native files', async () => {
@@ -245,9 +248,51 @@ describe('ClineAdapter', () => {
       expect(endpointStep?.description).toContain('https://gateway.example.com/v1');
       expect(endpointStep?.description).not.toContain('do-not-display');
     });
+
+    it('discovers the gateway model and propagates it without embedding the profile secret', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: { data: [{ id: 'anthropic/claude-haiku-4-5-20251001' }] }
+      });
+      const getSecret = vi.fn().mockResolvedValue('profile-secret');
+      const discoveredAdapter = new ClineAdapter({ profileSecrets: { getSecret } });
+      const profile = { ...mockProfile, authRef: 'profile-1', baseUrl: 'https://gateway.example.com' };
+
+      const plan = await discoveredAdapter.buildPlan(profile);
+      const editSteps = plan.steps.filter((step) => step.action === 'edit-config-file');
+      const providersStep = editSteps.find((step) => step.targetPath?.endsWith('providers.json'))!;
+      const globalStep = editSteps.find((step) => step.targetPath?.endsWith('globalState.json'))!;
+      const modelsStep = editSteps.find((step) => step.targetPath?.endsWith('models.json'))!;
+
+      expect(mockHttpRequest).toHaveBeenCalledWith(
+        'https://gateway.example.com/v1/models',
+        expect.objectContaining({ headers: { Authorization: 'Bearer profile-secret' } })
+      );
+      expect(providersStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'settings', 'model'], value: 'anthropic/claude-haiku-4-5-20251001' })
+      ]));
+      expect(globalStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['actModeOpenAiModelId'], value: 'anthropic/claude-haiku-4-5-20251001' })
+      ]));
+      expect(modelsStep.data.patches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'provider', 'baseUrl'], source: 'baseUrl' }),
+        expect.objectContaining({ path: ['providers', 'openai-compatible', 'models'], mergeObject: true })
+      ]));
+      expect(JSON.stringify(plan)).not.toContain('profile-secret');
+    });
   });
 
   describe('verify', () => {
+    beforeEach(async () => {
+      // GAP 5: exact-profile verification requires the expected URL captured
+      // at plan-build time; seed it the way a real apply flow would.
+      // buildPlan's model discovery is exercised with the gateway disabled —
+      // it fails soft and the plan is built without models.
+      await adapter.buildPlan(mockProfile);
+    });
+
     it('verifies provider ID, active mode selection, and matching endpoint values', async () => {
       mockReadFileSafe.mockImplementation(async (filePath: string) => {
         if (filePath.endsWith('providers.json')) {
@@ -274,13 +319,14 @@ describe('ClineAdapter', () => {
 
       expect(result).toEqual(expect.objectContaining({
         success: true,
-        message: 'Cline native provider configuration verified'
+        message: 'Cline native provider configuration verified (no API key set)'
       }));
       expect(result.details).toMatchObject({
         providerId: 'openai-compatible',
         planModeApiProvider: 'openai',
         actModeApiProvider: 'openai',
-        baseUrlConfigured: true
+        baseUrlConfigured: true,
+        apiKeyConfigured: false
       });
     });
 
@@ -383,7 +429,9 @@ describe('ClineAdapter', () => {
       const result = await adapter.verify();
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('do not match');
+      // GAP 5: exact-profile verification fires before the internal
+      // consistency check (neither URL matches the assigned profile).
+      expect(result.message).toContain('does not match the assigned profile base URL');
       expect(result.details).toMatchObject({
         providerBaseUrl: 'https://provider.example/v1',
         globalBaseUrl: 'https://different.example/v1'

@@ -144,7 +144,7 @@ describe('Claude Code plan application through PlanApplier', () => {
     expect(plan.steps.map(step => step.action)).toContain('verify-endpoint');
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',
-      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com/v1"')
+      expect.stringContaining('"ANTHROPIC_BASE_URL": "https://gateway.example.com"')
     );
     expect(mockSafeWriteFile).toHaveBeenCalledWith(
       '/home/user/.claude/settings.json',

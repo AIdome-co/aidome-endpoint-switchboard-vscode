@@ -142,7 +142,8 @@ vi.mock('../../src/commands/activateProfile', () => ({
   activateProfileAndReapplyMappings: mockActivateProfileAndReapplyMappings,
   buildAutomatedReapplyPlan: (plan: { steps: Array<{ action: string }> }) => ({
     ...plan,
-    steps: plan.steps.filter((step) => step.action === 'set-vscode-setting' || step.action === 'edit-config-file'),
+    // Mirrors production AUTOMATED_REAPPLY_ACTIONS = CONFIGURATION_MUTATION_ACTIONS.
+    steps: plan.steps.filter((step) => step.action === 'set-vscode-setting' || step.action === 'edit-config-file' || step.action === 'write-env-file'),
   }),
   getProfileActivationNotice: mockGetProfileActivationNotice,
 }));
@@ -200,6 +201,8 @@ function automaticPlan(profileId: string, assistantKey: string, stepId: string) 
   };
 }
 
+// Current status-model outcome shape: { status, success }. Success=true
+// means configured; false means a hard failed apply.
 function applyResult(assistantKey: string, success: boolean) {
   return {
     success,
@@ -212,7 +215,56 @@ function applyResult(assistantKey: string, success: boolean) {
             error: `${assistantKey} failed`,
           },
         ],
-    assistantResults: new Map([[assistantKey, { success }]]),
+    // Production shape: the AppliedStep change-log record. A failed assistant
+    // rolled its steps back → the composite fallback entry with no steps.
+    changeLogEntry: success
+      ? {
+          id: `plan-${assistantKey}`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey,
+          profileName: profile.id,
+          steps: [
+            {
+              type: 'edit-config-file',
+              target: `${assistantKey}.target`,
+              timestamp: '2026-05-18T00:00:00.000Z',
+              mutationApplied: true,
+            },
+          ],
+        }
+      : {
+          id: `plan-${assistantKey}`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          assistantKey,
+          profileName: profile.id,
+          steps: [],
+        },
+    assistantResults: new Map([[assistantKey, { status: success ? 'configured' : 'failed', success }]]),
+  };
+}
+
+// Incomplete (not configured, NOT failed) outcome variants for the
+// guided/unsupported/deferred statuses.
+function incompleteResult(assistantKey: string, status: 'guided-required' | 'unsupported' | 'deferred', reason?: string) {
+  return {
+    success: true,
+    appliedSteps: [automaticPlan(profile.id, assistantKey, `step-${assistantKey}`).steps[0]],
+    failedSteps: [],
+    changeLogEntry: {
+      id: `plan-${assistantKey}`,
+      timestamp: '2026-05-18T00:00:00.000Z',
+      assistantKey,
+      profileName: profile.id,
+      steps: [
+        {
+          type: 'edit-config-file',
+          target: `${assistantKey}.target`,
+          timestamp: '2026-05-18T00:00:00.000Z',
+          mutationApplied: true,
+        },
+      ],
+    },
+    assistantResults: new Map([[assistantKey, { status, success: false, ...(reason ? { reason } : {}) }]]),
   };
 }
 

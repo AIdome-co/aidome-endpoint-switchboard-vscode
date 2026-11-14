@@ -1,22 +1,21 @@
 /**
- * Configuration file patcher for Continue.dev.
- * Handles JSON config file modification with backup.
+ * Configuration file compatibility wrapper for Continue.dev.
+ * Plan execution uses the shared YAML/JSONC model-array driver.
  */
 
-import { readFileSafe, writeFileAtomic, createBackup } from '../../util/fsSafe';
+import { readFileSafe, writeFileAtomic } from '../../util/fsSafe';
 import { getContinueConfigPath } from './paths';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { parseDocument } from 'yaml';
+import { renderConfigFileContent } from '../../core/providerConfig/drivers';
+import { ConfigFormat } from '../../core/providerConfig/types';
+import { parseJsonc } from '../../util/jsonc';
 
 interface ContinueModel {
   provider?: string;
   apiBase?: string;
   apiKey?: string;
   model?: string;
-  [key: string]: unknown;
-}
-
-interface ContinueConfig {
-  models?: ContinueModel[];
   [key: string]: unknown;
 }
 
@@ -37,7 +36,8 @@ export async function patchContinueConfig(
   configPath: string
 ): Promise<void> {
   const content = await readFileSafe(configPath);
-  const updated = buildContinueConfigContent(profile.baseUrl, content);
+  const format: 'yaml' | 'jsonc' = configPath.endsWith('.yaml') ? 'yaml' : 'jsonc';
+  const updated = buildContinueConfigContent(profile.baseUrl, content, format);
   await writeFileAtomic(configPath, updated);
 }
 
@@ -49,39 +49,37 @@ export async function patchContinueConfig(
  */
 export function buildContinueConfigContent(
   baseUrl: string,
-  existingContent?: string
+  existingContent?: string,
+  format: 'yaml' | 'jsonc' = 'jsonc'
 ): string {
-  let config: ContinueConfig;
-
-  if (existingContent) {
-    try {
-      config = JSON.parse(existingContent);
-    } catch {
-      config = {};
+  return renderConfigFileContent({
+    baseUrl,
+    existingContent,
+    format,
+    options: {
+      driver: 'yaml-model-array',
+      format
     }
-  } else {
-    config = {};
-  }
+  });
+}
 
-  if (!config.models) {
-    config.models = [];
+/** Parses Continue models from either current YAML or legacy JSONC content. */
+export function parseContinueModels(
+  content: string,
+  format: ConfigFormat
+): ContinueModel[] {
+  try {
+    const parsed: unknown = format === 'yaml'
+      ? parseDocument(content).toJSON()
+      : parseJsonc<unknown>(content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return [];
+    }
+    const models = (parsed as { models?: unknown }).models;
+    return Array.isArray(models)
+      ? models.filter((model): model is ContinueModel => Boolean(model) && typeof model === 'object' && !Array.isArray(model))
+      : [];
+  } catch {
+    return [];
   }
-
-  let modelEntry = config.models.find((m) => m.apiBase === baseUrl);
-  if (!modelEntry) {
-    modelEntry = config.models.find((m) => m.provider === 'openai');
-  }
-
-  if (modelEntry) {
-    modelEntry.apiBase = baseUrl;
-    modelEntry.provider = 'openai';
-  } else {
-    config.models.push({
-      provider: 'openai',
-      apiBase: baseUrl,
-      model: 'gpt-4'
-    });
-  }
-
-  return JSON.stringify(config, null, 2);
 }

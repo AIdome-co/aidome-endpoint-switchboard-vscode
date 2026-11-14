@@ -85,13 +85,18 @@ describe('Cline native plan lifecycle', () => {
   beforeEach(async () => {
     temporaryDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cline-switchboard-'));
     process.env.CLINE_DATA_DIR = temporaryDataDir;
-    adapter = new ClineAdapter();
+    adapter = new ClineAdapter({
+      profileSecrets: {
+        getSecret: async () => 'profile-secret-token'
+      }
+    } as never);
     profile = {
       id: 'profile-1',
       name: 'Profile 1',
       profileType: 'custom',
       baseUrl: 'https://gateway.example.com/v1',
       dialect: 'openai.chat_completions',
+      authRef: 'Profile 1',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -105,7 +110,8 @@ describe('Cline native plan lifecycle', () => {
         }
       },
       secrets: {
-        get: async (): Promise<undefined> => undefined
+        get: async (key: string): Promise<string | undefined> =>
+          key === 'aidome.switchboard.auth.Profile 1' ? 'profile-secret-token' : undefined
       }
     };
 
@@ -164,7 +170,7 @@ describe('Cline native plan lifecycle', () => {
     const result = await applier.applyPlan(plan, profile.name);
 
     expect(result.success).toBe(true);
-    expect(result.assistantResults.get('cline')).toEqual({ success: true });
+    expect(result.assistantResults.get('cline')).toEqual({ status: 'configured', success: true });
     await expect(adapter.verify()).resolves.toMatchObject({ success: true });
 
     const providers = JSON.parse(await fs.readFile(
@@ -175,7 +181,7 @@ describe('Cline native plan lifecycle', () => {
     expect(providers.providers['openai-compatible'].settings).toMatchObject({
       provider: 'openai-compatible',
       baseUrl: profile.baseUrl,
-      apiKey: 'existing-cline-key',
+      apiKey: 'profile-secret-token',
       model: 'existing-model'
     });
   });

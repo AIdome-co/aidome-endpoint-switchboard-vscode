@@ -20,6 +20,77 @@ function formatTimeout(timeoutMs: number): string {
   return timeoutMs % 1_000 === 0 ? `${timeoutMs / 1_000}s` : `${timeoutMs}ms`;
 }
 
+function validateResponsesStream(body: unknown): {
+  valid: boolean;
+  message: string;
+  eventCount: number;
+} {
+  if (typeof body !== 'string') {
+    return {
+      valid: false,
+      message: 'Responses endpoint returned a non-stream response to a streaming request',
+      eventCount: 0
+    };
+  }
+
+  let eventCount = 0;
+  let completed = false;
+  for (const frame of body.split(/\n\s*\n/)) {
+    const data = frame
+      .split(/\r?\n/)
+      .find(line => line.startsWith('data:'))
+      ?.slice('data:'.length)
+      .trim();
+
+    if (!data || data === '[DONE]') {
+      continue;
+    }
+
+    let event: unknown;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      return {
+        valid: false,
+        message: 'Responses endpoint returned malformed SSE JSON',
+        eventCount
+      };
+    }
+
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+      return {
+        valid: false,
+        message: 'Responses endpoint returned an invalid SSE event',
+        eventCount
+      };
+    }
+
+    const eventType = (event as Record<string, unknown>).type;
+    if (typeof eventType !== 'string' || eventType.trim().length === 0) {
+      return {
+        valid: false,
+        message: 'Responses stream events must include a top-level type field; Codex-compatible clients cannot parse this stream',
+        eventCount
+      };
+    }
+
+    eventCount += 1;
+    if (eventType === 'response.completed') {
+      completed = true;
+    }
+  }
+
+  if (!completed) {
+    return {
+      valid: false,
+      message: 'Responses stream ended without a response.completed event',
+      eventCount
+    };
+  }
+
+  return { valid: true, message: '', eventCount };
+}
+
 /**
  * Individual verification step result.
  */
@@ -202,9 +273,19 @@ export class Verifier {
       const dialectStep = await this.stepDialectValidation(profile.baseUrl, profile.dialect, authHeaders);
       steps.push(dialectStep);
       
-      // Step 7: Test Prompt (optional, only if explicitly requested)
+      // Step 7: Test Prompt (optional, only if explicitly requested). Use a
+      // model returned by the gateway instead of a hard-coded OpenAI model;
+      // gateways commonly expose provider-qualified IDs.
       if (options?.includeTestPrompt) {
-        const testPromptStep = await this.stepTestPrompt(profile.baseUrl, authHeaders);
+        const modelIds = Array.isArray(modelListStep.details?.modelIds)
+          ? modelListStep.details.modelIds.filter((model): model is string => typeof model === 'string')
+          : [];
+        const testPromptStep = await this.stepTestPrompt(
+          profile.baseUrl,
+          profile.dialect,
+          authHeaders,
+          modelIds[0]
+        );
         steps.push(testPromptStep);
       } else {
         steps.push(this.createSkippedStep('test-prompt', 'Skipped — test prompt not requested'));
@@ -543,14 +624,25 @@ export class Verifier {
         retries: 1
       });
       
-      const modelCount = Array.isArray(response.body?.data) ? response.body.data.length : 0;
+      const modelIds = Array.isArray(response.body?.data)
+        ? response.body.data
+          .map((model) => {
+            if (!model || typeof model !== 'object' || Array.isArray(model)) {
+              return undefined;
+            }
+            const id = (model as Record<string, unknown>).id;
+            return typeof id === 'string' && id.trim().length > 0 ? id.trim() : undefined;
+          })
+          .filter((model): model is string => model !== undefined)
+        : [];
+      const modelCount = modelIds.length;
       
       if (modelCount === 0) {
         return {
           name: 'model-list',
           status: 'failed',
           message: 'Model list is empty. Verify provider configuration.',
-          details: { modelCount: 0 },
+          details: { modelCount: 0, modelIds: [] },
           duration: Date.now() - startTime
         };
       }
@@ -559,7 +651,7 @@ export class Verifier {
         name: 'model-list',
         status: 'passed',
         message: `Found ${modelCount} models available`,
-        details: { modelCount },
+        details: { modelCount, modelIds },
         duration: Date.now() - startTime
       };
     } catch (error) {
@@ -797,32 +889,54 @@ export class Verifier {
    */
   private async stepTestPrompt(
     baseUrl: string,
-    headers: Record<string, string>
+    dialect: Dialect,
+    headers: Record<string, string>,
+    modelId?: string
   ): Promise<VerificationStep> {
     const startTime = Date.now();
     const { testPromptTimeoutMs } = getRuntimeSettings().verifier;
-    
+
     try {
-      const chatUrl = joinApiPath(baseUrl, '/v1/chat/completions');
-      
-      await httpRequest(chatUrl, {
-        method: 'POST',
-        headers,
-        timeout: testPromptTimeoutMs,
-        retries: 0,
-        body: {
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: 'Say hello' }],
-          max_tokens: 5
-        }
-      });
-      
-      return {
-        name: 'test-prompt',
-        status: 'passed',
-        message: 'Test prompt received valid response',
-        duration: Date.now() - startTime
-      };
+      switch (dialect) {
+        case 'openai.chat_completions':
+          await httpRequest(joinApiPath(baseUrl, '/v1/chat/completions'), {
+            method: 'POST',
+            headers,
+            timeout: testPromptTimeoutMs,
+            retries: 0,
+            body: {
+              model: modelId ?? 'gpt-3.5-turbo',
+              messages: [{ role: 'user', content: 'Say hello' }],
+              max_tokens: 5
+            }
+          });
+          return this.createPassedTestPromptStep(startTime, 'Test prompt received valid Chat Completions response');
+
+        case 'openai.responses':
+          return await this.testResponsesPrompt(baseUrl, headers, modelId, testPromptTimeoutMs, startTime);
+
+        case 'anthropic.messages':
+          await httpRequest(joinApiPath(baseUrl, '/v1/messages'), {
+            method: 'POST',
+            headers,
+            timeout: testPromptTimeoutMs,
+            retries: 0,
+            body: {
+              model: modelId ?? 'claude-3-5-haiku-latest',
+              max_tokens: 5,
+              messages: [{ role: 'user', content: 'Say hello' }]
+            }
+          });
+          return this.createPassedTestPromptStep(startTime, 'Test prompt received valid Anthropic Messages response');
+
+        default:
+          return {
+            name: 'test-prompt',
+            status: 'skipped',
+            message: `Test prompt is not implemented for dialect ${dialect}`,
+            duration: Date.now() - startTime
+          };
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       return {
@@ -833,6 +947,50 @@ export class Verifier {
         duration: Date.now() - startTime
       };
     }
+  }
+
+  private async testResponsesPrompt(
+    baseUrl: string,
+    headers: Record<string, string>,
+    modelId: string | undefined,
+    timeout: number,
+    startTime: number
+  ): Promise<VerificationStep> {
+    const response = await httpRequest<string>(joinApiPath(baseUrl, '/v1/responses'), {
+      method: 'POST',
+      headers: { ...headers, Accept: 'text/event-stream' },
+      timeout,
+      retries: 0,
+      body: {
+        model: modelId ?? 'gpt-4o-mini',
+        input: 'Say hello',
+        max_output_tokens: 5,
+        store: false,
+        stream: true
+      }
+    });
+
+    const streamResult = validateResponsesStream(response.body);
+    if (!streamResult.valid) {
+      return {
+        name: 'test-prompt',
+        status: 'failed',
+        message: streamResult.message,
+        details: { protocol: 'openai.responses', streamEventCount: streamResult.eventCount },
+        duration: Date.now() - startTime
+      };
+    }
+
+    return this.createPassedTestPromptStep(startTime, 'Test prompt received a valid streamed Responses response');
+  }
+
+  private createPassedTestPromptStep(startTime: number, message: string): VerificationStep {
+    return {
+      name: 'test-prompt',
+      status: 'passed',
+      message,
+      duration: Date.now() - startTime
+    };
   }
 
   /**

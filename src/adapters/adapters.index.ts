@@ -4,14 +4,15 @@
  */
 
 import { AssistantAdapter } from './AssistantAdapter';
+import type { AdapterDependencies } from './adapterDependencies';
 
 /**
  * Adapter registry mapping assistant keys to lazy loaders.
  */
-const ADAPTER_REGISTRY: Record<string, () => Promise<AssistantAdapter>> = {
-  'cline': async () => {
+const ADAPTER_REGISTRY: Record<string, (dependencies?: AdapterDependencies) => Promise<AssistantAdapter>> = {
+  'cline': async (dependencies) => {
     const { ClineAdapter } = await import('./cline/adapter');
-    return new ClineAdapter();
+    return new ClineAdapter(dependencies);
   },
   'roo-code': async () => {
     const { RooCodeAdapter } = await import('./roocode/adapter');
@@ -25,9 +26,9 @@ const ADAPTER_REGISTRY: Record<string, () => Promise<AssistantAdapter>> = {
     const { KiloCodeAdapter } = await import('./kilocode/adapter');
     return new KiloCodeAdapter();
   },
-  'openai-codex': async () => {
+  'openai-codex': async (dependencies) => {
     const { CodexAdapter } = await import('./codex/adapter');
-    return new CodexAdapter();
+    return new CodexAdapter(dependencies);
   },
   'claude-code': async () => {
     const { ClaudeCodeAdapter } = await import('./claudeCode/adapter');
@@ -60,9 +61,12 @@ const ADAPTER_REGISTRY: Record<string, () => Promise<AssistantAdapter>> = {
  * @param assistantKey The assistant key
  * @returns Promise resolving to adapter instance or undefined
  */
-export async function getAdapter(assistantKey: string): Promise<AssistantAdapter | undefined> {
+export async function getAdapter(
+  assistantKey: string,
+  dependencies?: AdapterDependencies
+): Promise<AssistantAdapter | undefined> {
   const factory = ADAPTER_REGISTRY[assistantKey];
-  return factory ? factory() : undefined;
+  return factory ? factory(dependencies) : undefined;
 }
 
 /**

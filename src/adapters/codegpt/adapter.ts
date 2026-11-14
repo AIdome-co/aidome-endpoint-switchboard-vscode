@@ -1,110 +1,58 @@
 /**
  * Adapter for CodeGPT assistant.
+ *
+ * CodeGPT's current model-management UI is not represented by a stable,
+ * documented VS Code setting contract. Keep this adapter guided-only rather
+ * than mutating settings discovered by scanning extension metadata.
  */
 
-import * as vscode from 'vscode';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
-import { getSettingValue, discoverBaseUrlSettings, discoverProviderSettings } from '../generic/settingsScanner';
+import { validateUrl } from '../../core/profiles/profileValidator';
+import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 
-/**
- * CodeGPT assistant adapter.
- */
+const DESCRIPTOR = getProviderConfigDescriptor('codegpt');
+
+/** CodeGPT assistant adapter. */
 export class CodeGptAdapter extends BaseExtensionAdapter {
-  protected readonly extensionId = 'CodeGPT.codegpt';
+  protected readonly extensionId = 'DanielSanMedium.dscodegpt';
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    let plan = createPlan(profile.id, ['codegpt']);
-
-    const settingKeys = await this.discoverSettingKeys();
-
-    if (settingKeys.baseUrlKey || settingKeys.providerKey) {
-      if (settingKeys.baseUrlKey) {
-        const oldValue = getSettingValue(settingKeys.baseUrlKey);
-        plan = addStep(plan, {
-          action: 'set-vscode-setting',
-          description: `Set ${settingKeys.baseUrlKey} to ${profile.baseUrl}`,
-          assistantKey: 'codegpt',
-          targetPath: settingKeys.baseUrlKey,
-          oldValue: oldValue,
-          newValue: profile.baseUrl,
-          requiresConfirmation: true,
-          data: { 
-            settingKey: settingKeys.baseUrlKey, 
-            value: profile.baseUrl,
-            oldValue: oldValue
-          },
-          reversible: true
-        });
-      }
-
-      if (settingKeys.providerKey) {
-        const oldValue = getSettingValue(settingKeys.providerKey);
-        plan = addStep(plan, {
-          action: 'set-vscode-setting',
-          description: `Set ${settingKeys.providerKey} to custom provider`,
-          assistantKey: 'codegpt',
-          targetPath: settingKeys.providerKey,
-          oldValue: oldValue,
-          newValue: 'openai-compatible',
-          requiresConfirmation: true,
-          data: { 
-            settingKey: settingKeys.providerKey, 
-            value: 'openai-compatible',
-            oldValue: oldValue,
-            note: 'May need to be set to "custom" or "openai-compatible" depending on CodeGPT version'
-          },
-          reversible: true
-        });
-      }
-    } else {
-      const guidedData: GuidedStepsData = {
-        message: 'CodeGPT settings could not be auto-detected. Please configure manually.',
-        steps: [
-          'Open CodeGPT settings (Ctrl+Shift+P → CodeGPT: Settings)',
-          'Select "Custom" or "OpenAI-compatible" provider',
-          `Enter your AIdome endpoint URL: ${profile.baseUrl}`,
-          'Save the configuration',
-          'Restart VS Code if needed'
-        ],
-        baseUrl: profile.baseUrl
-      };
-      plan = addStep(plan, {
-        action: 'show-guided-steps',
-        description: 'Manual configuration required for CodeGPT',
-        assistantKey: 'codegpt',
-        data: guidedData,
-        reversible: false
-      });
+    if (!validateUrl(profile.baseUrl)) {
+      throw new Error('CodeGPT endpoint URL is invalid or uses an unsupported scheme');
     }
 
-    return plan;
+    return addStep(createPlan(profile.id, ['codegpt']), {
+      action: 'show-guided-steps',
+      description: 'Complete CodeGPT model configuration in the extension UI',
+      assistantKey: 'codegpt',
+      data: this.getGuidedSteps(profile),
+      reversible: false
+    });
   }
 
-  private async discoverSettingKeys(): Promise<{ baseUrlKey?: string; providerKey?: string }> {
-    try {
-      const extension = vscode.extensions.getExtension(this.extensionId);
-      if (!extension) {
-        return {};
-      }
-
-      const baseUrlMatches = discoverBaseUrlSettings(this.extensionId);
-      const providerMatches = discoverProviderSettings(this.extensionId);
-
-      return {
-        baseUrlKey: baseUrlMatches.length > 0 ? baseUrlMatches[0].key : undefined,
-        providerKey: providerMatches.length > 0 ? providerMatches[0].key : undefined
-      };
-    } catch (error) {
-      this.logger.warning('Error discovering CodeGPT setting keys', error);
-      return {};
-    }
+  private getGuidedSteps(profile: EndpointProfile): GuidedStepsData {
+    return {
+      message: 'Complete CodeGPT model configuration in the extension UI',
+      steps: [
+        'Open the CodeGPT view in the VS Code Activity Bar',
+        'Open the Gear icon or "Manage my AI Models"',
+        'Choose Local, Custom, or another OpenAI-compatible provider',
+        `Set the provider API URL/Base URL to: ${profile.baseUrl}`,
+        'Enter the gateway API key in CodeGPT if the endpoint requires authentication',
+        'Select a model, click Connect or Save, and reload CodeGPT if prompted'
+      ],
+      baseUrl: profile.baseUrl,
+      tier: DESCRIPTOR?.tier ?? 'B',
+      configurationType: 'in-extension-ui',
+      limitation: 'CodeGPT model-management settings are version-dependent and cannot be safely inferred from extension metadata'
+    };
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
-    const extension = vscode.extensions.getExtension(this.extensionId);
+    const extension = await this.detect();
     if (!extension) {
       return {
         success: false,
@@ -113,42 +61,14 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const settingKeys = await this.discoverSettingKeys();
-    const configuredSettings: Record<string, unknown> = {};
-
-    if (settingKeys.baseUrlKey) {
-      const value = getSettingValue(settingKeys.baseUrlKey);
-      if (value) {
-        configuredSettings[settingKeys.baseUrlKey] = value;
-      }
-    }
-
-    if (settingKeys.providerKey) {
-      const value = getSettingValue(settingKeys.providerKey);
-      if (value) {
-        configuredSettings[settingKeys.providerKey] = value;
-      }
-    }
-
-    if (Object.keys(configuredSettings).length === 0) {
-      return {
-        success: false,
-        message: 'No CodeGPT endpoint settings configured',
-        details: { 
-          extension: true,
-          checkedKeys: settingKeys,
-          tier: 'B',
-          note: 'Configuration may need to be done manually through CodeGPT UI'
-        }
-      };
-    }
-
     return {
-      success: true,
-      message: 'CodeGPT configuration verified',
-      details: { 
+      success: false,
+      message: 'CodeGPT is installed, but endpoint configuration must be verified in the model-management panel',
+      details: {
         extension: true,
-        configuredSettings: configuredSettings 
+        tier: DESCRIPTOR?.tier ?? 'B',
+        configurationStatus: 'manual-configuration-required',
+        limitation: 'No stable, documented setting is available for safe automatic verification'
       }
     };
   }
@@ -158,6 +78,6 @@ export class CodeGptAdapter extends BaseExtensionAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'B';
+    return DESCRIPTOR?.tier ?? 'B';
   }
 }

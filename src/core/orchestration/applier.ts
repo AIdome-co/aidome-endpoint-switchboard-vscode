@@ -11,15 +11,10 @@ import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
 import { ChangeLog, AppliedStep, ChangeLogEntry } from './changeLog';
 import { ProfileSecrets } from '../profiles/profileSecrets';
-import { buildClaudeCodeSettingsContent } from '../../adapters/claudeCode/claudeCodeConfigPatcher';
-
-interface ClaudeCodeConfigStepData extends Record<string, unknown> {
-  configBuilder?: string;
-  baseUrl?: string;
-  authRef?: string;
-  profileName?: string;
-  clearAuthWhenMissing?: boolean;
-}
+import { renderConfigFileContent } from '../providerConfig/drivers';
+import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
+import { type AssistantApplyResult, assistantResult, isConfigurationMutationAction } from './assistantOutcome';
+import { patchEnvFile, parseDotEnv } from '../providerConfig/envFileDriver';
 
 /**
  * Result of applying a plan.
@@ -30,7 +25,7 @@ export interface ApplierResult {
   failedSteps: PlanStep[];
   changeLogEntry: ChangeLogEntry;
   /** Per-assistant outcome summary for graceful degradation reporting. */
-  assistantResults: Map<string, { success: boolean; reason?: string }>;
+  assistantResults: Map<string, AssistantApplyResult>;
 }
 
 /**
@@ -63,7 +58,7 @@ export class PlanApplier {
     const allAppliedSteps: PlanStep[] = [];
     const allFailedSteps: PlanStep[] = [];
     const allChangeLogEntries: ChangeLogEntry[] = [];
-    const assistantResults = new Map<string, { success: boolean; reason?: string }>();
+    const assistantResults = new Map<string, AssistantApplyResult>();
 
     this.logger.info(`Applying plan ${plan.id} with ${plan.steps.length} steps across ${plan.assistantKeys.length} assistant(s)`);
 
@@ -118,10 +113,92 @@ export class PlanApplier {
         };
         await this.changeLog.recordApply(entry);
         allChangeLogEntries.push(entry);
-        assistantResults.set(assistantKey, { success: true });
-        this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
+        // GAP 1/2/10: executing steps is NOT the same as configuring the
+        // assistant. Only a real automatic configuration mutation makes the
+        // assistant configured; an assistant whose steps were purely
+        // informational/guidance is guided-required (or unsupported when the
+        // guidance explicitly declares it). Optional guidance shown AFTER a
+        // successful mutation does not downgrade the outcome.
+        // A mutation is real only when the action classifies as one AND the
+        // write actually happened (skipped no-ops are not mutations).
+        const mutationSteps = appliedChangeSteps.filter(step =>
+          isConfigurationMutationAction(step.type) && step.mutationApplied !== false);
+        // GAP 10: a REQUIRED (non-optional) guided step after partial
+        // automatic configuration means user action is still needed for the
+        // assistant to be usable — guided-required, even though the mutation
+        // itself succeeded.
+        const requiredGuidance = steps.find(step =>
+          step.action === 'show-guided-steps' && step.data.optional !== true);
+        if (mutationSteps.length > 0 && requiredGuidance) {
+          // GAP 9: a mutation step that needed a required secret but found
+          // none (the step returned early with guidance) must not report
+          // configured — required authentication is still incomplete.
+          assistantResults.set(assistantKey, assistantResult(
+            'guided-required',
+            requiredGuidance.data.message as string | undefined
+          ));
+          this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: required manual follow-up remains`);
+        } else if (mutationSteps.length > 0) {
+          // GAP 9: authentication is incomplete when the required credential
+          // was not available — whether the env write was skipped entirely
+          // (no-op) or left stale state in place. A confirmed no-op with no
+          // credential available also leaves auth incomplete: guided-required.
+          const credentialGap = appliedChangeSteps.find(step =>
+            step.type === 'write-env-file'
+            && (step as { secretResolved?: boolean }).secretResolved === false);
+          if (credentialGap) {
+            assistantResults.set(assistantKey, assistantResult(
+              'guided-required',
+              'No saved profile credential was found — the configuration was applied but authentication remains incomplete'
+            ));
+            this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: the required credential is missing`);
+          } else {
+            assistantResults.set(assistantKey, assistantResult('configured'));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
+          }
+        } else {
+          // No mutation executed: check whether any guidance step declares
+          // the assistant unsupported (Roo/Tabnine-style informational plans).
+          // Unsupported is declared explicitly via typed metadata — never
+          // inferred from free-form limitation text.
+          const unsupportedStep = steps.find(step =>
+            step.action === 'show-guided-steps' && step.data.configurationStatus === 'unsupported');
+          if (unsupportedStep) {
+            assistantResults.set(assistantKey, assistantResult('unsupported', unsupportedStep.data.message as string | undefined));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" is unsupported (guidance only)`);
+          } else if (steps.some(step => step.action === 'show-guided-steps')) {
+            const reason = steps.find(step => step.action === 'show-guided-steps')?.data.message as string | undefined;
+            assistantResults.set(assistantKey, assistantResult('guided-required', reason));
+            this.logger.info(`[Applier] Assistant "${assistantKey}" executed guidance-only steps — guided-required, NOT configured`);
+          } else {
+            // GAP 9: a confirmed no-op write-env-file (credential missing)
+            // leaves authentication incomplete — that is guided-required
+            // (the user must supply a credential), NOT deferred, even
+            // though no file was touched.
+            const noOpCredentialGap = appliedChangeSteps.find(step =>
+              step.type === 'write-env-file'
+              && step.mutationApplied === false
+              && (step as { secretResolved?: boolean }).secretResolved === false);
+            // P1: no break/continue here — classify THIS assistant and let
+            // the outer per-assistant loop proceed to the next one. A
+            // `break` here exited the entire multi-assistant loop, silently
+            // skipping every later assistant while plan success stayed true.
+            if (noOpCredentialGap) {
+              assistantResults.set(assistantKey, assistantResult(
+                'guided-required',
+                'No saved profile credential was found — set the credential in the profile and reapply, or export it in the environment that launches the assistant'
+              ));
+              this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: no credential available and none was written`);
+            } else {
+              // GAP 3: nothing mutated and there are no manual instructions to
+              // follow — the operation is intentionally incomplete, NOT guided.
+              assistantResults.set(assistantKey, assistantResult('deferred', 'No configuration mutation was applied and no manual instructions are available'));
+              this.logger.info(`[Applier] Assistant "${assistantKey}" applied no mutation and has no guidance — deferred, NOT configured`);
+            }
+          }
+        }
       } else if (assistantFailed) {
-        assistantResults.set(assistantKey, { success: false, reason: failReason });
+        assistantResults.set(assistantKey, assistantResult('failed', failReason));
       }
     }
 
@@ -157,6 +234,26 @@ export class PlanApplier {
   async applyStep(step: PlanStep): Promise<AppliedStep> {
     this.logger.debug(`Applying step ${step.id}: ${step.action}`);
 
+    // Fail closed on invalid step payloads BEFORE any mutation: malformed
+    // driver declarations and invalid combinations are rejected here with an
+    // actionable error instead of surfacing deep inside a driver.
+    if (step.action === 'edit-config-file') {
+      const validation = validateConfigFileStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
+    } else if (step.action === 'set-env-var') {
+      const validation = validateSetEnvVarStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
+    } else if (step.action === 'write-env-file') {
+      const validation = validateWriteEnvFileStepData(step.data);
+      if (!validation.ok) {
+        throw new Error(`Step ${step.id} has an invalid payload: ${validation.error}`);
+      }
+    }
+
     const appliedStep: AppliedStep = {
       type: step.action,
       target: step.targetPath || '',
@@ -178,6 +275,10 @@ export class PlanApplier {
       
       case 'set-env-var':
         await this.applyEnvVar(step, appliedStep);
+        break;
+      
+      case 'write-env-file':
+        await this.applyWriteEnvFile(step, appliedStep);
         break;
       
       case 'show-guided-steps':
@@ -220,8 +321,12 @@ export class PlanApplier {
 
     try {
       await config.update(step.targetPath, step.newValue, scope);
+      appliedStep.mutationApplied = true;
     } catch (error) {
       if (error instanceof Error && error.message.includes('is not a registered configuration')) {
+        // Intentional no-op: nothing was written, so this step must NOT
+        // count as a configuration mutation downstream.
+        appliedStep.mutationApplied = false;
         this.logger.warning(
           `Skipped unregistered setting "${step.targetPath}" — ` +
           `the target extension may not be installed on this machine`
@@ -270,90 +375,65 @@ export class PlanApplier {
     if (!success) {
       throw new Error(`Failed to write to ${step.targetPath}`);
     }
+    appliedStep.mutationApplied = true;
 
     this.logger.info(`Updated config file ${step.targetPath}`);
   }
 
   private async resolveConfigFileContent(step: PlanStep, fileExists: boolean): Promise<string> {
-    if (isClaudeCodeConfigStepData(step.data)) {
-      return await this.buildClaudeCodeConfigContent(step, fileExists, step.data);
-    }
-
     const existingContent = fileExists
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
 
-    if (step.assistantKey === 'continue') {
-      const { buildContinueConfigContent } = await import('../../adapters/continue/continueConfigPatcher');
-      return buildContinueConfigContent(step.newValue as string, existingContent);
-    }
-
-    if (step.assistantKey === 'openai-codex') {
-      const { buildCodexConfigContent } = await import('../../adapters/codex/codexConfigPatcher');
-      return buildCodexConfigContent(step.newValue as string, existingContent);
-    }
-
-    if (step.assistantKey === 'kilo-code') {
-      const { buildKiloConfigContent, discoverModels, buildModelEntries } = await import('../../adapters/kilocode/kiloConfigPatcher');
-
-      const kiloData = step.data as Record<string, unknown> | undefined;
-      const authRef = typeof kiloData?.authRef === 'string' && kiloData.authRef.trim().length > 0
-        ? kiloData.authRef.trim()
-        : undefined;
-      const apiKey = authRef
-        ? await this.profileSecrets.getSecret(authRef)
-        : undefined;
-
-      // Discover models with the API key (unavailable during buildPlan)
-      let models = kiloData?.models as Record<string, { name: string }> | undefined;
-      if (!models || Object.keys(models).length === 0) {
-        const modelSlugs = await discoverModels(step.newValue as string, apiKey);
-        if (modelSlugs.length > 0) {
-          models = buildModelEntries(modelSlugs);
-        }
+    const driver = step.data?.driver;
+    if (typeof driver !== 'string') {
+      // Fail closed: a driver-less payload that still declares config
+      // metadata must never fall through to the verbatim raw-value write —
+      // that is how ~/.codex/config.toml once became the bare base URL.
+      if (hasConfigMetadata(step.data)) {
+        throw new Error(
+          `Configuration file step for ${step.targetPath} declares step data without a driver; ` +
+          'refusing to write the raw value verbatim. Declare a typed driver instead.'
+        );
       }
-
-      return buildKiloConfigContent(step.newValue as string, existingContent, apiKey, models);
+      return typeof step.newValue === 'string'
+        ? step.newValue
+        : JSON.stringify(step.newValue, null, 2);
     }
 
-    return typeof step.newValue === 'string'
-      ? step.newValue
-      : JSON.stringify(step.newValue, null, 2);
-  }
-
-  private async buildClaudeCodeConfigContent(
-    step: PlanStep,
-    fileExists: boolean,
-    data: ClaudeCodeConfigStepData
-  ): Promise<string> {
-    if (!step.targetPath) {
-      throw new Error('targetPath is required for edit-config-file');
+    const baseUrl = typeof step.data.baseUrl === 'string'
+      ? step.data.baseUrl
+      : typeof step.newValue === 'string'
+        ? step.newValue
+        : undefined;
+    if (!baseUrl) {
+      throw new Error(`Configuration driver ${driver} requires a baseUrl`);
     }
 
-    if (typeof data.baseUrl !== 'string' || data.baseUrl.trim().length === 0) {
-      throw new Error('baseUrl is required for Claude Code config edits');
-    }
-
-    const existingContent = fileExists
-      ? await fs.readFile(step.targetPath, 'utf-8')
+    const authRef = typeof step.data.authRef === 'string' && step.data.authRef.trim().length > 0
+      ? step.data.authRef.trim()
       : undefined;
-    const authRef = typeof data.authRef === 'string' && data.authRef.trim().length > 0
-      ? data.authRef.trim()
-      : undefined;
-    const profileName = typeof data.profileName === 'string' && data.profileName.trim().length > 0
-      ? data.profileName.trim()
-      : 'the active profile';
-    const anthropicAuthToken = authRef
+    const secretPolicy = step.data.secretPolicy;
+    const secret = secretPolicy === 'target-persisted-at-apply' && authRef
       ? await this.profileSecrets.getSecret(authRef)
       : undefined;
 
-    if (!anthropicAuthToken && data.clearAuthWhenMissing === true) {
+    if (secretPolicy === 'target-persisted-at-apply' && !secret && step.data.clearAuthWhenMissing === true) {
+      const warningMessage = typeof step.data.missingSecretMessage === 'string' && step.data.missingSecretMessage.trim().length > 0
+        ? step.data.missingSecretMessage
+        : `Configuration credential was cleared for "${typeof step.data.profileName === 'string' ? step.data.profileName : 'the active profile'}" because no saved profile secret was found.`;
       void showWarning(
-        `Claude Code auth token was cleared for "${profileName}" because no saved profile secret was found.`
+        warningMessage
       );
     }
 
-    return buildClaudeCodeSettingsContent(data.baseUrl, existingContent, { anthropicAuthToken });
+    return renderConfigFileContent({
+      baseUrl,
+      existingContent,
+      format: typeof step.data.format === 'string' ? step.data.format as 'json' | 'jsonc' | 'yaml' | 'toml' : undefined,
+      options: step.data,
+      secret
+    });
   }
 
   /**
@@ -370,6 +450,97 @@ export class PlanApplier {
     this.logger.info(
       `[Applier] Deferred endpoint verification for "${step.assistantKey}" to the verifier command path`
     );
+  }
+
+  /**
+   * Persists provider credential environment variables into the target's
+   * dotenv file (e.g. Codex ~/.codex/.env, loaded by upstream `load_dotenv`).
+   *
+   * The secret is resolved from SecretStorage ONLY here, immediately before
+   * the write, and never appears in the plan, logs, or change history.
+   * Backup-before-modify + atomic write + unrelated variables preserved.
+   */
+  private async applyWriteEnvFile(step: PlanStep, appliedStep: AppliedStep): Promise<void> {
+    const targetPath = step.targetPath;
+    const envVarName = typeof step.data.envVarName === 'string' ? step.data.envVarName : undefined;
+    if (!targetPath || !envVarName) {
+      throw new Error('targetPath and data.envVarName are required for write-env-file');
+    }
+
+    let fileExists = true;
+    try {
+      await fs.access(targetPath);
+    } catch (error) {
+      if (!isFileNotFoundError(error)) {
+        throw error;
+      }
+      fileExists = false;
+      // createdFile is set ONLY when a write below actually creates the
+      // file — a missing-credential early return must not claim one.
+    }
+
+    const authRef = typeof step.data.authRef === 'string' && step.data.authRef.trim().length > 0
+      ? step.data.authRef.trim()
+      : undefined;
+    const secret = authRef ? await this.profileSecrets.getSecret(authRef) : undefined;
+    if (secret === undefined || secret.trim().length === 0) {
+      appliedStep.secretResolved = false;
+      appliedStep.mutationApplied = false; // truthful until a real write below
+      // No saved credential: endpoint config stays applied, auth remains
+      // guided. Behavior toward a possibly stale managed key is declared by
+      // the step (never inferred from a provider name).
+      const missingBehavior = typeof step.data.missingSecretBehavior === 'string'
+        ? step.data.missingSecretBehavior
+        : 'preserve';
+      if (missingBehavior === 'fail') {
+        throw new Error(
+          `No saved profile credential for "${typeof step.data.profileName === 'string' ? step.data.profileName : authRef ?? 'the profile'}" and missingSecretBehavior is "fail" — ${envVarName} was not written to ${targetPath}`
+        );
+      }
+      if (missingBehavior === 'remove-managed-key' && fileExists) {
+        // Remove ONLY the managed key so a previous profile's credential can
+        // never survive a profile switch; unrelated variables and comments
+        // are preserved. Removing a key that does not exist is a no-op.
+        const existingContent = await fs.readFile(targetPath, 'utf-8').catch(() => undefined);
+        const existingKeys = existingContent !== undefined
+          ? Object.keys(parseDotEnv(existingContent))
+          : [];
+        if (existingKeys.includes(envVarName)) {
+          const backupPath = await patchEnvFile(
+            targetPath,
+            {},
+            { fileLabel: 'env file', removeKeys: [envVarName] }
+          );
+          appliedStep.backupPath = backupPath;
+          appliedStep.managedValueRemoved = true;
+          // The target state changed: this IS a real mutation (rollbackable).
+          appliedStep.mutationApplied = true;
+          this.logger.info(
+            `Removed stale managed key ${envVarName} from ${targetPath} (no saved profile credential for the newly applied profile)`
+          );
+        } else {
+          // Key absent, nothing written: a confirmed no-op.
+          appliedStep.mutationApplied = false;
+          this.logger.info(`${envVarName} not present in ${targetPath} — nothing to remove`);
+        }
+      }
+      // Truthful guidance either way: authentication is incomplete.
+      this.logger.warning(
+        `No saved profile credential for "${typeof step.data.profileName === 'string' ? step.data.profileName : authRef ?? 'the profile'}" — ${envVarName} was not written to ${targetPath}. ` +
+        'Set the credential in the profile and reapply, or export it in the environment that launches the assistant.'
+      );
+      return;
+    }
+
+    const backupPath = await patchEnvFile(targetPath, { [envVarName]: secret }, { fileLabel: 'env file' });
+    appliedStep.backupPath = backupPath;
+    appliedStep.secretResolved = true;
+    appliedStep.mutationApplied = true;
+    if (!fileExists) {
+      // The write above created the file — NOW it is truthful to claim it.
+      appliedStep.createdFile = true;
+    }
+    this.logger.info(`Updated ${envVarName} in ${targetPath}`);
   }
 
   /**
@@ -524,6 +695,14 @@ export class PlanApplier {
    * Reverses a single step using an applied step.
    */
   private async reverseStep(step: AppliedStep): Promise<void> {
+    // GAP 5: a configuration mutation that was intentionally skipped never
+    // happened — reverting it would only trigger spurious errors. Legacy
+    // steps (mutationApplied undefined) still roll back normally.
+    if (isConfigurationMutationAction(step.type) && step.mutationApplied === false) {
+      this.logger.debug(`Skipping rollback of ${step.type} on ${step.target}: the step was a no-op (nothing was applied)`);
+      return;
+    }
+
     this.logger.debug(`Reversing step of type: ${step.type}`);
 
     switch (step.type) {
@@ -566,6 +745,27 @@ export class PlanApplier {
         }
         break;
       
+      case 'write-env-file':
+        if (step.backupPath) {
+          try {
+            const backupContent = await fs.readFile(step.backupPath, 'utf-8');
+            await safeWriteFile(step.target, backupContent);
+            this.logger.info(`Restored env file from backup: ${step.backupPath}`);
+          } catch (error) {
+            this.logger.warning(`Could not restore env file from backup: ${error}`);
+          }
+        } else if (step.createdFile && step.target) {
+          try {
+            await fs.unlink(step.target);
+            this.logger.info(`Removed newly created env file ${step.target}`);
+          } catch (error) {
+            if (!isFileNotFoundError(error)) {
+              throw error;
+            }
+          }
+        }
+        break;
+      
       case 'set-env-var':
       case 'show-guided-steps':
       case 'backup-file':
@@ -574,9 +774,4 @@ export class PlanApplier {
         break;
     }
   }
-}
-
-
-function isClaudeCodeConfigStepData(data: Record<string, unknown>): data is ClaudeCodeConfigStepData {
-  return data.configBuilder === 'claude-code-settings';
 }

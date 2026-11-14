@@ -111,14 +111,16 @@ describe('TabnineAdapter', () => {
       expect(result.message).toContain('not installed');
     });
 
-    it('should return success when extension is installed', async () => {
+    it('should NOT report success merely because the extension is installed (installed != configured)', async () => {
       const vscode = await import('vscode');
       vi.spyOn(vscode.extensions, 'getExtension').mockReturnValue(mockExtension as any);
 
       const result = await adapter.verify();
 
-      expect(result.success).toBe(true);
+      // Installed is NOT configured: endpoint switching is unsupported.
+      expect(result.success).toBe(false);
       expect(result.message).toContain('installed');
+      expect(result.details?.configurationStatus).toBe('unsupported');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.limitation).toContain('proprietary');
     });

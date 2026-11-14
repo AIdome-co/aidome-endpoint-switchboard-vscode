@@ -199,9 +199,19 @@ export class Logger {
     // Redact sensitive information from message
     formattedMessage = redactString(formattedMessage);
     
+    // Normalize args BEFORE filtering:
+    // - Error instances must be serialized with name/message/stack.
+    //   JSON.stringify(new Error(...)) is '{}' and undefined serializes to
+    //   null, which previously produced useless '[{}, null]' log lines that
+    //   hid the real failure.
+    // - null/undefined args are dropped so they never render as 'null'.
+    const normalizedArgs = args
+      .filter(a => a !== null && a !== undefined)
+      .map(a => (a instanceof Error ? `${a.name}: ${a.message}${a.stack ? `\n${a.stack}` : ''}` : a));
+
     // Separate context object (last arg that is a plain object and not an Error)
     let context: Record<string, unknown> | undefined;
-    const filteredArgs = args.filter(a => {
+    const filteredArgs = normalizedArgs.filter(a => {
       if (a !== null && typeof a === 'object' && !(a instanceof Error) && !context) {
         context = a as Record<string, unknown>;
         return false;

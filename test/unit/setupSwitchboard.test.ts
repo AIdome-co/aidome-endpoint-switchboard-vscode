@@ -694,7 +694,7 @@ describe('setupSwitchboard', () => {
     mockApplyPlan.mockResolvedValue({
       success: true,
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
-      assistantResults: new Map([['kilocode', { success: true }]])
+      assistantResults: new Map([['kilocode', { status: 'configured', success: true }]])
     });
     mockShowSuccess.mockResolvedValue('Verify');
     const context = makeContext();
@@ -739,7 +739,7 @@ describe('setupSwitchboard', () => {
     mockApplyPlan.mockResolvedValue({
       success: true,
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
-      assistantResults: new Map([['kilocode', { success: true }]])
+      assistantResults: new Map([['kilocode', { status: 'configured', success: true }]])
     });
 
     await setupSwitchboard(makeContext());
@@ -787,8 +787,8 @@ describe('setupSwitchboard', () => {
       appliedSteps: [{ id: 'step-1', assistantKey: 'kilocode', action: 'edit-config-file' }],
       failedSteps: [{ id: 'step-2', assistantKey: 'cline', action: 'set-vscode-setting', error: 'settings failed' }],
       assistantResults: new Map([
-        ['kilocode', { success: true }],
-        ['cline', { success: false, reason: 'settings failed' }]
+        ['kilocode', { status: 'configured', success: true }],
+        ['cline', { status: 'failed', success: false, reason: 'settings failed' }]
       ])
     });
 
@@ -796,9 +796,97 @@ describe('setupSwitchboard', () => {
 
     expect(mockSetActiveProfile).toHaveBeenCalledWith(profile.id);
     expect(mockExecuteCommand).toHaveBeenCalledWith('aidome-switchboard.refreshAssistantsView');
-    expect(mockShowError).toHaveBeenCalledWith(
-      'Partial setup: 1 assistant(s) configured (kilocode). 1 failed: cline (settings failed). Check the output channel for details.',
+    // Outcome categories preserved under partial failure (not flattened).
+    expect(mockShowWarning).toHaveBeenCalledWith(
+      'Configured: kilocode. Failed: cline (settings failed)',
       'View Output'
     );
   });
+  describe('deferred outcome handling on the success path', () => {
+    function makeDeferredSetup(assistantResults: Array<[string, { status: string; success: boolean; reason?: string }]>) {
+      const prof: EndpointProfile = {
+        id: 'profile-deferred',
+        name: 'Deferred Profile',
+        baseUrl: 'https://deferred.example.com',
+        dialect: 'openai.chat_completions',
+        profileType: 'custom',
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z'
+      };
+      mockGetProfiles.mockResolvedValue([prof]);
+      mockShowQuickPick
+        .mockResolvedValueOnce([{ label: 'Cline', assistantKey: 'cline', picked: true }])
+        .mockResolvedValueOnce({ label: prof.name, profile: prof });
+      mockBuildPlan.mockResolvedValue({
+        profileId: prof.id,
+        assistantKeys: ['cline'],
+        steps: [{ id: 'step-1', assistantKey: 'cline', action: 'edit-config-file' }]
+      });
+      mockShowInformationMessage.mockResolvedValue('Apply');
+      mockApplyPlan.mockResolvedValue({
+        success: true,
+        appliedSteps: [{ id: 'step-1', assistantKey: 'cline', action: 'edit-config-file' }],
+        failedSteps: [],
+        assistantResults: new Map(assistantResults)
+      });
+      return prof;
+    }
+
+    it('deferred-only plan does NOT report failure and never says "Successfully configured"', async () => {
+      makeDeferredSetup([['github-copilot', { status: 'deferred', success: false }]]);
+
+      await setupSwitchboard(makeContext());
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Automatic configuration deferred for: github-copilot');
+      expect(message).not.toContain('failed');
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+      expect(mockShowError).not.toHaveBeenCalled();
+    });
+
+    it('configured + deferred warns with both categories', async () => {
+      makeDeferredSetup([
+        ['cline', { status: 'configured', success: true }],
+        ['github-copilot', { status: 'deferred', success: false }]
+      ]);
+
+      await setupSwitchboard(makeContext());
+
+      expect(mockShowWarning).toHaveBeenCalledTimes(1);
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Configured: cline');
+      expect(message).toContain('Automatic configuration deferred for: github-copilot');
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+    });
+
+    it('guided + deferred reports both categories separately', async () => {
+      makeDeferredSetup([
+        ['gemini-cli', { status: 'guided-required', success: false }],
+        ['github-copilot', { status: 'deferred', success: false }]
+      ]);
+
+      await setupSwitchboard(makeContext());
+
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Manual follow-up required for: gemini-cli');
+      expect(message).toContain('Automatic configuration deferred for: github-copilot');
+      expect(mockShowError).not.toHaveBeenCalled();
+    });
+
+    it('unsupported + deferred reports both categories separately', async () => {
+      makeDeferredSetup([
+        ['tabnine', { status: 'unsupported', success: false }],
+        ['github-copilot', { status: 'deferred', success: false }]
+      ]);
+
+      await setupSwitchboard(makeContext());
+
+      const message = mockShowWarning.mock.calls[0][0];
+      expect(message).toContain('Unsupported for endpoint switching: tabnine');
+      expect(message).toContain('Automatic configuration deferred for: github-copilot');
+      expect(mockShowError).not.toHaveBeenCalled();
+    });
+  });
+
 });
