@@ -141,6 +141,7 @@ import { getClaudeCodeSettingsPath } from '../../../src/adapters/claudeCode/clau
 import { PlanApplier } from '../../../src/core/orchestration/applier';
 import type { EndpointProfile } from '../../../src/core/profiles/profileTypes';
 import type { Plan } from '../../../src/core/orchestration/planBuilder';
+import { normalizeAnthropicBaseUrl } from '../../../src/core/providerConfig/endpointUrl';
 
 // ---------- helpers ----------
 const SETTINGS_PATH = path.join(TEST_HOME, '.claude', 'settings.json');
@@ -225,7 +226,7 @@ describe('Claude Code golden regression (current behavior)', () => {
     const step = plan.steps[0];
     expect(step.targetPath).toBe(SETTINGS_PATH);
     expect(step.data.driver).toBe('json-object');
-    expect(step.data.baseUrl).toBe(profile.baseUrl);
+    expect(step.data.baseUrl).toBe(normalizeAnthropicBaseUrl(profile.baseUrl));
     expect(step.data.secretPolicy).toBe('target-persisted-at-apply');
     expect(step.data.authRef).toBe('golden-auth-ref');
 
@@ -269,7 +270,7 @@ describe('Claude Code golden regression (current behavior)', () => {
     const env = written.env as Record<string, string | undefined>;
 
     // (2) baseUrl applied
-    expect(env.ANTHROPIC_BASE_URL).toBe(profile.baseUrl);
+    expect(env.ANTHROPIC_BASE_URL).toBe(normalizeAnthropicBaseUrl(profile.baseUrl));
     // (4) gateway model discovery enabled
     expect(env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
     // (6) secret resolved at apply and persisted into the file
@@ -385,7 +386,7 @@ describe('Claude Code golden regression (current behavior)', () => {
     expect(result.success).toBe(true);
     expect(mockShowWarning).toHaveBeenCalled();
     const env = ((await readSettings()).env ?? {}) as Record<string, string | undefined>;
-    expect(env.ANTHROPIC_BASE_URL).toBe(profile.baseUrl);
+    expect(env.ANTHROPIC_BASE_URL).toBe(normalizeAnthropicBaseUrl(profile.baseUrl));
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).toBe('1');
   });

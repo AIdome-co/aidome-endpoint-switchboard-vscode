@@ -97,7 +97,7 @@ export interface ConfigFieldBinding {
  */
 export type DescriptorValueSource =
   | { type: 'literal'; value: string | number | boolean }
-  | { type: 'profile-base-url'; normalize?: 'openai-base-url' }
+  | { type: 'profile-base-url'; normalize?: 'openai-base-url' | 'anthropic-base-url' }
   /** The first model discovered from the gateway; omitted when none. */
   | { type: 'discovered-model' };
 

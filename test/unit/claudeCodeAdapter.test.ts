@@ -5,6 +5,7 @@
 import * as nodePath from 'path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClaudeCodeAdapter } from '../../src/adapters/claudeCode/adapter';
+import { normalizeAnthropicBaseUrl } from '../../src/core/providerConfig/endpointUrl';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
@@ -149,7 +150,7 @@ describe('ClaudeCodeAdapter', () => {
       expect(editStep?.data.driver).toBe('json-object');
       expect(editStep?.data.envVars).toContain('ANTHROPIC_AUTH_TOKEN');
 
-      expect(editStep?.newValue).toBe(mockProfile.baseUrl);
+      expect(editStep?.newValue).toBe(normalizeAnthropicBaseUrl(mockProfile.baseUrl));
       expect(editStep?.data.driver).toBe('json-object');
       expect(editStep?.data.patches).toEqual(expect.arrayContaining([
         expect.objectContaining({ path: ['env', 'ANTHROPIC_BASE_URL'], source: 'baseUrl' }),

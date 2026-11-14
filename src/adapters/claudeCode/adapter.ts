@@ -10,6 +10,7 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { readFileSafe } from '../../util/fsSafe';
 import { getClaudeCodeSettingsPath } from './claudeCodeConfigPatcher';
+import { normalizeAnthropicBaseUrl } from '../../core/providerConfig/endpointUrl';
 import { parseJsonc } from '../../util/jsonc';
 import { validateUrl } from '../../core/profiles/profileValidator';
 
@@ -41,6 +42,9 @@ export class ClaudeCodeAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getClaudeCodeSettingsPath();
+    // Claude Code appends `/v1/messages` to ANTHROPIC_BASE_URL itself; a
+    // `/v1`-suffixed profile URL would produce `/v1/v1/messages` (404).
+    const anthropicBaseUrl = normalizeAnthropicBaseUrl(profile.baseUrl);
     let plan = createPlan(profile.id, ['claude-code']);
 
     plan = addStep(plan, {
@@ -48,14 +52,14 @@ export class ClaudeCodeAdapter extends BaseExtensionAdapter {
       description: 'Configure Claude Code gateway environment',
       assistantKey: 'claude-code',
       targetPath: configPath,
-      newValue: profile.baseUrl,
+      newValue: anthropicBaseUrl,
       data: {
         driver: 'json-object',
         configPath,
         profileId: profile.id,
         profileName: profile.name,
         authRef: profile.authRef ?? profile.name,
-        baseUrl: profile.baseUrl,
+        baseUrl: anthropicBaseUrl,
         format: 'json',
         secretPolicy: 'target-persisted-at-apply',
         patches: [

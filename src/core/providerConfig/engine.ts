@@ -24,7 +24,7 @@ import {
   ProviderConfigDescriptor,
   TargetPlan,
 } from './types';
-import { normalizeOpenAiBaseUrl } from './endpointUrl';
+import { normalizeAnthropicBaseUrl, normalizeOpenAiBaseUrl } from './endpointUrl';
 
 /** Runtime inputs the adapter resolves for the engine. */
 export interface ProviderConfigEngineContext {
@@ -64,9 +64,14 @@ export function buildProviderConfigPlan(
   const wantsOpenAiNormalize = descriptorValueSources(descriptor).some(
     source => source.type === 'profile-base-url' && source.normalize === 'openai-base-url'
   );
+  const wantsAnthropicNormalize = descriptorValueSources(descriptor).some(
+    source => source.type === 'profile-base-url' && source.normalize === 'anthropic-base-url'
+  );
   const baseUrl = wantsOpenAiNormalize
     ? normalizeOpenAiBaseUrl(context.profile.baseUrl)
-    : context.profile.baseUrl;
+    : wantsAnthropicNormalize
+      ? normalizeAnthropicBaseUrl(context.profile.baseUrl)
+      : context.profile.baseUrl;
 
   const targetPlans = descriptor.plan ?? [];
   const sorted = [...descriptor.targets].sort((left, right) => left.priority - right.priority);
@@ -385,7 +390,9 @@ function resolveValue(
       }
       return source.normalize === 'openai-base-url'
         ? normalizeOpenAiBaseUrl(context.profile.baseUrl)
-        : context.profile.baseUrl;
+        : source.normalize === 'anthropic-base-url'
+          ? normalizeAnthropicBaseUrl(context.profile.baseUrl)
+          : context.profile.baseUrl;
     }
     case 'discovered-model': {
       const override = context.valueOverrides?.['discovered-model'];

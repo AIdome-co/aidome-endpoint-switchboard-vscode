@@ -9,6 +9,7 @@ import { createBackup, fileExists, readFileSafe, writeFileAtomic } from '../../u
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { expandTilde } from '../../util/paths';
 import { validatePath, validateUrl } from '../../core/profiles/profileValidator';
+import { normalizeAnthropicBaseUrl } from '../../core/providerConfig/endpointUrl';
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
@@ -61,7 +62,9 @@ export function buildClaudeCodeSettingsContent(
 
   const nextEnv: Record<string, string> = {
     ...env,
-    ANTHROPIC_BASE_URL: baseUrl,
+    // Claude Code appends `/v1/messages` to ANTHROPIC_BASE_URL itself; a
+    // `/v1`-suffixed profile URL would produce `/v1/v1/messages` (404).
+    ANTHROPIC_BASE_URL: normalizeAnthropicBaseUrl(baseUrl),
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1'
   };
   if (anthropicAuthToken) {
