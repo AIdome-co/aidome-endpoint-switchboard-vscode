@@ -835,6 +835,7 @@ export class PlanApplier {
           { target: step.target, backupPath: step.backupPath, createdFile: step.createdFile },
           ...(step.extraRollbacks ?? [])
         ];
+        const failedRestores: string[] = [];
         for (const t of targets) {
           if (!t.target) {
             continue;
@@ -848,8 +849,16 @@ export class PlanApplier {
               this.logger.info(`Restored ${t.target} from backup: ${t.backupPath}`);
             }
           } catch (error) {
-            this.logger.warning(`Could not restore ${t.target}: ${error instanceof Error ? error.message : String(error)}`);
+            failedRestores.push(`${t.target}: ${error instanceof Error ? error.message : String(error)}`);
           }
+        }
+        if (failedRestores.length > 0) {
+          // Surface the failure: rollbackPlan must NOT report success (it
+          // removes the change log entry), and rollbackSteps' catch shows the
+          // manual-recovery dialog. Mirror edit-config-file's propagation.
+          throw new Error(
+            `CodeGPT storage restore failed: ${failedRestores.join('; ')}`
+          );
         }
         break;
       }
