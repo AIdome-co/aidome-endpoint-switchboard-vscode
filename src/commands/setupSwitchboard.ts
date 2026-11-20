@@ -17,6 +17,7 @@ import { Logger } from '../util/log';
 import { countConfiguredAssistants } from '../core/orchestration/assistantOutcome';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
+import { promptReloadAfterApply } from '../util/assistantReload';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
 import {
   AUTO_DETECT_DIALECT_INFO_MESSAGE,
@@ -274,11 +275,20 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
         failedKeys.length > 0 ? `Failed: ${failedKeys.join(', ')}` : undefined
       ].filter(Boolean);
       logger.info(`Setup partially complete in ${elapsed}ms: configured=[${configuredKeys.join(', ')}] failed=[${failedKeys.join(', ')}]`);
+      // Profile state is updated (setActiveProfile above) — offer the reload
+      // for the assistants that were actually configured. The
+      // nothing-configured path skips it: failed mutations were rolled back
+      // and incomplete categories never mutated on-disk config.
+      await promptReloadAfterApply(result);
       await showWarning(parts.join('. '), 'View Output');
     } else {
       await profileStore.setActiveProfile(profile.id);
       updateStatusBar(profile.name);
       void vscode.commands.executeCommand('aidome-switchboard.refreshAssistantsView');
+      // Profile state is updated (setActiveProfile above) — offer the reload
+      // before the success summary so Cline's in-memory snapshot cannot
+      // clobber the just-applied files.
+      await promptReloadAfterApply(result);
       const action = await showSuccess(
         `Successfully configured ${configuredKeys.length} assistant(s) to use ${profile.name}`,
         'Verify'
