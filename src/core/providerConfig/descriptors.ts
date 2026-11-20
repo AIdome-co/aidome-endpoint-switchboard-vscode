@@ -293,6 +293,50 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     limitations: ['Process environment authentication remains guided unless Switchboard owns process launch.']
   },
   {
+    providerKey: 'opencode',
+    displayName: 'OpenCode',
+    dialects: [{ dialect: 'openai.chat_completions', preferred: true }],
+    targets: [
+      { id: 'opencode-config-json', format: 'json', driver: 'json-object', path: '~/.config/opencode/opencode.json (or snap-confined equivalent)', priority: 1 },
+      { id: 'opencode-config-jsonc', format: 'jsonc', driver: 'json-object', path: '~/.config/opencode/opencode.jsonc', priority: 2 }
+    ],
+    fields: [
+      { field: 'provider', path: 'provider.<id>.npm', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
+      { field: 'baseUrl', path: 'provider.<id>.options.baseURL', valueKind: 'string', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
+      { field: 'model', path: 'provider.<id>.models', valueKind: 'object', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
+      { field: 'apiKey', path: 'provider.<id>.options.apiKey', valueKind: 'string', requiredFor: ['openai.chat_completions'], secret: true, support: 'automatic' }
+    ],
+    driver: 'json-object',
+    support: 'automatic',
+    tier: 'A',
+    secretPolicy: 'target-persisted-at-apply',
+    reload: 'restart-process',
+    discovery: { cliCommands: ['opencode'], environmentOverrides: ['OPENCODE_CONFIG_PATH', 'SNAP_USER_COMMON'], notes: ['Snap-confined installs may keep config under ~/snap/opencode/<revision>/; the adapter resolves candidates in a documented order.'] },
+    verification: { requiredFields: ['provider.<id>.options.baseURL', 'provider.<id>.options.apiKey'], exactUrlMatch: true, selectedProviderRequired: true, protocolRequired: false, notes: ['Exact-profile verification: the managed provider options.baseURL must equal the assigned profile URL (fail closed when the expected profile is unknown).'] },
+    drift: {
+      sourceSymbols: ['provider.<id>', 'ProviderConfig.options.baseURL', 'ProviderConfig.options.apiKey', 'ProviderConfig.models'],
+      failClosedOnMissingEvidence: true,
+      notes: [
+        'Target the legacy top-level provider.<id> shape with npm @ai-sdk/openai-compatible — verified live against installed opencode 1.19.5.',
+        'The newer upstream top-level providers/package/settings shape is NOT accepted by installed releases; do not migrate until the installed CLI requires it.'
+      ]
+    },
+    versionEvidence: evidence(
+      'https://github.com/sst/opencode.git',
+      '47f333299bb193f28dfdd94ccc43e55c529198ee',
+      'medium',
+      [
+        'packages/opencode/src/config/config.ts',
+        'packages/opencode/src/config/provider.ts',
+        'packages/web/src/content/docs/docs/providers.mdx'
+      ]
+    ),
+    limitations: [
+      'Installed opencode releases accept the legacy provider shape; upstream config schema evolves quickly and must be re-verified on upgrade.',
+      'The profile credential is persisted into the assistant config file at apply time (target-persisted-at-apply); restart OpenCode to pick up switches.'
+    ]
+  },
+  {
     providerKey: 'gemini-cli',
     displayName: 'Gemini CLI',
     dialects: [{ dialect: 'google.gemini.generate_content', preferred: true }],

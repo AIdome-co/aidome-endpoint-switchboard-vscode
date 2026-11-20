@@ -34,6 +34,10 @@ const ADAPTER_REGISTRY: Record<string, (dependencies?: AdapterDependencies) => P
     const { ClaudeCodeAdapter } = await import('./claudeCode/adapter');
     return new ClaudeCodeAdapter();
   },
+  'opencode': async () => {
+    const { OpenCodeAdapter } = await import('./opencode/adapter');
+    return new OpenCodeAdapter();
+  },
   'gemini-cli': async () => {
     const { GeminiCliAdapter } = await import('./geminiCli/adapter');
     return new GeminiCliAdapter();

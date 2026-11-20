@@ -1,12 +1,12 @@
 {
   "$schemaVersion": "0.1.0",
-  "updatedAt": "2026-08-29",
+  "updatedAt": "2026-11-16",
   "dialectCatalog": {
     "openai.chat_completions": "OpenAI-style /v1/chat/completions",
     "openai.responses": "OpenAI-style /v1/responses",
     "anthropic.messages": "Anthropic-style /v1/messages",
     "google.gemini.generate_content": "Google Gemini-style generateContent (varies by API surface)",
-    "github.copilot": "GitHub Copilot \u2014 uses the legacy proxy override when registered; current releases may require Custom Endpoint UI guidance",
+    "github.copilot": "GitHub Copilot — uses the legacy proxy override when registered; current releases may require Custom Endpoint UI guidance",
     "tabnine.proprietary": "Tabnine proprietary protocol to Tabnine cloud/enterprise server",
     "bedrock.invoke_model": "Amazon Bedrock InvokeModel pass-through API",
     "vertex.raw_predict": "Google Vertex AI rawPredict pass-through API"
@@ -38,7 +38,7 @@
           "github.copilot.advanced"
         ],
         "notes": [
-          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic \u2014 inline completions and chat \u2014 through the gateway.",
+          "Proxy Override: sets github.copilot.advanced.debug.overrideProxyUrl (maps to internal.completionsUrl in Copilot Chat source) to route ALL Copilot REST traffic — inline completions and chat — through the gateway.",
           "The debug.overrideProxyUrl key is a legacy internal setting confirmed in the official vscode-copilot-chat source (src/extension/completions-core/vscode-node/lib/src/config.ts). It is not a public API and may be absent from current releases.",
           "There is no user-configurable settings.json key for registering a custom BYOK model in Copilot Chat. Custom model providers require the VS Code languageModelChatProviders contribution point, which is not configurable via workspace settings.",
           "Tier B rather than A because debug.overrideProxyUrl is an undocumented internal setting that may break in future releases; users should be aware it may change or be removed in future Copilot updates."
@@ -316,6 +316,65 @@
         "https://code.claude.com/docs/en/vs-code#use-third-party-providers",
         "https://code.claude.com/docs/en/llm-gateway",
         "https://code.claude.com/docs/en/settings"
+      ]
+    },
+    {
+      "key": "opencode",
+      "displayName": "OpenCode",
+      "kind": "cli",
+      "detection": {
+        "cliCommands": [
+          "opencode"
+        ]
+      },
+      "dialect": {
+        "primary": "openai.chat_completions",
+        "alsoPossible": []
+      },
+      "endpointSwitching": {
+        "supported": true,
+        "tier": "A",
+        "preferredGatewayFrontDoor": "openai.chat_completions",
+        "configurationModes": [
+          "config-file"
+        ],
+        "configFileHints": [
+          {
+            "path": "~/.config/opencode/opencode.json",
+            "format": "json",
+            "fields": [
+              "provider.<id>.npm",
+              "provider.<id>.options.baseURL",
+              "provider.<id>.options.apiKey",
+              "provider.<id>.models"
+            ]
+          },
+          {
+            "path": "~/.config/opencode/opencode.jsonc",
+            "format": "jsonc",
+            "fields": [
+              "provider.<id>.npm",
+              "provider.<id>.options.baseURL",
+              "provider.<id>.options.apiKey",
+              "provider.<id>.models"
+            ]
+          }
+        ],
+        "notes": [
+          "OpenCode custom providers use the legacy top-level provider.<id> shape with npm @ai-sdk/openai-compatible, options.baseURL and options.apiKey (verified against installed opencode 1.19.5); the newer upstream providers/package shape is not accepted by installed releases.",
+          "Gateway URLs already end with /v1; the adapter normalizes idempotently and never doubles the version suffix.",
+          "The profile credential stays in SecretStorage and is persisted to provider.<id>.options.apiKey only at apply time (the assistant's own config file).",
+          "models is a map of model IDs from the selected profile's dialect/model discovery; restart OpenCode after switching profiles."
+        ]
+      },
+      "tlsVerification": {
+        "support": "env-var",
+        "settingHint": "NODE_EXTRA_CA_CERTS (custom CA only; no disable toggle)",
+        "notes": "opencode runs on Bun/Node HTTP stacks; custom CA bundles via NODE_EXTRA_CA_CERTS. No documented flag to disable TLS verification."
+      },
+      "sources": [
+        "https://github.com/sst/opencode",
+        "https://opencode.ai/docs/providers"
       ]
     },
     {

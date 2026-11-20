@@ -17,7 +17,7 @@ describe('Registry Loader', () => {
 
   it('should have the correct number of assistants', async () => {
     const registry = await loadRegistry();
-    expect(registry.assistants.length).toBe(11);
+    expect(registry.assistants.length).toBe(12);
   });
 
   it('should find an assistant by key', async () => {
