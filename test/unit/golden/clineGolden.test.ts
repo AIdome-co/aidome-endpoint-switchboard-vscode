@@ -272,7 +272,9 @@ describe('Cline golden regression (pre-abstraction lock)', () => {
       // Envelope fields preserved.
       expect(doc.version).toBe(1);
       expect(doc.modes).toEqual(PROVIDERS_SEED.modes);
-      expect(doc.lastUsedProvider).toBe('anthropic');
+      // Applying the profile selects the gateway as last-used provider so
+      // Cline's SDK provider-store fallback resolves to the applied profile.
+      expect(doc.lastUsedProvider).toBe('openai-compatible');
     });
   });
 

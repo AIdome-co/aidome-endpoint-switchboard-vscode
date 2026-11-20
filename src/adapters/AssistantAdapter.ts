@@ -56,4 +56,15 @@ export interface AssistantAdapter {
    * @returns Support tier
    */
   getTier(): 'A' | 'B' | 'C';
+
+  /**
+   * Optionally declares VS Code extension IDs whose running instance can
+   * clobber file-backed configuration written at apply time (the extension
+   * snapshots its config files in memory and persists them back wholesale).
+   * The orchestrator offers a window reload after a successful apply so the
+   * assistant re-reads the applied state from disk. Adapters whose
+   * configuration is not cached in memory by a live extension omit this.
+   * @returns Extension IDs needing a reload after apply
+   */
+  getReloadExtensionIds?(): string[];
 }

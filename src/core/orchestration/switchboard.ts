@@ -16,6 +16,7 @@ import { detectExtensions, DetectedAssistant } from '../detection/detectExtensio
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
 import { getAdapter } from '../../adapters/adapters.index';
 import { Logger } from '../../util/log';
+import { promptReloadForExtensionIds } from '../../util/assistantReload';
 import { startTimer } from '../../util/operationTimer';
 import { withRetry } from '../../util/retry';
 
@@ -202,6 +203,30 @@ export class Switchboard {
         this.logger.warning(
           `Configuration was applied but ${mappingFailures.length} mapping(s) could not be persisted: ${mappingFailures.join(', ')}. ` +
           'These assistants may not appear as mapped in the UI until the next successful apply.'
+        );
+      }
+
+      // Some assistants snapshot their file-backed configuration into memory
+      // while running and persist that snapshot back over the applied files
+      // (e.g. Cline's ClineFileStorage reads its config files once at
+      // activation and writes the whole snapshot back on every state change).
+      // Offer a window reload so the applied on-disk state is re-read instead
+      // of being clobbered. Advisory only — failures here never fail the apply.
+      try {
+        const reloadExtensionIds = new Set<string>();
+        for (const assistantKey of mutatedAssistants) {
+          const adapter = await getAdapter(assistantKey, { profileSecrets: this.profileSecrets });
+          for (const extensionId of adapter?.getReloadExtensionIds?.() ?? []) {
+            reloadExtensionIds.add(extensionId);
+          }
+        }
+        if (reloadExtensionIds.size > 0) {
+          await promptReloadForExtensionIds([...reloadExtensionIds]);
+        }
+      } catch (error) {
+        this.logger.warning(
+          'Post-apply reload prompt could not be shown',
+          error instanceof Error ? error : undefined
         );
       }
     }
