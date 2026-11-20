@@ -9,6 +9,7 @@
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
+import { Logger } from '../../util/log';
 import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
@@ -26,6 +27,7 @@ import {
   resolveSettingsPath,
   checkpointCodeGptDb,
   backupCodeGptDb,
+  codeGptWalBytes,
 } from './codegptStorage';
 import { registerAssistantStorageWriter } from '../../core/orchestration/assistantStorageWriters';
 
@@ -50,7 +52,17 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   const settingsPath = resolveSettingsPath(homeDir);
   const dbExisted = await fs.access(dbPath).then(() => true, () => false);
 
+  // The backup must be a COMPLETE snapshot: with uncheckpointed WAL frames a
+  // plain copy of db.sqlite omits committed state and sidecar writes would
+  // keep landing in the WAL, making rollback stale. Only proceed once the
+  // WAL is confirmed empty (Codex 4648367034).
   await checkpointCodeGptDb(homeDir);
+  if (dbExisted && (await codeGptWalBytes(homeDir)) > 0) {
+    throw new Error(
+      'CodeGPT database has uncheckpointed WAL state; a safe pre-write backup is not possible right now. ' +
+      'Retry in a moment (the sidecar holds a read snapshot), or stop the CodeGPT extension and retry.'
+    );
+  }
   const backupPath = await backupCodeGptDb(homeDir);
 
   // An EXISTING database without a backup means the mutation would be
@@ -68,6 +80,9 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   // The flavor setting is REQUIRED state: a failed write must fail the whole
   // step so the applier rolls the DB write back (Codex 4648050961). The
   // settings.json mutation is tracked for rollback too (Codex 4648050971).
+  // NOTE: the DB mutation above has ALREADY committed, and a rejected step
+  // never enters the applier's rollback list — so this catch must restore the
+  // pre-write snapshot itself before propagating (Codex 4648429521).
   const settingsExisted = await fs.access(settingsPath).then(() => true, () => false);
   try {
     const flavor = await ensureCodeGptLocalFlavor(homeDir);
@@ -80,8 +95,20 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
         : []
     };
   } catch (error) {
+    try {
+      if (backupPath) {
+        await fs.copyFile(backupPath, dbPath);
+        await checkpointCodeGptDb(homeDir);
+      } else if (!dbExisted) {
+        await fs.rm(dbPath, { force: true });
+      }
+    } catch (restoreError) {
+      Logger.getInstance().warning(
+        `Failed to restore CodeGPT database after flavor failure: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
+      );
+    }
     throw new Error(
-      `CodeGPT flavor setting could not be written; rolling back the database write (${error instanceof Error ? error.message : String(error)})`
+      `CodeGPT flavor setting could not be written; the database write was rolled back (${error instanceof Error ? error.message : String(error)})`
     );
   }
 });

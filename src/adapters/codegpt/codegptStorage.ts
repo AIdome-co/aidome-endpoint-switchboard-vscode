@@ -211,11 +211,13 @@ export async function writeCodeGptConnection(
 }
 
 /**
- * Best-effort WAL checkpoint (PASSIVE) of the CodeGPT database. PASSIVE
- * never blocks concurrent readers/writers (CodeGPT's sidecar keeps the DB
- * open) and simply merges as much of the WAL into the main file as it can.
- * Returns true when a checkpoint ran (or the DB does not exist yet); false
- * on any error/busy outcome — callers must treat this as advisory only.
+ * Best-effort WAL checkpoint of the CodeGPT database. TRUNCATE merges all
+ * committed WAL frames into the main file and empties the WAL, which makes a
+ * subsequent file copy a complete snapshot. Concurrent sidecar readers do not
+ * block it (SQLite restarts the WAL if a snapshot is held). Advisory:
+ * returns true when the WAL is confirmed empty afterwards (or the DB does
+ * not exist yet), false on any error/busy outcome — callers that need a
+ * consistent snapshot must check `codeGptWalBytes()` and fail closed.
  */
 export async function checkpointCodeGptDb(
   homeDir: string = os.homedir()
@@ -228,14 +230,32 @@ export async function checkpointCodeGptDb(
     const { DatabaseSync } = await loadSqlite();
     const db = new DatabaseSync(dbPath);
     try {
-      db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get();
+      db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
     } finally {
       db.close();
     }
-    return true;
+    return (await codeGptWalBytes(homeDir)) === 0;
   } catch (error) {
     logSqlite('checkpoint', error);
     return false;
+  }
+}
+
+/**
+ * Size of the CodeGPT database's active WAL file in bytes (0 when absent or
+ * fully checkpointed). A non-zero value means committed frames live outside
+ * the main db file, so a plain file copy of db.sqlite alone is NOT a complete
+ * snapshot.
+ */
+export async function codeGptWalBytes(
+  homeDir: string = os.homedir()
+): Promise<number> {
+  try {
+    const { stat } = await import('fs/promises');
+    const info = await stat(resolveDbPath(homeDir) + '-wal');
+    return info.size;
+  } catch {
+    return 0;
   }
 }
 
@@ -339,7 +359,20 @@ export async function ensureCodeGptLocalFlavor(
       return { changed: false }; // Already correct: nothing to roll back.
     }
 
-    const backupPath = options.skipBackup ? undefined : await createBackup(settingsPath);
+    // An EXISTING settings.json without a backup (disk-full, permissions)
+    // must not be overwritten — the step is declared reversible (Codex
+    // 4648367041). Distinguish "file absent" (creation, no backup needed)
+    // from "backup failed" (abort).
+    const settingsExisted = await fileExists(settingsPath);
+    let backupPath: string | undefined;
+    if (!options.skipBackup) {
+      backupPath = await createBackup(settingsPath);
+      if (settingsExisted && !backupPath) {
+        throw new Error(
+          `Could not create a backup of ${settingsPath}; refusing to overwrite it without a recoverable copy`
+        );
+      }
+    }
     settings[key] = 'custom';
     const ok = await writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2));
     if (!ok) {
