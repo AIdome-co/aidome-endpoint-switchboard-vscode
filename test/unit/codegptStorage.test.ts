@@ -119,6 +119,18 @@ describe('writeCodeGptConnection / readCodeGptConnection', () => {
     expect(rows.n).toBe(1);
   });
 
+  it('clears the previous credential when the new profile has none (no token carry-over)', async () => {
+    // Profile A with a credential...
+    await writeCodeGptConnection('http://a:1', 'secret-A', tmpHome);
+    // ...then switch to profile B without a saved credential.
+    await writeCodeGptConnection('http://b:2', undefined, tmpHome);
+
+    const stored = await readCodeGptConnection(tmpHome);
+    expect(stored?.customLink).toBe('http://b:2');
+    // The old token must NOT survive the switch (Codex 4648050946).
+    expect(stored?.apikey).toBeUndefined();
+  });
+
   it('returns undefined from read when the DB is absent', async () => {
     const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codegpt-empty-'));
     try {

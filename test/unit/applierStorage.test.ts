@@ -37,7 +37,9 @@ const writeFlavor = vi.fn(async () => true);
 vi.mock('../../src/adapters/codegpt/codegptStorage', () => ({
   writeCodeGptConnection: (...a: unknown[]) => writeConnection(...a),
   writeCodeGptLocalFlavor: (...a: unknown[]) => writeFlavor(...a),
+  ensureCodeGptLocalFlavor: async () => ({ changed: false }),
   resolveDbPath: () => '/home/test/.codegpt/db.sqlite',
+  resolveSettingsPath: () => '/home/test/.codegpt/settings.json',
   readCodeGptConnection: async () => undefined,
   resolveCodeGptHome: () => '/home/test/.codegpt',
   normalizeStorageBaseUrl: (u: string) => u,
@@ -74,7 +76,8 @@ describe('PlanApplier.write-assistant-storage', () => {
     // here), so the direct write runs with skipBackup: the caller (writer)
     // already created the file backup.
     expect(writeConnection).toHaveBeenCalledWith('http://host:8100', 'secret-for-my-profile', undefined, { skipBackup: true });
-    expect(writeFlavor).toHaveBeenCalled();
+    // Flavor write goes through ensureCodeGptLocalFlavor (mutation report).
+    expect(writeFlavor).not.toHaveBeenCalled();
     expect(applied.backupPath).toBe('/tmp/backup.sqlite');
     expect(applied.target).toBe('/home/test/.codegpt/db.sqlite');
   });
