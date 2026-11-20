@@ -26,7 +26,7 @@
       "properties": {
         "aidome-switchboard.advanced.cliDetectionTimeoutMs": {
           "type": "number",
-          "default": 2000,
+          "default": 5000,
           "minimum": 1,
           "markdownDescription": "Timeout in milliseconds for each CLI detection subprocess. Environment override: `AIDOME_SWITCHBOARD_CLI_DETECTION_TIMEOUT_MS`."
         },
