@@ -19,8 +19,11 @@ import {
   resolveCodeGptHome,
   normalizeStorageBaseUrl,
   writeCodeGptConnection,
+  writeCodeGptConnectionViaSidecar,
   writeCodeGptLocalFlavor,
   resolveDbPath,
+  checkpointCodeGptDb,
+  backupCodeGptDb,
 } from './codegptStorage';
 import { registerAssistantStorageWriter } from '../../core/orchestration/assistantStorageWriters';
 
@@ -29,6 +32,10 @@ const DESCRIPTOR = getProviderConfigDescriptor('codegpt');
 // Register the storage writer so the generic `write-assistant-storage`
 // applier action can dispatch to CodeGPT without importing provider modules
 // from core (dependency-direction rule).
+//
+// Write strategy: merge the WAL and back up the DB file first (so rollback
+// restores a consistent pre-write state), then prefer CodeGPT's own sidecar
+// API; fall back to a direct SQLite write when the sidecar is not running.
 registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   const data = (step.data ?? {}) as Record<string, unknown>;
   const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl : undefined;
@@ -36,7 +43,14 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
     throw new Error('write-assistant-storage requires a baseUrl in step data');
   }
   const homeDir = typeof data.homeDir === 'string' ? data.homeDir : undefined;
-  const backupPath = await writeCodeGptConnection(baseUrl, apiKey, homeDir);
+
+  await checkpointCodeGptDb(homeDir);
+  const backupPath = await backupCodeGptDb(homeDir);
+
+  const viaSidecar = await writeCodeGptConnectionViaSidecar(baseUrl, apiKey, homeDir);
+  if (!viaSidecar) {
+    await writeCodeGptConnection(baseUrl, apiKey, homeDir, { skipBackup: true });
+  }
   await writeCodeGptLocalFlavor(homeDir);
   return { backupPath, target: resolveDbPath(homeDir) };
 });
