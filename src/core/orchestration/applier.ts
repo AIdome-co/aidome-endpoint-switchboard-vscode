@@ -15,6 +15,7 @@ import { renderConfigFileContent } from '../providerConfig/drivers';
 import { validateConfigFileStepData, validateSetEnvVarStepData, validateWriteEnvFileStepData, hasConfigMetadata } from './planStepData';
 import { type AssistantApplyResult, assistantResult, isConfigurationMutationAction } from './assistantOutcome';
 import { patchEnvFile, parseDotEnv } from '../providerConfig/envFileDriver';
+import { getAssistantStorageWriter } from './assistantStorageWriters';
 
 /**
  * Result of applying a plan.
@@ -662,20 +663,18 @@ export class PlanApplier {
       apiKey = await this.profileSecrets.getSecret(authRef);
     }
 
-    // Only CodeGPT currently uses this action; its writer owns the backup and
-    // returns the backup path so rollback can restore it.
-    if (assistantKey === 'codegpt') {
-      const { writeCodeGptConnection, writeCodeGptLocalFlavor, resolveDbPath } = await import('../../adapters/codegpt/codegptStorage');
-      const homeDir = data.homeDir as string | undefined;
-      const backupPath = await writeCodeGptConnection(baseUrl, apiKey, homeDir);
-      await writeCodeGptLocalFlavor(homeDir);
-      appliedStep.backupPath = backupPath;
-      appliedStep.target = resolveDbPath(homeDir);
-      this.logger.info(`Wrote CodeGPT local-provider storage (baseUrl=${baseUrl}, backup=${backupPath ?? 'none'})`);
-      return;
+    // Generic dispatch: the adapter layer registers the assistant-specific
+    // writer (core must not import provider modules). The writer owns its
+    // backup and returns the paths rollback restores.
+    const writer = getAssistantStorageWriter(assistantKey);
+    if (!writer) {
+      throw new Error(`write-assistant-storage not supported for assistant: ${assistantKey}`);
     }
 
-    throw new Error(`write-assistant-storage not supported for assistant: ${assistantKey}`);
+    const result = await writer(step, apiKey);
+    appliedStep.backupPath = result.backupPath;
+    appliedStep.target = result.target ?? step.targetPath ?? `assistant-storage:${assistantKey}`;
+    this.logger.info(`Wrote assistant storage for ${assistantKey} (baseUrl=${baseUrl}, backup=${result.backupPath ?? 'none'})`);
   }
 
   /**

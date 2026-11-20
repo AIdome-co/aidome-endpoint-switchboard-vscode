@@ -18,9 +18,28 @@ import {
   readCodeGptConnection,
   resolveCodeGptHome,
   normalizeStorageBaseUrl,
+  writeCodeGptConnection,
+  writeCodeGptLocalFlavor,
+  resolveDbPath,
 } from './codegptStorage';
+import { registerAssistantStorageWriter } from '../../core/orchestration/assistantStorageWriters';
 
 const DESCRIPTOR = getProviderConfigDescriptor('codegpt');
+
+// Register the storage writer so the generic `write-assistant-storage`
+// applier action can dispatch to CodeGPT without importing provider modules
+// from core (dependency-direction rule).
+registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
+  const data = (step.data ?? {}) as Record<string, unknown>;
+  const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl : undefined;
+  if (!baseUrl) {
+    throw new Error('write-assistant-storage requires a baseUrl in step data');
+  }
+  const homeDir = typeof data.homeDir === 'string' ? data.homeDir : undefined;
+  const backupPath = await writeCodeGptConnection(baseUrl, apiKey, homeDir);
+  await writeCodeGptLocalFlavor(homeDir);
+  return { backupPath, target: resolveDbPath(homeDir) };
+});
 
 /** CodeGPT assistant adapter. */
 export class CodeGptAdapter extends BaseExtensionAdapter {
