@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlanApplier } from '../../src/core/orchestration/applier';
 import { PlanStep } from '../../src/core/orchestration/planBuilder';
+import { isConfigurationMutationAction } from '../../src/core/orchestration/assistantOutcome';
 
 vi.mock('vscode', () => ({
   workspace: { getConfiguration: () => ({ get: vi.fn(), update: vi.fn() }) },
@@ -76,6 +77,21 @@ describe('PlanApplier.write-assistant-storage', () => {
     expect(writeFlavor).toHaveBeenCalled();
     expect(applied.backupPath).toBe('/tmp/backup.sqlite');
     expect(applied.target).toBe('/home/test/.codegpt/db.sqlite');
+  });
+
+  it('classifies the write as a configuration mutation (mapping persistence + rollback)', async () => {
+    const step: PlanStep = {
+      id: 's4',
+      action: 'write-assistant-storage',
+      assistantKey: 'codegpt',
+      targetPath: '/home/test/.codegpt',
+      data: { baseUrl: 'http://host:8100' },
+      reversible: true,
+    } as PlanStep;
+
+    expect(isConfigurationMutationAction(step.action)).toBe(true);
+    const applied = await applier.applyStep(step as any);
+    expect(applied.mutationApplied).toBe(true);
   });
 
   it('throws when baseUrl is missing', async () => {

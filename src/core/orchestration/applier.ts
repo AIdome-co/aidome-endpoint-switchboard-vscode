@@ -672,6 +672,9 @@ export class PlanApplier {
     }
 
     const result = await writer(step, apiKey);
+    // A returned writer means the write happened (writers throw on failure):
+    // truthful mutation for the outcome/rollback filters below.
+    appliedStep.mutationApplied = true;
     appliedStep.backupPath = result.backupPath;
     appliedStep.target = result.target ?? step.targetPath ?? `assistant-storage:${assistantKey}`;
     this.logger.info(`Wrote assistant storage for ${assistantKey} (baseUrl=${baseUrl}, backup=${result.backupPath ?? 'none'})`);

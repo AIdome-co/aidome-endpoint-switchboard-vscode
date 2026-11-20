@@ -28,7 +28,12 @@ export interface AssistantApplyResult {
 export const CONFIGURATION_MUTATION_ACTIONS: ReadonlySet<PlanStepAction> = new Set<PlanStepAction>([
   'set-vscode-setting',
   'edit-config-file',
-  'write-env-file'
+  'write-env-file',
+  // Assistant-specific storage writes (e.g. CodeGPT's SQLite connection)
+  // performed by an adapter-registered writer: a real, rollbackable
+  // configuration mutation, so it must persist mappings / roll back like
+  // the file-based mutations.
+  'write-assistant-storage'
 ]);
 
 /** Purely informational/verification actions — never configuration by themselves. */
