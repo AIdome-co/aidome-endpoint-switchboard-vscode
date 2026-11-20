@@ -15,7 +15,7 @@ describe('provider configuration descriptors', () => {
   it('contains one explicit contract for every manifest provider', () => {
     const descriptors = getProviderConfigDescriptors();
 
-    expect(descriptors).toHaveLength(11);
+    expect(descriptors).toHaveLength(12);
     expect(descriptors.map(descriptor => descriptor.providerKey)).toEqual([
       'github-copilot',
       'cline',
@@ -24,6 +24,7 @@ describe('provider configuration descriptors', () => {
       'continue',
       'claude-code',
       'openai-codex',
+      'opencode',
       'gemini-cli',
       'codegpt',
       'anythingllm',

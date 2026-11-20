@@ -62,6 +62,14 @@
       "status": "active"
     },
     {
+      "key": "opencode",
+      "displayName": "OpenCode",
+      "url": "https://github.com/sst/opencode.git",
+      "branch": "main",
+      "path": "opencode",
+      "status": "active"
+    },
+    {
       "key": "gemini-cli",
       "displayName": "Gemini CLI",
       "url": "https://github.com/google-gemini/gemini-cli.git",
