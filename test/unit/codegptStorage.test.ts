@@ -220,6 +220,23 @@ describe('writeCodeGptLocalFlavor', () => {
     expect(settings[`local-server-flavor-${CODEGPT_LOCAL_PROVIDER}`]).toBe('custom');
   });
 
+  it('fails closed on an unparsable settings.json and preserves its content', async () => {
+    const corruptHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codegpt-corrupt-'));
+    try {
+      const settingsPath = resolveSettingsPath(corruptHome);
+      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+      const corrupt = '{ almost json "local-server-flavor-lmstudio": "openai" }';
+      fs.writeFileSync(settingsPath, corrupt);
+
+      await expect(writeCodeGptLocalFlavor(corruptHome)).resolves.toBe(false);
+
+      // The corrupt file must be untouched — never replaced by a default object.
+      expect(fs.readFileSync(settingsPath, 'utf-8')).toBe(corrupt);
+    } finally {
+      fs.rmSync(corruptHome, { recursive: true, force: true });
+    }
+  });
+
   it('is idempotent when already set', async () => {
     await writeCodeGptLocalFlavor(tmpHome);
     // Second call: still true, and settings unchanged (no corruption).

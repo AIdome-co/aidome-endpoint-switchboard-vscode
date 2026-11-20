@@ -37,7 +37,7 @@ const writeFlavor = vi.fn(async () => true);
 vi.mock('../../src/adapters/codegpt/codegptStorage', () => ({
   writeCodeGptConnection: (...a: unknown[]) => writeConnection(...a),
   writeCodeGptLocalFlavor: (...a: unknown[]) => writeFlavor(...a),
-  ensureCodeGptLocalFlavor: async () => ({ changed: false }),
+  ensureCodeGptLocalFlavor: vi.fn(async () => ({ changed: false })),
   resolveDbPath: () => '/home/test/.codegpt/db.sqlite',
   resolveSettingsPath: () => '/home/test/.codegpt/settings.json',
   readCodeGptConnection: async () => undefined,
@@ -106,6 +106,27 @@ describe('PlanApplier.write-assistant-storage', () => {
     } as PlanStep;
 
     await expect(applier.applyStep(step as any)).rejects.toThrow('baseUrl');
+  });
+
+  it('rejects when the flavor write fails (DB restore path, Codex 4648429521)', async () => {
+    const step: PlanStep = {
+      id: 's5',
+      action: 'write-assistant-storage',
+      assistantKey: 'codegpt',
+      targetPath: '/home/test/.codegpt',
+      data: { baseUrl: 'http://host:8100' },
+      reversible: true,
+    } as PlanStep;
+
+    const storage = await import('../../src/adapters/codegpt/codegptStorage');
+    const ensure = vi.mocked(storage.ensureCodeGptLocalFlavor as unknown as ReturnType<typeof vi.fn>);
+    const original = ensure.getMockImplementation();
+    ensure.mockImplementationOnce(async () => { throw new Error('unwritable'); });
+
+    await expect(applier.applyStep(step as any)).rejects.toThrow(/flavor setting could not be written/);
+    expect(ensure).toHaveBeenCalledTimes(1);
+
+    ensure.mockImplementation(original as never);
   });
 
   it('throws for an unsupported assistant', async () => {
