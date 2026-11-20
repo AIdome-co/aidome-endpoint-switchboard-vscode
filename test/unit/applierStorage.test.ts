@@ -40,6 +40,9 @@ vi.mock('../../src/adapters/codegpt/codegptStorage', () => ({
   readCodeGptConnection: async () => undefined,
   resolveCodeGptHome: () => '/home/test/.codegpt',
   normalizeStorageBaseUrl: (u: string) => u,
+  checkpointCodeGptDb: async () => true,
+  backupCodeGptDb: async () => '/tmp/backup.sqlite',
+  writeCodeGptConnectionViaSidecar: async () => false,
 }));
 
 // Loading the adapter module registers the CodeGPT storage writer with the
@@ -66,7 +69,10 @@ describe('PlanApplier.write-assistant-storage', () => {
 
     const applied = await applier.applyStep(step as any);
 
-    expect(writeConnection).toHaveBeenCalledWith('http://host:8100', 'secret-for-my-profile', undefined);
+    // The registered writer now tries the sidecar first (mocked unavailable
+    // here), so the direct write runs with skipBackup: the caller (writer)
+    // already created the file backup.
+    expect(writeConnection).toHaveBeenCalledWith('http://host:8100', 'secret-for-my-profile', undefined, { skipBackup: true });
     expect(writeFlavor).toHaveBeenCalled();
     expect(applied.backupPath).toBe('/tmp/backup.sqlite');
     expect(applied.target).toBe('/home/test/.codegpt/db.sqlite');

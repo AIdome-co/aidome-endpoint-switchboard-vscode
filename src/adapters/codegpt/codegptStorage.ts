@@ -7,16 +7,25 @@
  * settings. This module reads and writes that storage so the switchboard can
  * configure CodeGPT exactly as CodeGPT's own "Manage my AI Models" UI does.
  *
- * Contract (verified against CodeGPT v3.24.52 bundled source):
+ * Contract (verified against the official CodeGPT v3.24.84 sidecar server
+ * code, `standalone/.next/server/chunks/`, in the installed extension):
  *  - `connection` table: `INSERT ... ON CONFLICT(provider) DO UPDATE` with
  *    `custom_link` (the bare base URL, NO trailing slash and NO `/v1`) and
- *    `apikey`. Provider keys are lowercased/space-stripped (e.g. `lmstudio`).
- *  - CodeGPT appends `/v1/models` itself, so `custom_link` must be the bare
- *    origin (e.g. `http://host:port`).
- *  - `settings.json` may carry a `local-server-flavor-<provider>: "custom"` key.
+ *    `apikey`. Provider keys are lowercased/space-stripped (e.g. `lmstudio`);
+ *    `getByProvider` normalizes the same way, so either casing resolves.
+ *  - CodeGPT appends `/v1/models` itself (model probe fetches
+ *    `${custom_link}/v1/models`), so `custom_link` must be the bare origin;
+ *    the chat builder additionally strips a `/v1` suffix before appending
+ *    `/v1/chat/completions`.
+ *  - `settings.json` carries `local-server-flavor-<provider>: "custom"`.
  *
- * This module uses Node's built-in `node:sqlite` (available in the VS Code
- * extension host and Node 20+), so no native dependency is added.
+ * Writes prefer CodeGPT's own sidecar HTTP API
+ * (`POST http://localhost:54112/api/migrate-sqlite`, type "connection" — the
+ * endpoint the VS Code extension itself uses) so the running sidecar observes
+ * the change immediately; the direct `node:sqlite` write below is the
+ * fallback when the sidecar is not running. This module uses Node's built-in
+ * `node:sqlite` (available in the VS Code extension host and Node 20+), so no
+ * native dependency is added.
  */
 
 import * as os from 'os';
@@ -113,19 +122,22 @@ export async function readCodeGptConnection(
 
 /**
  * Writes (or updates) the local provider's connection row in the CodeGPT
- * database. Backs up the DB first. Preserves other columns/rows via the
- * same ON CONFLICT ... DO UPDATE CodeGPT uses. Missing DB is tolerated
- * (node:sqlite will create it).
+ * database. Backs up the DB first unless `options.skipBackup` (the caller
+ * already created one). Preserves other columns/rows via the same
+ * ON CONFLICT ... DO UPDATE CodeGPT uses. Missing DB is tolerated
+ * (node:sqlite will create it). A best-effort WAL checkpoint merges the
+ * write into the main db file so on-disk inspection sees the new state.
  *
  * @returns The backup path if a backup was created, else undefined.
  */
 export async function writeCodeGptConnection(
   baseUrl: string,
   apiKey: string | undefined,
-  homeDir: string = os.homedir()
+  homeDir: string = os.homedir(),
+  options: { skipBackup?: boolean } = {}
 ): Promise<string | undefined> {
   const dbPath = resolveDbPath(homeDir);
-  const backupPath = await createBackup(dbPath);
+  const backupPath = options.skipBackup ? undefined : await createBackup(dbPath);
 
   try {
     const { DatabaseSync } = await import('node:sqlite');
@@ -176,10 +188,106 @@ export async function writeCodeGptConnection(
     );
 
     db.close();
+
+    // Best-effort: merge the WAL into the main db file so the on-disk file
+    // reflects the committed write even while CodeGPT's sidecar holds the
+    // database open in WAL mode. Never fails the write.
+    await checkpointCodeGptDb(homeDir);
+
     return backupPath;
   } catch (error) {
     logSqlite('write', error);
     throw error;
+  }
+}
+
+/**
+ * Best-effort WAL checkpoint (PASSIVE) of the CodeGPT database. PASSIVE
+ * never blocks concurrent readers/writers (CodeGPT's sidecar keeps the DB
+ * open) and simply merges as much of the WAL into the main file as it can.
+ * Returns true when a checkpoint ran (or the DB does not exist yet); false
+ * on any error/busy outcome — callers must treat this as advisory only.
+ */
+export async function checkpointCodeGptDb(
+  homeDir: string = os.homedir()
+): Promise<boolean> {
+  try {
+    const dbPath = resolveDbPath(homeDir);
+    if (!(await fileExists(dbPath))) {
+      return true;
+    }
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    try {
+      db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get();
+    } finally {
+      db.close();
+    }
+    return true;
+  } catch (error) {
+    logSqlite('checkpoint', error);
+    return false;
+  }
+}
+
+/**
+ * Creates a backup of the CodeGPT database file (undefined when the DB does
+ * not exist yet — nothing to back up).
+ */
+export async function backupCodeGptDb(
+  homeDir: string = os.homedir()
+): Promise<string | undefined> {
+  const dbPath = resolveDbPath(homeDir);
+  if (!(await fileExists(dbPath))) {
+    return undefined;
+  }
+  return createBackup(dbPath);
+}
+
+/**
+ * The CodeGPT VS Code extension persists connection objects through its
+ * local sidecar agent rather than writing SQLite itself:
+ * `POST http://localhost:54112/api/migrate-sqlite` with
+ * `{type:"connection", provider, custom_link?, apikey?...}`.
+ *
+ * Preferred write path: when the sidecar is running it applies the same
+ * COALESCE upsert the extension would, so no desync. Returns false when the
+ * sidecar is unreachable, times out, or answers non-2xx — the caller then
+ * falls back to the direct SQLite write.
+ */
+export async function writeCodeGptConnectionViaSidecar(
+  baseUrl: string,
+  apiKey: string | undefined,
+  homeDir: string = os.homedir()
+): Promise<boolean> {
+  const port = process.env.CODEGPT_SIDECAR_PORT?.trim() || '54112';
+  try {
+    const response = await fetch(`http://localhost:${port}/api/migrate-sqlite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'connection',
+        provider: CODEGPT_LOCAL_PROVIDER,
+        custom_link: baseUrl,
+        ...(apiKey ? { apikey: apiKey } : {}),
+        ...(resolveCodeGptHome(homeDir) !== path.join(os.homedir(), '.codegpt')
+          ? { codegpt_home: resolveCodeGptHome(homeDir) }
+          : {})
+      }),
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!response.ok) {
+      Logger.getInstance().debug(
+        `CodeGPT sidecar rejected the connection write (HTTP ${response.status}); falling back to direct SQLite`
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    Logger.getInstance().debug(
+      `CodeGPT sidecar not reachable (${error instanceof Error ? error.message : String(error)}); falling back to direct SQLite`
+    );
+    return false;
   }
 }
 
@@ -232,11 +340,11 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-function logSqlite(op: 'read' | 'write', error: unknown): void {
+function logSqlite(op: 'read' | 'write' | 'checkpoint', error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   if (op === 'write') {
     Logger.getInstance().error(`CodeGPT SQLite write failed: ${message}`);
   } else {
-    Logger.getInstance().debug(`CodeGPT SQLite read unavailable: ${message}`);
+    Logger.getInstance().debug(`CodeGPT SQLite ${op} unavailable: ${message}`);
   }
 }

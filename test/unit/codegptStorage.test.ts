@@ -2,7 +2,7 @@
  * Unit tests for src/adapters/codegpt/codegptStorage.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -14,6 +14,9 @@ import {
   writeCodeGptConnection,
   readCodeGptConnection,
   writeCodeGptLocalFlavor,
+  writeCodeGptConnectionViaSidecar,
+  checkpointCodeGptDb,
+  backupCodeGptDb,
   CODEGPT_LOCAL_PROVIDER,
 } from '../../src/adapters/codegpt/codegptStorage';
 
@@ -123,6 +126,74 @@ describe('writeCodeGptConnection / readCodeGptConnection', () => {
       expect(stored).toBeUndefined();
     } finally {
       fs.rmSync(emptyHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writeCodeGptConnectionViaSidecar / checkpointCodeGptDb / backupCodeGptDb', () => {
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('prefers the sidecar API and sends the connection payload', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 } as Response));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const ok = await writeCodeGptConnectionViaSidecar('https://gw.example.com', 'key-x', tmpHome);
+    expect(ok).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain('/api/migrate-sqlite');
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      type: 'connection',
+      provider: CODEGPT_LOCAL_PROVIDER,
+      custom_link: 'https://gw.example.com',
+      apikey: 'key-x'
+    });
+  });
+
+  it('falls back to the direct write when the sidecar is unreachable', async () => {
+    // Make the sidecar unreachable, then exercise the registered writer path
+    // end to end: checkpoint -> backup -> sidecar fail -> direct write.
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
+
+    // Give the DB an existing row so the backup path is exercised.
+    await writeCodeGptConnection('http://before:1', 'k1', tmpHome);
+
+    const backupPath = await backupCodeGptDb(tmpHome);
+    expect(backupPath).toBeDefined();
+
+    const viaSidecar = await writeCodeGptConnectionViaSidecar('http://after:2', 'k2', tmpHome);
+    expect(viaSidecar).toBe(false);
+
+    await writeCodeGptConnection('http://after:2', 'k2', tmpHome, { skipBackup: true });
+    const stored = await readCodeGptConnection(tmpHome);
+    expect(stored?.customLink).toBe('http://after:2');
+    expect(stored?.apikey).toBe('k2');
+  });
+
+  it('checkpoint is advisory: true on an existing db, tolerant on a missing one', async () => {
+    expect(await checkpointCodeGptDb(tmpHome)).toBe(true);
+    const missing = fs.mkdtempSync(path.join(os.tmpdir(), 'codegpt-missing-'));
+    try {
+      expect(await checkpointCodeGptDb(missing)).toBe(true);
+    } finally {
+      fs.rmSync(missing, { recursive: true, force: true });
+    }
+  });
+
+  it('backupCodeGptDb returns undefined when the DB does not exist yet', async () => {
+    const missing = fs.mkdtempSync(path.join(os.tmpdir(), 'codegpt-missing2-'));
+    try {
+      expect(await backupCodeGptDb(missing)).toBeUndefined();
+    } finally {
+      fs.rmSync(missing, { recursive: true, force: true });
     }
   });
 });
