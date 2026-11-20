@@ -8,6 +8,7 @@ import { AssistantEntry } from '../core/registry/registryTypes';
 import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { Logger } from '../util/log';
+import { promptReloadAfterApply } from '../util/assistantReload';
 import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
@@ -23,6 +24,8 @@ interface DetachAssistantOutcome {
   switchedProfileName?: string;
   warning?: string;
   failure?: string;
+  /** Extension IDs needing a reload after a successful fallback-profile switch. */
+  reloadExtensionIds?: string[];
 }
 
 export async function assignProfileAssistants(
@@ -121,12 +124,19 @@ export async function assignProfileAssistants(
 
   let succeededAssistantKeys: string[] = [];
   let failedAssistantKeys: string[] = [];
+  // Reload requirement survives the whole workflow; the prompt fires only
+  // after ALL state updates below (detach loop included) complete.
+  const pendingReloadIds = new Set<string>();
 
   if (plan && plan.steps.length > 0) {
     const result = await withProgress(
       `Applying ${profile.name} to selected assistants...`,
       async () => await switchboard.applyPlan(plan)
     );
+
+    for (const extensionId of result.reloadExtensionIds ?? []) {
+      pendingReloadIds.add(extensionId);
+    }
 
     succeededAssistantKeys = [...result.assistantResults.entries()]
       .filter(([, assistantResult]) => assistantResult.status === 'configured')
@@ -174,6 +184,10 @@ export async function assignProfileAssistants(
       detachedSwitches.push(`${assistantKey} -> ${outcome.switchedProfileName}`);
     }
 
+    for (const extensionId of outcome.reloadExtensionIds ?? []) {
+      pendingReloadIds.add(extensionId);
+    }
+
     if (outcome.warning) {
       detachWarnings.push(outcome.warning);
     }
@@ -206,6 +220,10 @@ export async function assignProfileAssistants(
     ? `No assistants were automatically assigned to "${profile.name}".`
     : buildAssignmentOutcomeMessage(profile.name, succeededAssistantKeys.length, detachedAssistantKeys.length);
   const combinedFailures = [...failedAssistantKeys, ...detachFailures];
+
+  // All state updates (assignment applies + detach fallback switches + mapping
+  // restores) are complete — NOW it is safe to offer the reload.
+  await promptReloadAfterApply({ reloadExtensionIds: [...pendingReloadIds] });
 
   if (combinedFailures.length === 0 && detachWarnings.length === 0) {
     if (succeededAssistantKeys.length === 0 && detachedAssistantKeys.length === 0 && anyIncompleteAssignment) {
@@ -310,7 +328,8 @@ async function detachAssistantFromProfile(
     if (assistantResult?.success) {
       return {
         detached: true,
-        switchedProfileName: fallbackProfile.name
+        switchedProfileName: fallbackProfile.name,
+        reloadExtensionIds: applyResult.reloadExtensionIds
       };
     }
 

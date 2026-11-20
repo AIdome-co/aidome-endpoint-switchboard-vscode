@@ -16,7 +16,6 @@ import { detectExtensions, DetectedAssistant } from '../detection/detectExtensio
 import { detectCLIs, DetectedCLI } from '../detection/detectCLIs';
 import { getAdapter } from '../../adapters/adapters.index';
 import { Logger } from '../../util/log';
-import { promptReloadForExtensionIds } from '../../util/assistantReload';
 import { startTimer } from '../../util/operationTimer';
 import { withRetry } from '../../util/retry';
 
@@ -210,8 +209,12 @@ export class Switchboard {
       // while running and persist that snapshot back over the applied files
       // (e.g. Cline's ClineFileStorage reads its config files once at
       // activation and writes the whole snapshot back on every state change).
-      // Offer a window reload so the applied on-disk state is re-read instead
-      // of being clobbered. Advisory only — failures here never fail the apply.
+      // Report the extensions that need a window reload so the applied
+      // on-disk state is re-read instead of being clobbered. The prompt MUST
+      // happen at the top-level command flow AFTER its post-apply state
+      // updates complete — prompting here (inside applyPlan) can terminate
+      // the extension host before the caller finishes (e.g. setActiveProfile
+      // after applyPlan returns, or a multi-assistant reassignment loop).
       try {
         const reloadExtensionIds = new Set<string>();
         for (const assistantKey of mutatedAssistants) {
@@ -221,11 +224,11 @@ export class Switchboard {
           }
         }
         if (reloadExtensionIds.size > 0) {
-          await promptReloadForExtensionIds([...reloadExtensionIds]);
+          result.reloadExtensionIds = [...reloadExtensionIds];
         }
       } catch (error) {
         this.logger.warning(
-          'Post-apply reload prompt could not be shown',
+          'Post-apply reload requirement could not be collected',
           error instanceof Error ? error : undefined
         );
       }

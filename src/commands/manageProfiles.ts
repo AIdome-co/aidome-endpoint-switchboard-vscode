@@ -36,6 +36,7 @@ import {
 } from './profileCreation';
 import { runProfileVerification, verifyProfileConnection } from './profileVerification';
 import { showModelsProviders } from './showModelsProviders';
+import { promptReloadAfterApply } from '../util/assistantReload';
 
 interface ProfileQuickPickItem extends vscode.QuickPickItem {
   profile: EndpointProfile;
@@ -72,6 +73,11 @@ interface AutomaticProfileApplyResult {
    * rollback candidate set when a reassignment aborts.
    */
   mutatedAssistantKeys: string[];
+  /**
+   * Extension IDs needing a reload to re-read applied on-disk config,
+   * aggregated across every per-assistant applyPlan in this flow.
+   */
+  reloadExtensionIds: string[];
 }
 
 const MANAGE_PROFILE_CREATION_TITLES = buildCreateProfileStepTitles(
@@ -600,6 +606,11 @@ async function reapplyEditedProfileMappings(
           `Applying ${profile.name} to`
         );
         const { appliedAssistantKeys, skippedAssistantKeys, failedAssistantKeys, guidedAssistantKeys, unsupportedAssistantKeys, deferredAssistantKeys, incompleteAssistantKeys } = result;
+
+        // All state updates for the reapply are complete — offer the reload
+        // now (never inside applyPlan / the per-assistant loop).
+        await promptReloadAfterApply(result);
+
         const skippedSuffix = skippedAssistantKeys.length > 0
           ? ` Manual-only assistants not updated automatically: ${skippedAssistantKeys.join(', ')}.`
           : '';
@@ -826,6 +837,7 @@ async function applyAutomaticProfileToAssistants(
   const deferredAssistantKeys: string[] = [];
   const incompleteResults: IncompleteAutomaticApply[] = [];
   const mutatedAssistantKeys: string[] = [];
+  const reloadExtensionIds = new Set<string>();
 
   for (const [index, assistantKey] of assistantKeys.entries()) {
     progress?.report({
@@ -841,6 +853,9 @@ async function applyAutomaticProfileToAssistants(
     }
 
     const applyResult = await switchboard.applyPlan(reapplyPlan);
+    for (const extensionId of applyResult.reloadExtensionIds ?? []) {
+      reloadExtensionIds.add(extensionId);
+    }
     // P1: status is the source of truth; `success` is only a compatibility
     // field. guided-required / unsupported / deferred are INCOMPLETE, not
     // hard failures — they must not trigger failure cleanup/abort logic.
@@ -919,7 +934,8 @@ async function applyAutomaticProfileToAssistants(
     deferredAssistantKeys,
     incompleteAssistantKeys: [...guidedAssistantKeys, ...unsupportedAssistantKeys, ...deferredAssistantKeys],
     incompleteResults,
-    mutatedAssistantKeys
+    mutatedAssistantKeys,
+    reloadExtensionIds: [...reloadExtensionIds]
   };
 }
 
@@ -1079,6 +1095,11 @@ async function reassignMappedAssistantsToProfile(
             incompleteAssistantKeys: targetResult.incompleteAssistantKeys
           }
         );
+
+        // Reassignment succeeded (restoration paths keep the original config
+        // and must NOT prompt): all state updates are complete — offer the
+        // reload now, never inside applyPlan / the per-assistant loop.
+        await promptReloadAfterApply(targetResult);
 
         return {
           kind: (targetResult.skippedAssistantKeys.length > 0 || targetResult.incompleteAssistantKeys.length > 0)

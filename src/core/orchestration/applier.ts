@@ -26,6 +26,14 @@ export interface ApplierResult {
   changeLogEntry: ChangeLogEntry;
   /** Per-assistant outcome summary for graceful degradation reporting. */
   assistantResults: Map<string, AssistantApplyResult>;
+  /**
+   * Extension IDs that snapshot their file-backed configuration in memory
+   * and require a window reload to re-read the applied on-disk state.
+   * Advisory only — the CALLER decides when to prompt (always after its
+   * own post-apply state updates complete; prompting inside applyPlan can
+   * terminate the extension host mid-workflow).
+   */
+  reloadExtensionIds?: string[];
 }
 
 /**
