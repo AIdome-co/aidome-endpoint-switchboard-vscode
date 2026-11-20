@@ -96,9 +96,10 @@ export function buildProviderSettingsContent(
     }
   };
 
-  if (typeof current.lastUsedProvider !== 'string' || current.lastUsedProvider.trim().length === 0) {
-    delete next.lastUsedProvider;
-  }
+  // Selecting the gateway also makes it the last-used provider: Cline's SDK
+  // provider store resolves the active provider from lastUsedProvider when
+  // globalState holds no provider (session-factory fallback path).
+  next.lastUsedProvider = CLINE_PROVIDER_ID;
 
   return `${JSON.stringify(next, null, 2)}\n`;
 }

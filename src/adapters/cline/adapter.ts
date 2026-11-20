@@ -60,6 +60,17 @@ export class ClineAdapter extends BaseExtensionAdapter {
     super();
   }
 
+  /**
+   * Cline snapshots globalState.json/providers.json into memory at activation
+   * (ClineFileStorage reads the file once in its constructor) and persists
+   * the whole in-memory snapshot back over those files, clobbering external
+   * writes while it runs. A window reload after apply is the only way the
+   * applied state is re-read from disk.
+   */
+  getReloadExtensionIds(): string[] {
+    return [CLINE_EXTENSION_ID];
+  }
+
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     if (!validateUrl(profile.baseUrl)) {
       throw new Error('Invalid Cline endpoint URL');
@@ -101,6 +112,11 @@ export class ClineAdapter extends BaseExtensionAdapter {
         patches: [
           { path: ['version'], value: 1 },
           { path: ['modes'], value: {}, setWhenMissing: true },
+          // Cline's SDK provider store resolves the active provider from
+          // lastUsedProvider (the session-factory fallback path when
+          // globalState holds no provider). Selecting the gateway makes that
+          // fallback resolve to the applied profile too.
+          { path: ['lastUsedProvider'], value: CLINE_PROVIDER_ID },
           { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'provider'], value: CLINE_PROVIDER_ID },
           { path: ['providers', CLINE_PROVIDER_ID, 'settings', 'baseUrl'], source: 'baseUrl' },
           ...(modelId ? [{ path: ['providers', CLINE_PROVIDER_ID, 'settings', 'model'], value: modelId }] : []),

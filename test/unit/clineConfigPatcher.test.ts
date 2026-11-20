@@ -73,7 +73,9 @@ describe('Cline config patcher', () => {
 
     expect(providers.providers.anthropic.settings.apiKey).toBe('keep');
     expect(providers.modes.voiceInput).toEqual({ providerId: 'anthropic', modelId: 'claude' });
-    expect(providers.lastUsedProvider).toBe('anthropic');
+    // The applied gateway becomes the last-used provider so Cline's SDK
+    // provider-store fallback resolves to it when globalState holds nothing.
+    expect(providers.lastUsedProvider).toBe('openai-compatible');
     expect(globalState.unrelated).toBe(true);
   });
 
