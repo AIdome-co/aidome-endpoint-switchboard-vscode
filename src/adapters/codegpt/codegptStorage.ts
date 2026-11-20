@@ -323,7 +323,14 @@ export async function ensureCodeGptLocalFlavor(
       try {
         settings = JSON.parse(existingRaw);
       } catch {
-        settings = {};
+        // A non-empty unparsable settings.json (interrupted CodeGPT write,
+        // manual edit) must NOT be silently replaced — defaulting to {}
+        // would wipe every existing CodeGPT setting with only the flavor
+        // key (Codex 4648329470). Fail the step instead.
+        throw new Error(
+          `${settingsPath} exists but is not valid JSON; refusing to overwrite it. ` +
+          'Fix or remove the file manually, then re-run the setup.'
+        );
       }
     }
 

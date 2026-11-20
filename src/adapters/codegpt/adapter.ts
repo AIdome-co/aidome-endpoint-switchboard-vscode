@@ -53,6 +53,13 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   await checkpointCodeGptDb(homeDir);
   const backupPath = await backupCodeGptDb(homeDir);
 
+  // An EXISTING database without a backup means the mutation would be
+  // un-rollbackable (e.g. backup failed on disk-full/permissions) — fail the
+  // step instead of proceeding without a recoverable copy (Codex 4648329459).
+  if (dbExisted && !backupPath) {
+    throw new Error(`Could not create a backup of ${dbPath}; refusing to mutate it without a recoverable copy`);
+  }
+
   const viaSidecar = await writeCodeGptConnectionViaSidecar(baseUrl, apiKey, homeDir);
   if (!viaSidecar) {
     await writeCodeGptConnection(baseUrl, apiKey, homeDir, { skipBackup: true });
