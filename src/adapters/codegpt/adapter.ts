@@ -14,14 +14,16 @@ import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { validateUrl, validateInputUrl } from '../../core/profiles/profileValidator';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
+import * as fs from 'fs/promises';
 import {
   readCodeGptConnection,
   resolveCodeGptHome,
   normalizeStorageBaseUrl,
   writeCodeGptConnection,
   writeCodeGptConnectionViaSidecar,
-  writeCodeGptLocalFlavor,
+  ensureCodeGptLocalFlavor,
   resolveDbPath,
+  resolveSettingsPath,
   checkpointCodeGptDb,
   backupCodeGptDb,
 } from './codegptStorage';
@@ -44,6 +46,10 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   }
   const homeDir = typeof data.homeDir === 'string' ? data.homeDir : undefined;
 
+  const dbPath = resolveDbPath(homeDir);
+  const settingsPath = resolveSettingsPath(homeDir);
+  const dbExisted = await fs.access(dbPath).then(() => true, () => false);
+
   await checkpointCodeGptDb(homeDir);
   const backupPath = await backupCodeGptDb(homeDir);
 
@@ -51,8 +57,26 @@ registerAssistantStorageWriter('codegpt', async (step, apiKey) => {
   if (!viaSidecar) {
     await writeCodeGptConnection(baseUrl, apiKey, homeDir, { skipBackup: true });
   }
-  await writeCodeGptLocalFlavor(homeDir);
-  return { backupPath, target: resolveDbPath(homeDir) };
+
+  // The flavor setting is REQUIRED state: a failed write must fail the whole
+  // step so the applier rolls the DB write back (Codex 4648050961). The
+  // settings.json mutation is tracked for rollback too (Codex 4648050971).
+  const settingsExisted = await fs.access(settingsPath).then(() => true, () => false);
+  try {
+    const flavor = await ensureCodeGptLocalFlavor(homeDir);
+    return {
+      backupPath,
+      target: dbPath,
+      createdFile: !dbExisted,
+      extraRollbacks: flavor.changed
+        ? [{ target: settingsPath, backupPath: flavor.backupPath, createdFile: !settingsExisted }]
+        : []
+    };
+  } catch (error) {
+    throw new Error(
+      `CodeGPT flavor setting could not be written; rolling back the database write (${error instanceof Error ? error.message : String(error)})`
+    );
+  }
 });
 
 /** CodeGPT assistant adapter. */

@@ -23,6 +23,8 @@ export interface AppliedStep {
   mutationApplied?: boolean;
   /** True when a missing-secret 'remove-managed-key' operation removed the managed env key. */
   managedValueRemoved?: boolean;
+  /** For write-assistant-storage: additional mutated targets restored after the primary on rollback. */
+  extraRollbacks?: import('./assistantStorageWriters').AssistantStorageRollbackTarget[];
 }
 
 /**

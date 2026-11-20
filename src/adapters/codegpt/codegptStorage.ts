@@ -23,9 +23,16 @@
  * (`POST http://localhost:54112/api/migrate-sqlite`, type "connection" — the
  * endpoint the VS Code extension itself uses) so the running sidecar observes
  * the change immediately; the direct `node:sqlite` write below is the
- * fallback when the sidecar is not running. This module uses Node's built-in
- * `node:sqlite` (available in the VS Code extension host and Node 20+), so no
- * native dependency is added.
+ * fallback when the sidecar is not running. The fallback uses Node's built-in
+ * `node:sqlite`, which requires Node >= 22.5 (`engines.vscode` ^1.85 hosts run
+ * older Node) — `loadSqlite()` throws a descriptive error in that case, and
+ * callers surface it as a failed/guided outcome rather than a crash.
+ *
+ * SECURITY: `custom_link` and `apikey` are written EXPLICITLY (no COALESCE
+ * on these two columns) so switching profiles always replaces the endpoint
+ * AND the credential — a previous profile's token must never survive and be
+ * replayed against the new endpoint (Codex review 4648050946). Plaintext
+ * apikey storage is CodeGPT's own contract (its UI stores it the same way).
  */
 
 import * as os from 'os';
@@ -91,7 +98,7 @@ export async function readCodeGptConnection(
   homeDir: string = os.homedir()
 ): Promise<{ customLink?: string; apikey?: string } | undefined> {
   try {
-    const { DatabaseSync } = await import('node:sqlite');
+    const { DatabaseSync } = await loadSqlite();
     const dbPath = resolveDbPath(homeDir);
     const exists = await fileExists(dbPath);
     if (!exists) {
@@ -140,7 +147,7 @@ export async function writeCodeGptConnection(
   const backupPath = options.skipBackup ? undefined : await createBackup(dbPath);
 
   try {
-    const { DatabaseSync } = await import('node:sqlite');
+    const { DatabaseSync } = await loadSqlite();
     // Ensure the CodeGPT home directory (and thus the DB) can be created.
     const { mkdir } = await import('fs/promises');
     await mkdir(path.dirname(dbPath), { recursive: true });
@@ -164,16 +171,18 @@ export async function writeCodeGptConnection(
       );
     `);
 
-    // Upsert exactly like CodeGPT's own store (COALESCE preserves existing
-    // values when the incoming value is NULL).
+    // Upsert like CodeGPT's own store, EXCEPT apikey/custom_link: they are
+    // set unconditionally so a credential-less profile CLEARS the previous
+    // profile's token instead of replaying it against the new endpoint
+    // (COALESCE here would leak profile A's key into profile B).
     db.prepare(`
       INSERT INTO connection
         (provider, apikey, organization_id, custom_link, google_Oauth, region,
          access_key_id, secret_access_key, session_token)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider) DO UPDATE SET
-        apikey = COALESCE(excluded.apikey, connection.apikey),
-        custom_link = COALESCE(excluded.custom_link, connection.custom_link),
+        apikey = excluded.apikey,
+        custom_link = excluded.custom_link,
         updated_at = CURRENT_TIMESTAMP
     `).run(
       CODEGPT_LOCAL_PROVIDER,
@@ -216,7 +225,7 @@ export async function checkpointCodeGptDb(
     if (!(await fileExists(dbPath))) {
       return true;
     }
-    const { DatabaseSync } = await import('node:sqlite');
+    const { DatabaseSync } = await loadSqlite();
     const db = new DatabaseSync(dbPath);
     try {
       db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get();
@@ -294,13 +303,17 @@ export async function writeCodeGptConnectionViaSidecar(
 /**
  * Ensures the `local-server-flavor-<provider>` key in CodeGPT's settings.json
  * is set to "custom", matching what CodeGPT writes when a local provider is
- * configured. Backs up settings.json first. Uses an atomic write.
+ * configured. Backs up settings.json first (unless skipBackup) so the caller
+ * can roll the change back. Uses an atomic write.
  *
- * Returns true when the settings file is in the desired state afterward.
+ * Returns the mutation report: `changed` false means the key was already
+ * correct (no write, no backup); a thrown/failed write means the flavor is
+ * NOT applied and the caller must treat the whole storage write as failed.
  */
-export async function writeCodeGptLocalFlavor(
-  homeDir: string = os.homedir()
-): Promise<boolean> {
+export async function ensureCodeGptLocalFlavor(
+  homeDir: string = os.homedir(),
+  options: { skipBackup?: boolean } = {}
+): Promise<{ changed: boolean; backupPath?: string }> {
   const settingsPath = resolveSettingsPath(homeDir);
   try {
     const { readFileSafe, writeFileAtomic } = await import('../../util/fsSafe');
@@ -316,17 +329,52 @@ export async function writeCodeGptLocalFlavor(
 
     const key = `local-server-flavor-${CODEGPT_LOCAL_PROVIDER}`;
     if (settings[key] === 'custom') {
-      return true; // Already correct.
+      return { changed: false }; // Already correct: nothing to roll back.
     }
 
-    await createBackup(settingsPath);
+    const backupPath = options.skipBackup ? undefined : await createBackup(settingsPath);
     settings[key] = 'custom';
-    return await writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2));
+    const ok = await writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2));
+    if (!ok) {
+      throw new Error(`atomic write of ${settingsPath} failed`);
+    }
+    return { changed: true, backupPath };
   } catch (error) {
     Logger.getInstance().warning(
       `Failed to update CodeGPT settings.json (${settingsPath}): ${error instanceof Error ? error.message : String(error)}`
     );
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+/**
+ * Boolean convenience wrapper around ensureCodeGptLocalFlavor.
+ */
+export async function writeCodeGptLocalFlavor(
+  homeDir: string = os.homedir()
+): Promise<boolean> {
+  try {
+    await ensureCodeGptLocalFlavor(homeDir);
+    return true;
+  } catch {
     return false;
+  }
+}
+
+/**
+ * Loads node:sqlite with a descriptive error on runtimes that lack it
+ * (Node < 22.5 — e.g. the extension host of VS Code 1.85). The sidecar path
+ * does not need this module, so only the direct-write fallback surfaces it.
+ */
+async function loadSqlite(): Promise<typeof import('node:sqlite')> {
+  try {
+    return await import('node:sqlite');
+  } catch (error) {
+    throw new Error(
+      'Direct SQLite fallback requires node:sqlite (Node >= 22.5); this VS Code '
+      + 'extension host runs an older Node. Start the CodeGPT extension once so '
+      + `its sidecar is running, or upgrade VS Code. (${error instanceof Error ? error.message : String(error)})`
+    );
   }
 }
 

@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
+import { redactUrl } from '../../util/redact';
 import { createBackup, safeWriteFile, isFileNotFoundError } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { showWarning } from '../../ui/notifications';
@@ -677,7 +678,7 @@ export class PlanApplier {
     appliedStep.mutationApplied = true;
     appliedStep.backupPath = result.backupPath;
     appliedStep.target = result.target ?? step.targetPath ?? `assistant-storage:${assistantKey}`;
-    this.logger.info(`Wrote assistant storage for ${assistantKey} (baseUrl=${baseUrl}, backup=${result.backupPath ?? 'none'})`);
+    this.logger.info(`Wrote assistant storage for ${assistantKey} (baseUrl=${redactUrl(baseUrl)}, backup=${result.backupPath ?? 'none'})`);
   }
 
   /**
@@ -825,18 +826,33 @@ export class PlanApplier {
         // These actions don't need reversal
         break;
 
-      case 'write-assistant-storage':
-        // Restore the CodeGPT SQLite DB from the binary backup created during
-        // apply. Requires fs.copyFile (binary-safe), not a text write.
-        if (step.backupPath && step.target) {
+      case 'write-assistant-storage': {
+        // Restore every mutated target (primary DB + extras such as
+        // settings.json) from the backups created during apply. Requires
+        // fs.copyFile (binary-safe), not a text write. A target the apply
+        // CREATED (no backup) is deleted, restoring the pre-apply state.
+        const targets: Array<{ target?: string; backupPath?: string; createdFile?: boolean }> = [
+          { target: step.target, backupPath: step.backupPath, createdFile: step.createdFile },
+          ...(step.extraRollbacks ?? [])
+        ];
+        for (const t of targets) {
+          if (!t.target) {
+            continue;
+          }
           try {
-            await fs.copyFile(step.backupPath, step.target);
-            this.logger.info(`Restored CodeGPT storage from backup: ${step.backupPath}`);
+            if (!t.backupPath && t.createdFile) {
+              await fs.rm(t.target, { force: true });
+              this.logger.info(`Removed ${t.target} (created by the rolled-back apply)`);
+            } else if (t.backupPath) {
+              await fs.copyFile(t.backupPath, t.target);
+              this.logger.info(`Restored ${t.target} from backup: ${t.backupPath}`);
+            }
           } catch (error) {
-            this.logger.warning(`Could not restore CodeGPT storage from backup: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.warning(`Could not restore ${t.target}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
         break;
+      }
     }
   }
 }
