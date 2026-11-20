@@ -18,7 +18,7 @@ vi.mock('child_process', () => ({
 
 vi.mock('../../src/config/runtimeSettings', () => ({
   getRuntimeSettings: () => ({
-    cliDetectionTimeoutMs: 2000,
+    cliDetectionTimeoutMs: 5000,
   }),
 }));
 

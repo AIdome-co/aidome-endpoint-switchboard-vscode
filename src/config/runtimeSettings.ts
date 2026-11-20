@@ -27,7 +27,7 @@ export interface RuntimeSettings {
 }
 
 export const defaultRuntimeSettings: RuntimeSettings = {
-  cliDetectionTimeoutMs: 2_000,
+  cliDetectionTimeoutMs: 5_000,
   httpTimeoutMs: 10_000,
   httpRetryBackoffMaxMs: 5_000,
   aidomeClientCacheTtlMs: 60_000,

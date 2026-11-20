@@ -111,7 +111,7 @@ describe('package.json Marketplace Readiness', () => {
     expect(packageJson.contributes.configuration.title).toBe('AIdome Endpoint Switchboard');
 
     const properties = packageJson.contributes.configuration.properties;
-    expect(properties['aidome-switchboard.advanced.cliDetectionTimeoutMs'].default).toBe(2000);
+    expect(properties['aidome-switchboard.advanced.cliDetectionTimeoutMs'].default).toBe(5000);
     expect(properties['aidome-switchboard.advanced.httpTimeoutMs'].default).toBe(10000);
     expect(properties['aidome-switchboard.advanced.httpRetryBackoffMaxMs'].default).toBe(5000);
     expect(properties['aidome-switchboard.advanced.aidomeClientCacheTtlMs'].default).toBe(60000);
