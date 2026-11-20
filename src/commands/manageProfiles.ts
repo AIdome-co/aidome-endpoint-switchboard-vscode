@@ -45,6 +45,14 @@ interface ProfileQuickPickItem extends vscode.QuickPickItem {
 interface ReapplyNotice {
   kind: 'success' | 'warning' | 'error';
   message: string;
+  /**
+   * Extension IDs needing a reload to re-read applied on-disk config.
+   * Producers must NOT prompt when a caller still has durable cleanup
+   * pending (e.g. deleteProfileFlow deletes the source profile and its
+   * secret AFTER reassignment) — the requirement travels to the top of
+   * the workflow and the prompt fires only after all state updates.
+   */
+  reloadExtensionIds?: string[];
 }
 
 /** An incomplete (not configured, NOT failed) automatic apply outcome, with real mutation evidence. */
@@ -744,6 +752,9 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
   let completionNotice:
     | { kind: 'success' | 'warning' | 'error'; message: string }
     | undefined;
+  // Reload requirement survives the whole deletion flow; the prompt fires
+  // only after profile deletion, secret removal and active-profile updates.
+  let pendingReloadIds: string[] = [];
 
   if (choice.label.includes('Reassign')) {
     // Show reassignment dialog
@@ -778,6 +789,7 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
     }
 
     reassignedProfile = targetProfile.profile;
+    pendingReloadIds = reassignmentNotice.reloadExtensionIds ?? [];
     completionNotice = {
       kind: reassignmentNotice.kind,
       message: `Profile "${profile.name}" deleted. ${reassignmentNotice.message}`
@@ -808,6 +820,11 @@ async function deleteProfileFlow(context: vscode.ExtensionContext, profile: Endp
       }
     }
   }
+
+  // All durable state updates (profile deletion, secret removal,
+  // active-profile update, status bar) are complete — NOW it is safe to
+  // offer the reload; a click cannot interrupt this workflow anymore.
+  await promptReloadAfterApply({ reloadExtensionIds: pendingReloadIds });
 
   if (completionNotice?.kind === 'warning') {
     await showWarning(completionNotice.message);
@@ -1097,11 +1114,13 @@ async function reassignMappedAssistantsToProfile(
         );
 
         // Reassignment succeeded (restoration paths keep the original config
-        // and must NOT prompt): all state updates are complete — offer the
-        // reload now, never inside applyPlan / the per-assistant loop.
-        await promptReloadAfterApply(targetResult);
-
+        // and carry no reload requirement). Do NOT prompt here: the caller
+        // (deleteProfileFlow) still has durable cleanup pending — source
+        // profile deletion, secret removal, active-profile update. The
+        // requirement travels up on the notice and the caller prompts after
+        // all of that completes.
         return {
+          reloadExtensionIds: targetResult.reloadExtensionIds,
           kind: (targetResult.skippedAssistantKeys.length > 0 || targetResult.incompleteAssistantKeys.length > 0)
             ? 'warning'
             : 'success',
