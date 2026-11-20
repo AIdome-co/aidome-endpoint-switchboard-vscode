@@ -37,7 +37,14 @@ vi.mock('../../src/adapters/codegpt/codegptStorage', () => ({
   writeCodeGptConnection: (...a: unknown[]) => writeConnection(...a),
   writeCodeGptLocalFlavor: (...a: unknown[]) => writeFlavor(...a),
   resolveDbPath: () => '/home/test/.codegpt/db.sqlite',
+  readCodeGptConnection: async () => undefined,
+  resolveCodeGptHome: () => '/home/test/.codegpt',
+  normalizeStorageBaseUrl: (u: string) => u,
 }));
+
+// Loading the adapter module registers the CodeGPT storage writer with the
+// generic `write-assistant-storage` dispatch.
+import '../../src/adapters/codegpt/adapter';
 
 describe('PlanApplier.write-assistant-storage', () => {
   let applier: PlanApplier;
