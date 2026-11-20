@@ -8,6 +8,7 @@ import { loadRegistry } from '../core/registry/registryLoader';
 import { CONFIGURATION_MUTATION_ACTIONS } from '../core/orchestration/assistantOutcome';
 import { updateStatusBar } from '../ui/statusBar';
 import { Logger } from '../util/log';
+import { promptReloadAfterApply } from '../util/assistantReload';
 
 // GAP 8: automated reapply must retain every real automatic configuration
 // mutation — including write-env-file — so profile switching moves BOTH the
@@ -76,7 +77,11 @@ export async function activateProfileAndReapplyMappings(
     };
   }
 
-  return await vscode.window.withProgress(
+  // Reload requirement is collected inside applyPlan but the prompt MUST wait
+  // until this workflow's state updates (setActiveProfile) are complete.
+  let pendingReloadIds: string[] = [];
+
+  const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: `Switching assistants to ${profile.name}...`,
@@ -113,6 +118,7 @@ export async function activateProfileAndReapplyMappings(
         progress.report({ message: `Applying ${actionableAssistantKeys.length} assistant configuration(s)...` });
 
         const applyResult = await switchboard.applyPlan(reapplyPlan);
+        pendingReloadIds = applyResult.reloadExtensionIds ?? [];
         const failedAssistantKeys = [...applyResult.assistantResults.entries()]
           .filter(([, result]) => result.status === 'failed')
           .map(([assistantKey]) => assistantKey);
@@ -194,6 +200,9 @@ export async function activateProfileAndReapplyMappings(
           undefined,
           { failedAssistantKeys, skippedAssistantKeys }
         );
+        // Failed outright: mutations were rolled back per assistant, so no
+        // reload is needed to stabilize on-disk state.
+        pendingReloadIds = [];
         return {
           status: 'failed' as const,
           profile,
@@ -204,6 +213,7 @@ export async function activateProfileAndReapplyMappings(
           errorMessage: `No assistant configurations were updated for "${profile.name}".`
         };
       } catch (error) {
+        pendingReloadIds = [];
         logger.error(
           `Failed to activate profile ${profile.name}`,
           error instanceof Error ? error : undefined
@@ -220,6 +230,12 @@ export async function activateProfileAndReapplyMappings(
       }
     }
   );
+
+  // All state updates (setActiveProfile / status bar) are complete — NOW it is
+  // safe to offer the reload; a user click cannot interrupt this workflow.
+  await promptReloadAfterApply({ reloadExtensionIds: pendingReloadIds });
+
+  return result;
 }
 
 export function getProfileActivationNotice(

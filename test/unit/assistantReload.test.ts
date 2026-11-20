@@ -14,6 +14,7 @@ vi.mock('vscode', () => ({
 
 import {
   promptReloadForExtensionIds,
+  promptReloadAfterApply,
   RELOAD_WINDOW_ACTION
 } from '../../src/util/assistantReload';
 
@@ -85,5 +86,40 @@ describe('promptReloadForExtensionIds', () => {
     await promptReloadForExtensionIds(['saoudrizwan.claude-dev']);
 
     expect(mocks.showWarningMessage.mock.calls[0][0]).toContain('Cline');
+  });
+});
+
+describe('promptReloadAfterApply', () => {
+  beforeEach(() => {
+    mocks.getExtension.mockReset();
+    mocks.showWarningMessage.mockReset();
+    mocks.executeCommand.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('prompts using the reloadExtensionIds carried on the apply result', async () => {
+    mocks.getExtension.mockReturnValue({
+      id: 'saoudrizwan.claude-dev',
+      isActive: true,
+      packageJSON: { displayName: 'Cline' }
+    });
+    mocks.showWarningMessage.mockResolvedValue(RELOAD_WINDOW_ACTION);
+
+    await promptReloadAfterApply({ reloadExtensionIds: ['saoudrizwan.claude-dev'] });
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('workbench.action.reloadWindow');
+  });
+
+  it('does nothing for undefined/null results or results without reloadExtensionIds', async () => {
+    await promptReloadAfterApply(undefined);
+    await promptReloadAfterApply(null);
+    await promptReloadAfterApply({});
+
+    expect(mocks.getExtension).not.toHaveBeenCalled();
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled();
   });
 });

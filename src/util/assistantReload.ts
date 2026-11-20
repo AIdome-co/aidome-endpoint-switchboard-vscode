@@ -66,3 +66,18 @@ export async function promptReloadForExtensionIds(extensionIds: string[]): Promi
     // Advisory only — never fail an apply because the prompt could not be shown.
   }
 }
+
+/**
+ * Convenience for top-level command flows: prompts the reload AFTER the
+ * caller's own post-apply state updates (setActiveProfile, mapping cleanup,
+ * failure restoration, multi-assistant loops) are complete. Callers pass the
+ * ApplierResult (or an aggregate) so the reload requirement survives the
+ * whole workflow instead of terminating the extension host mid-flight.
+ *
+ * @param applyResult An ApplierResult or any object carrying reloadExtensionIds.
+ */
+export async function promptReloadAfterApply(
+  applyResult: { reloadExtensionIds?: string[] } | undefined | null
+): Promise<void> {
+  await promptReloadForExtensionIds(applyResult?.reloadExtensionIds ?? []);
+}
