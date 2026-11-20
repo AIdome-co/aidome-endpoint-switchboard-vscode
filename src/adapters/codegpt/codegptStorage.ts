@@ -38,6 +38,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import { Logger } from '../../util/log';
+import { redactUrl } from '../../util/redact';
 import { createBackup } from '../../util/fsSafe';
 
 /**
@@ -85,6 +86,21 @@ export function resolveSettingsPath(homeDir: string = os.homedir()): string {
  */
 export function normalizeStorageBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid CodeGPT endpoint URL: ${redactUrl(trimmed)}`);
+  }
+  if (url.search || url.hash) {
+    // CodeGPT appends `/v1/models` to custom_link verbatim: a query or
+    // fragment would swallow the appended path (e.g. `...?tenant=a/v1/models`
+    // stays inside the query), so model discovery would hit the wrong
+    // endpoint while setup reports success (Codex 4648661828).
+    throw new Error(
+      `CodeGPT endpoint URL must not contain query or fragment components: ${redactUrl(trimmed)}`
+    );
+  }
   const withoutTrailingSlash = trimmed.replace(/\/+$/, '');
   return withoutTrailingSlash.replace(/\/v1(?:\/models)?$/, '');
 }
