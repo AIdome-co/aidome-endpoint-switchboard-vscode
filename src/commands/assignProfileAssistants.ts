@@ -548,13 +548,26 @@ function buildAssistantSelectionItems(
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
   // Guided Tier C candidates stay selectable when their guided plan is
-  // actionable — extensions AND CLIs (Codex review PR 118 round 2).
+  // adapter-declared actionable (guidedSetupEligible, Codex review PR 118)
+  // OR the registry entry still ships guided setup steps (e.g. Tabnine's
+  // Admin Console Self-Managed Models wizard, PR 126) so the guidance
+  // reaches the user; the applier classifies non-appliant guided plans as
+  // guided-required instead of persisting a mapping.
+  const offersGuidance = (entry?: AssistantEntry): boolean =>
+    Boolean(entry && (entry.endpointSwitching.configurationModes ?? []).includes('guided'));
   const candidateDetectedExtensionKeys = detected.assistants
-    .filter(assistant => assistant.tier !== 'C' || guidedSetupEligible.has(assistant.assistantKey))
+    .filter(assistant => assistant.tier !== 'C'
+      || guidedSetupEligible.has(assistant.assistantKey)
+      || offersGuidance(assistantsByKey.get(assistant.assistantKey)))
     .map(assistant => assistant.assistantKey);
   const detectedCliKeys = detected.clis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C'
-      || guidedSetupEligible.has(cli.assistantKey))
+    .filter(cli => {
+      const assistant = assistantsByKey.get(cli.assistantKey);
+      // Registry entries default to switchable when unknown (pre-existing behavior).
+      return assistant?.endpointSwitching.tier !== 'C'
+        || guidedSetupEligible.has(cli.assistantKey)
+        || offersGuidance(assistant);
+    })
     .map(cli => cli.assistantKey);
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
@@ -572,11 +585,16 @@ function buildAssistantSelectionItems(
     if (!assistant) {
       continue;
     }
+    const isTierCGuided = assistant.endpointSwitching.tier === 'C'
+      && (offersGuidance(assistant) || guidedSetupEligible.has(assistantKey));
 
-    const isGuidedOnly = assistant.endpointSwitching.tier === 'C' && guidedSetupEligible.has(assistantKey);
-    if (assistant.endpointSwitching.tier === 'C' && !guidedSetupEligible.has(assistantKey)) {
-      // Unsupported Tier C guidance (e.g. Tabnine) must not be offered —
-      // applying would promise setup that does not exist (Codex round 2).
+    const isGuidedOnly = assistant.endpointSwitching.tier === 'C';
+    if (assistant.endpointSwitching.tier === 'C'
+      && !guidedSetupEligible.has(assistantKey)
+      && !offersGuidance(assistant)) {
+      // Unsupported Tier C with no followable guidance must not be offered —
+      // applying would promise setup that does not exist (Codex rounds: PR 118
+      // round 2, PR 126).
       continue;
     }
     const assistantMappings = mappings.filter(item => item.assistantKey === assistantKey);
@@ -594,13 +612,15 @@ function buildAssistantSelectionItems(
           ? 'Detected as CLI'
           : 'Previously assigned';
 
-    const assignmentLabel = currentProfileMapping
-      ? otherProfileNames.length > 0
-        ? `${detectionLabel} · assigned to this profile and ${otherProfileNames.join(', ')}`
-        : `${detectionLabel} · currently assigned to this profile`
-      : otherProfileNames.length > 0
-        ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
-        : detectionLabel;
+    const assignmentLabel = isTierCGuided
+      ? `Manual guided setup (Tier C)${currentProfileMapping ? ' · assigned to this profile' : ''}`
+      : currentProfileMapping
+        ? otherProfileNames.length > 0
+          ? `${detectionLabel} · assigned to this profile and ${otherProfileNames.join(', ')}`
+          : `${detectionLabel} · currently assigned to this profile`
+        : otherProfileNames.length > 0
+          ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
+          : detectionLabel;
 
     const itemDetail = isGuidedOnly
       ? `${assignmentLabel} · guided setup only — endpoint routing is configured manually`
