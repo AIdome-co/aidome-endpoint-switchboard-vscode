@@ -22,6 +22,7 @@
 
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { createBackup, fileExists, readFileSafe } from '../../util/fsSafe';
 import { parseJsonc } from '../../util/jsonc';
@@ -98,7 +99,10 @@ async function writeAuthFileAtomically(
   } catch {
     // lstat failure on the target path is handled by the caller's write.
   }
-  const tmpPath = `${targetPath}.aidome-tmp`;
+  // Unique per invocation: two concurrent profile activations share the
+  // global Kilo store — a fixed temp path would let one rename/remove the
+  // file the other is still writing (ENOENT or cross-activation PAT swap).
+  const tmpPath = `${targetPath}.aidome-tmp-${randomUUID()}`;
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   try {
     await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
@@ -132,6 +136,11 @@ export function resolveKiloAuthPath(dataDir?: string): string {
 export async function writeKiloProviderAuth(
   options: WriteKiloProviderAuthOptions
 ): Promise<KiloAuthWriteResult> {
+  // A whitespace-only token is NOT a credential: normalize it to missing so
+  // the no-op/gap classification and the written key stay truthful
+  // (Codex 154 round 7).
+  const apiKey = options.apiKey?.trim() || undefined;
+  const normalized = { ...options, apiKey };
   const authPath = resolveKiloAuthPath(options.dataDir);
   const authExisted = await fileExists(authPath);
 
@@ -161,7 +170,7 @@ export async function writeKiloProviderAuth(
   // backup: a no-op must not accumulate stale credential copies on disk
   // (Codex 154 round 2, finding L). The result still flags authRequired so
   // the applier classifies the outcome as guided-required (GAP 9).
-  if (!options.apiKey && !(KILO_PROVIDER_SLUG in document)) {
+  if (!apiKey && !(KILO_PROVIDER_SLUG in document)) {
     // A confirmed credential no-op can still leave a USABLE model map
     // (planning-probe or user-curated) — the gap is judged from the
     // resulting config (Codex 154 round 4).
@@ -191,9 +200,9 @@ export async function writeKiloProviderAuth(
     );
   }
 
-  if (options.apiKey) {
+  if (apiKey) {
     // Explicit set — never preserve a previous profile's token (Area 7.3).
-    document[KILO_PROVIDER_SLUG] = { type: 'api', key: options.apiKey } satisfies KiloAuthKeyEntry;
+    document[KILO_PROVIDER_SLUG] = { type: 'api', key: apiKey } satisfies KiloAuthKeyEntry;
   } else {
     // A credential-less profile must CLEAR our entry, not replay the old key.
     delete document[KILO_PROVIDER_SLUG];
@@ -226,7 +235,7 @@ export async function writeKiloProviderAuth(
   };
 
   try {
-    const { extraRollbacks, modelsApplied } = await refreshKiloModels(options);
+    const { extraRollbacks, modelsApplied } = await refreshKiloModels(normalized);
     return {
       backupPath: authBackupPath,
       target: authPath,
