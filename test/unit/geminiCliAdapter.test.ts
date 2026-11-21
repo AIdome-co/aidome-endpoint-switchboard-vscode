@@ -249,7 +249,7 @@ describe('GeminiCliAdapter', () => {
     expect(result.success).toBe(false);
     expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
     expect(JSON.stringify(result)).not.toContain('http://remote-host');
-
+  });
 
   it('rejects non-HTTP schemes even on loopback hosts', async () => {
     vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
