@@ -765,4 +765,26 @@ describe('ContinueAdapter verification completeness', () => {
     expect(result.message).toContain('no AIdome Gateway model entry');
   });
 
+  it('does not treat a prefix-shaped entry with a mismatched name suffix as managed', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          name: 'AIdome Gateway - something-else',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('no AIdome Gateway model entry');
+  });
+
 });
