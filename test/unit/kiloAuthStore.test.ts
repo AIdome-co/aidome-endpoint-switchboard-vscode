@@ -300,6 +300,27 @@ describe('kiloAuthStore', () => {
       expect(await fs.readFile(configPath, 'utf-8')).toBe('{"provider":{}}');
     });
 
+    it('counts PLANNING-supplied or user-curated models as applied even when this refresh cannot run', async () => {
+      // Codex 154 round 4: the models gap is judged from the RESULTING
+      // config — the planning probe (or the user) may already have populated
+      // models; a failed/absent refresh must not withhold the mapping.
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.writeFile(
+        configPath,
+        `{"provider": { "${KILO_PROVIDER_SLUG}": { "options": {"baseURL": "https://gw.example.com/v1"}, "models": { "m-1": {"name":"m-1"} } } }}`
+      );
+      mockGetKiloConfigPath.mockReturnValue(configPath);
+
+      const result = await writeKiloProviderAuth({
+        baseUrl: 'https://gw.example.com/v1',
+        dataDir,
+        configPath
+      });
+
+      expect(mockDiscoverModels).not.toHaveBeenCalled();
+      expect(result.modelsApplied).toBe(true);
+    });
+
     it('leaves the config untouched when no credential is available', async () => {
       await fs.mkdir(path.dirname(authPath), { recursive: true });
       await fs.writeFile(authPath, '{}', { mode: 0o600 });

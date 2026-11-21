@@ -144,7 +144,19 @@ export async function writeKiloProviderAuth(
   // (Codex 154 round 2, finding L). The result still flags authRequired so
   // the applier classifies the outcome as guided-required (GAP 9).
   if (!options.apiKey && !(KILO_PROVIDER_SLUG in document)) {
-    return { noOp: true, authRequired: true, target: authPath, createdFile: false };
+    // A confirmed credential no-op can still leave a USABLE model map
+    // (planning-probe or user-curated) — the gap is judged from the
+    // resulting config (Codex 154 round 4).
+    const configPath = options.configPath ?? getKiloConfigPath();
+    const modelsApplied = configPath ? await configHasModels(configPath) : false;
+    return {
+      noOp: true,
+      authRequired: true,
+      modelsApplied,
+      modelsRequired: true,
+      target: authPath,
+      createdFile: false
+    };
   }
 
   const authBackupPath = authExisted ? await createBackup(authPath) : undefined;
@@ -226,21 +238,57 @@ export async function writeKiloProviderAuth(
 }
 
 /**
- * Re-renders kilo.jsonc with models discovered using the authenticated
- * endpoint probe, merging them under any model entries the user already has
- * (existing entries win). Returns rollback targets for the config write.
- * Best-effort: when no credential, no config file, or empty discovery results,
- * the config is left untouched (the plan's guided steps cover that case).
+ * True when the provider entry in the given config already carries a
+ * nonempty `models` map — e.g. the planning probe populated it (a gateway
+ * that serves unauthenticated model lists), or the user configured models
+ * earlier. The models-gap outcome must be judged from the RESULTING config,
+ * not solely from whether this refresh ran (Codex 154 round 4).
+ */
+async function configHasModels(configPath: string): Promise<boolean> {
+  try {
+    const content = await readFileSafe(configPath);
+    if (content === undefined) {
+      return false;
+    }
+    const parsed = parseJsonc<Record<string, unknown>>(content);
+    const providerMap =
+      parsed !== null && typeof parsed === 'object' ? parsed['provider'] : undefined;
+    const entry =
+      providerMap !== null && typeof providerMap === 'object' && !Array.isArray(providerMap)
+        ? (providerMap as Record<string, unknown>)[KILO_PROVIDER_SLUG]
+        : undefined;
+    const models =
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+        ? (entry as Record<string, unknown>)['models']
+        : undefined;
+    return (
+      models !== null && typeof models === 'object' && !Array.isArray(models)
+      && Object.keys(models as Record<string, unknown>).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reconciles kilo.jsonc's `models` map with models discovered using the
+ * authenticated endpoint probe (see reconcileModelEntries). Best-effort:
+ * when no credential or no config file exists the config is left untouched.
+ * Returns rollback targets for the config write plus whether the resulting
+ * config carries a usable model map (`modelsApplied`) — judged from the
+ * resulting config, not solely from this refresh.
  */
 async function refreshKiloModels(
   options: WriteKiloProviderAuthOptions
 ): Promise<{ extraRollbacks: KiloAuthWriteResult['extraRollbacks']; modelsApplied: boolean }> {
-  if (!options.apiKey) {
-    return { extraRollbacks: [], modelsApplied: false };
-  }
   const configPath = options.configPath ?? getKiloConfigPath();
   if (!configPath) {
     return { extraRollbacks: [], modelsApplied: false };
+  }
+  if (!options.apiKey) {
+    // No credential — but the planning probe or the user may already have
+    // populated models; the gap is judged from the resulting config.
+    return { extraRollbacks: [], modelsApplied: await configHasModels(configPath) };
   }
   const configExisted = await fileExists(configPath);
   if (!configExisted) {
@@ -250,13 +298,14 @@ async function refreshKiloModels(
   const slugs = await discoverModels(options.baseUrl, options.apiKey);
   if (slugs.length === 0) {
     // Empty probe = discovery failure, not an empty catalog: leave the
-    // config untouched and report the models as NOT applied.
-    return { extraRollbacks: [], modelsApplied: false };
+    // config untouched. The models gap is judged from the resulting config —
+    // planning-supplied or user-curated models still count as applied.
+    return { extraRollbacks: [], modelsApplied: await configHasModels(configPath) };
   }
 
   const existingContent = await readFileSafe(configPath);
   if (existingContent === undefined) {
-    return { extraRollbacks: [], modelsApplied: false };
+    return { extraRollbacks: [], modelsApplied: await configHasModels(configPath) };
   }
 
   // Reconcile semantics (Activate Profile = authoritative sync): the
@@ -280,15 +329,20 @@ async function refreshKiloModels(
   try {
     await fs.writeFile(configPath, rendered);
   } catch (error) {
+    let restoreNote = '';
     try {
       await fs.copyFile(configBackupPath, configPath);
     } catch (restoreError) {
+      // NEVER swallow a failed restore: a truncated kilo.jsonc without
+      // recovery instructions would leave the user's config corrupted
+      // (Codex 154 round 4, finding a).
+      restoreNote = ` MANUAL RECOVERY REQUIRED: restoring ${configPath} from the backup also failed — copy it back manually: cp "${configBackupPath}" "${configPath}"`;
       Logger.getInstance().warning(
         `Failed to restore ${configPath} after a failed model write: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
       );
     }
     throw new Error(
-      `Failed to write the discovered models to ${configPath}: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to write the discovered models to ${configPath}.${restoreNote} (${error instanceof Error ? error.message : String(error)})`
     );
   }
 
