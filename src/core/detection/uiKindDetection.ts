@@ -125,6 +125,21 @@ function inspectExtensionDirectory(
 }
 
 /**
+ * Reads an extension root's `.obsolete` marker file. VS Code records
+ * directories pending cleanup there (JSON map of directory name to true)
+ * after an uninstall; such entries are omitted from the extension API and
+ * must also be omitted from the on-disk fallback.
+ */
+function readObsoleteDirectories(root: string): Set<string> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(root, '.obsolete'), 'utf8')) as Record<string, unknown>;
+    return new Set(Object.entries(raw).filter(([, value]) => value === true).map(([key]) => key));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/**
  * Scans the on-disk remote extensions directories for an assistant whose
  * extension is installed there but NOT loaded in this (remote) extension
  * host, and whose manifest prefers the UI side.
@@ -146,6 +161,11 @@ export function findClientSideExtension(
       entries = fs.readdirSync(dir);
     } catch {
       continue;
+    }
+
+    const obsolete = readObsoleteDirectories(dir);
+    if (obsolete.size > 0) {
+      entries = entries.filter(directoryName => !obsolete.has(directoryName));
     }
 
     for (const directoryName of entries) {

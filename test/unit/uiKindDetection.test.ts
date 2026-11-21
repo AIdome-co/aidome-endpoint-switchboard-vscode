@@ -146,6 +146,17 @@ describe('findClientSideExtension', () => {
     expect(findClientSideExtension('kilocode.kilo-code', [root])).toBeUndefined();
   });
 
+  it('skips directories recorded in the .obsolete marker (pending cleanup after uninstall)', () => {
+    makeExtensionDir(root, 'continue.continue-2.1.0', {
+      publisher: 'Continue',
+      name: 'continue',
+      version: '2.1.0',
+      extensionKind: ['ui', 'workspace'],
+    });
+    fs.writeFileSync(path.join(root, '.obsolete'), JSON.stringify({ 'continue.continue-2.1.0': true }));
+    expect(findClientSideExtension('Continue.continue', [root])).toBeUndefined();
+  });
+
   it('returns undefined when the directory does not exist', () => {
     expect(findClientSideExtension('a.b', [path.join(root, 'missing')])).toBeUndefined();
   });
