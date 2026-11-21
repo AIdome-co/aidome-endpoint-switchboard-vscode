@@ -535,7 +535,9 @@
       },
       "sources": [
         "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode",
-        "https://docs.tabnine.com/main/getting-started/install/client-setup-private-installation/vs-code-private-installation"
+        "https://docs.tabnine.com/main/getting-started/install/client-setup-private-installation/vs-code-private-installation",
+        "https://docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings/self-managed-models",
+        "https://docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings"
       ]
     }
   ]
