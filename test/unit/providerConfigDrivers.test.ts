@@ -162,6 +162,110 @@ describe('configuration drivers', () => {
     expect(models[0].apiBase).toBe('https://gateway.example.com/v1');
   });
 
+  it('persists the resolved profile secret as the managed entry apiKey (yaml)', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: 'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://stale.example.com/v1\n',
+      format: 'yaml',
+      secret: 'aid_pat_yaml',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'yaml',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+    const models = parsed.models as Array<Record<string, unknown>>;
+    expect(models).toHaveLength(1);
+    expect(models[0].apiKey).toBe('aid_pat_yaml');
+  });
+
+  it('clears the managed entry apiKey when no secret is resolved (clear-not-replay)', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: 'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://gw.example.com/v1\n    apiKey: aid_pat_stale\n',
+      format: 'yaml',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'yaml',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+    const models = parsed.models as Array<Record<string, unknown>>;
+    expect(models).toHaveLength(1);
+    expect(models[0].apiKey).toBeUndefined();
+  });
+
+  it('treats a whitespace-only secret as missing (no apiKey written)', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: 'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://gw.example.com/v1\n    apiKey: aid_pat_stale\n',
+      format: 'yaml',
+      secret: '   ',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'yaml',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+    const models = parsed.models as Array<Record<string, unknown>>;
+    expect(models[0].apiKey).toBeUndefined();
+  });
+
+  it('never touches an unrelated user entry apiKey while clearing the managed one (jsonc)', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: JSON.stringify({
+        models: [
+          { title: 'UserOwnOpenAI', provider: 'openai', model: 'gpt-4o', apiBase: 'https://api.openai.com/v1', apiKey: 'user_own_key' },
+          { title: 'AIdome Gateway', provider: 'openai', apiBase: 'https://gw.example.com/v1', apiKey: 'aid_pat_stale' }
+        ]
+      }),
+      format: 'jsonc',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'jsonc',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = JSON.parse(output) as { models: Array<Record<string, unknown>> };
+    expect(parsed.models[0].apiKey).toBe('user_own_key');
+    expect(parsed.models[1].apiKey).toBeUndefined();
+  });
+
+  it('persists the secret on a NEWLY created managed entry (jsonc)', () => {
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: '{}',
+      format: 'jsonc',
+      secret: 'aid_pat_new',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'jsonc',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = JSON.parse(output) as { models: Array<Record<string, unknown>> };
+    expect(parsed.models).toHaveLength(1);
+    expect(parsed.models[0]).toMatchObject({
+      title: 'AIdome Gateway',
+      apiBase: BASE_URL,
+      apiKey: 'aid_pat_new'
+    });
+  });
+
   it('patches the current Codex TOML provider schema and preserves other providers', () => {
     const output = renderConfigFileContent({
       baseUrl: BASE_URL,

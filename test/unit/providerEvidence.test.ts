@@ -112,12 +112,15 @@ describe('per-capability support states', () => {
       }
       for (const field of descriptor.fields) {
         const isCredential = field.secret === true;
-        // Credential fields in automatic providers must be automatic
-        // (target-persisted) or external — never silently automatic-by-default
-        // when the provider stores auth elsewhere.
+        // Credential fields in automatic providers must explicitly declare
+        // support: 'automatic' (the target persists the secret at apply time,
+        // e.g. Continue models[].apiKey) or 'external' (auth lives in a
+        // vendor store the engine does not write). Anything else would be a
+        // silently-unpersisted credential.
         if (isCredential && field.valueKind !== 'string') {
+          expect(['automatic', 'external']).toContain(field.support);
           expect({ providerKey: descriptor.providerKey, field: field.field, support: field.support })
-            .toEqual({ providerKey: descriptor.providerKey, field: field.field, support: 'external' });
+            .not.toEqual({ providerKey: descriptor.providerKey, field: field.field, support: 'guided' });
         }
       }
     }

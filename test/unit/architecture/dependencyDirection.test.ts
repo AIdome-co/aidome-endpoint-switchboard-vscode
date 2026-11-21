@@ -163,15 +163,24 @@ describe('GAP 11: descriptor/runtime consistency', () => {
     expect(kiloSource).not.toContain("source: 'secret'");
   });
 
-  it('Continue descriptor declares the secret is not automatically written and the plan does not inject it', async () => {
+  it('Continue descriptor declares target-persisted-at-apply and the plan persists the secret into the managed model entry', async () => {
     const { PROVIDER_DESCRIPTORS } = await import('../../../src/core/providerConfig/descriptors');
     const cont = getProviderConfigDescriptors().find((d: { providerKey: string }) => d.providerKey === 'continue');
     expect(cont).toBeDefined();
-    // Continue keeps the profile secret in VS Code SecretStorage only; the
-    // managed plan never injects it into the config file.
-    expect(cont.secretPolicy).toBe('secret-storage-only');
-    const continueSource = readFileSync(join(REPO_ROOT, 'src', 'adapters', 'continue', 'adapter.ts'), 'utf-8');
-    expect(continueSource).not.toContain("source: 'secret'");
+    // Tier A credential write: Continue reads the gateway key from its OWN
+    // config file (models[].apiKey — the vendor's only credential mechanism,
+    // same sanctioned class as Claude's env.ANTHROPIC_AUTH_TOKEN). The
+    // profile secret stays in VS Code SecretStorage until apply time.
+    expect(cont.secretPolicy).toBe('target-persisted-at-apply');
+    const apiKeyField = cont.fields.find((f: { field: string }) => f.field === 'apiKey');
+    expect(apiKeyField?.path).toBe('models[].apiKey');
+    expect(apiKeyField?.secret).toBe(true);
+    expect(apiKeyField?.support).toBe('automatic');
+    // The engine-emitted yaml-model-array step carries the symbolic authRef
+    // (never a secret value) and the clear-not-replay marker.
+    const engineSource = readFileSync(join(REPO_ROOT, 'src', 'core', 'providerConfig', 'engine.ts'), 'utf-8');
+    expect(engineSource).toContain("secretPolicy: 'target-persisted-at-apply'");
+    expect(engineSource).toContain('clearAuthWhenMissing: true');
   });
 
   it('Claude descriptor declares target-persisted-at-apply and applies the secret only at apply time', async () => {

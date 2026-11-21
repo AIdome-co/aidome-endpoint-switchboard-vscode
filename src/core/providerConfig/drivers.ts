@@ -236,10 +236,21 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
   const matching = findManagedModel(models, request.baseUrl, data.identity, modelPath);
+  // Credential semantics (target-persisted-at-apply): the managed entry gets
+  // the profile's key when one is saved, and a credential-less profile switch
+  // CLEARS the managed key — a previous profile's token must never survive
+  // (Codex 154 clear-not-replay precedent). Only the MANAGED entry is ever
+  // touched; unrelated user models keep their own credentials.
+  const apiKey = request.secret?.trim() || undefined;
 
   if (matching) {
     matching.provider = provider;
     matching.apiBase = request.baseUrl;
+    if (apiKey) {
+      matching.apiKey = apiKey;
+    } else {
+      delete matching.apiKey;
+    }
     if (data.useResponsesApi !== undefined) {
       matching.useResponsesApi = data.useResponsesApi;
     }
@@ -250,6 +261,9 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
       provider,
       apiBase: request.baseUrl
     };
+    if (apiKey) {
+      nextModel.apiKey = apiKey;
+    }
     if (data.useResponsesApi !== undefined) {
       nextModel.useResponsesApi = data.useResponsesApi;
     }
@@ -272,9 +286,15 @@ function renderJsoncModelArray(
   const matchingIndex = findManagedModelIndex(existingModels, request.baseUrl, data.identity, modelPath);
   let output = request.existingContent ?? '{}';
 
+  // Credential semantics: set the key when a profile secret was resolved at
+  // apply time; CLEAR it otherwise so a previous profile's token never
+  // survives a switch. jsonc-parser's modify DELETES the property when the
+  // value is undefined. Unrelated user entries are never touched.
+  const apiKey = request.secret?.trim() || undefined;
   if (matchingIndex >= 0) {
     output = applyJsoncEdit(output, ['models', matchingIndex, 'provider'], provider);
     output = applyJsoncEdit(output, ['models', matchingIndex, 'apiBase'], request.baseUrl);
+    output = applyJsoncEdit(output, ['models', matchingIndex, 'apiKey'], apiKey);
     if (data.useResponsesApi !== undefined) {
       output = applyJsoncEdit(output, ['models', matchingIndex, 'useResponsesApi'], data.useResponsesApi);
     }
@@ -285,6 +305,9 @@ function renderJsoncModelArray(
       provider,
       apiBase: request.baseUrl
     };
+    if (apiKey) {
+      nextModel.apiKey = apiKey;
+    }
     if (data.useResponsesApi !== undefined) {
       nextModel.useResponsesApi = data.useResponsesApi;
     }
@@ -322,10 +345,17 @@ function renderYamlModelArray(
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
   const index = findManagedModelIndex(models, request.baseUrl, identity, modelPath);
 
+  // Credential semantics: same clear-not-replay contract as the JSONC path.
+  const apiKey = request.secret?.trim() || undefined;
   if (index >= 0) {
     const current = models[index];
     current.provider = provider;
     current.apiBase = request.baseUrl;
+    if (apiKey) {
+      current.apiKey = apiKey;
+    } else {
+      delete current.apiKey;
+    }
     if (useResponsesApi !== undefined) {
       current.useResponsesApi = useResponsesApi;
     }
@@ -336,6 +366,9 @@ function renderYamlModelArray(
       provider,
       apiBase: request.baseUrl
     };
+    if (apiKey) {
+      nextModel.apiKey = apiKey;
+    }
     if (useResponsesApi !== undefined) {
       nextModel.useResponsesApi = useResponsesApi;
     }

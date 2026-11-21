@@ -49,10 +49,26 @@ describe('ProviderConfigEngine.buildProviderConfigPlan', () => {
       baseUrl: 'https://gateway.example.com/v1', // openai normalization from the descriptor
       identity: 'AIdome Gateway',
       provider: 'openai',
-      backupRequired: true
+      backupRequired: true,
+      // Tier A credential contract: the profile secret is persisted into the
+      // managed entry's apiKey at apply time; a missing secret CLEARS it.
+      authRef: 'Test Profile',
+      secretPolicy: 'target-persisted-at-apply',
+      clearAuthWhenMissing: true
     });
     // The unselected legacy target is skipped, not guided.
     expect(plan.steps.some(step => step.action === 'show-guided-steps')).toBe(false);
+  });
+
+  it('binds the credential to the profile authRef when one exists', () => {
+    const descriptor = getProviderConfigDescriptors().find(d => d.providerKey === 'continue')!;
+    const { plan } = buildProviderConfigPlan(descriptor, {
+      profile: makeProfile({ authRef: 'my-gateway-token' }),
+      resolvedTargetPaths: { 'continue-primary-yaml': '/tmp/continue/config.yaml' }
+    });
+
+    const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+    expect(editStep?.data?.['authRef']).toBe('my-gateway-token');
   });
 
   it('compiles the Codex descriptor into a toml-table step with optional discovered model', () => {
