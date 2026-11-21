@@ -215,12 +215,42 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       logger.info('Setup cancelled - no profile selected');
       return;
     }
-    
+
+    // Codex round 6, PR 118: the step-2 candidate set was resolved WITHOUT a
+    // profile (dialect-agnostic best case). Once the profile is known,
+    // dialect-aware adapters can revoke eligibility for a specific profile —
+    // e.g. with Roo Code + Gemini CLI both detected every possible profile
+    // makes one of them unsupported (Roo accepts only the OpenAI dialects,
+    // Gemini CLI only `google.gemini.generate_content`). Re-filter the guided
+    // selection against the profile before planning instead of promising
+    // guided setup the plan will classify as unsupported.
+    const tierByKey = new Map(registry.assistants.map(assistant => [assistant.key, assistant.endpointSwitching.tier]));
+    const profileEligibleKeys = await getGuidedSetupEligibleKeys(selectedAssistants, registry.assistants, profile);
+    const newlyIneligibleKeys = selectedAssistants.filter(key =>
+      tierByKey.get(key) === 'C'
+      && guidedEligibleKeys.has(key)
+      && !profileEligibleKeys.has(key));
+    const effectiveSelectedAssistants = selectedAssistants.filter(
+      key => !newlyIneligibleKeys.includes(key));
+    if (newlyIneligibleKeys.length > 0) {
+      const ineligibleNames = newlyIneligibleKeys
+        .map(key => registry.assistants.find(assistant => assistant.key === key)?.displayName || key)
+        .join(', ');
+      logger.info(`Guided setup not applicable to the selected profile for: ${newlyIneligibleKeys.join(', ')}`);
+      await showWarning(
+        `${ineligibleNames} cannot use guided setup with this profile's dialect — it was left out of the configuration plan.`
+      );
+    }
+    if (effectiveSelectedAssistants.length === 0) {
+      logger.warning('Every selected assistant is ineligible for the selected profile — nothing to configure');
+      return;
+    }
+
     // Step 4/5 — Plan and apply
     logger.info('Setup wizard step 4/5: Building and applying plan');
     const plan = await withProgress(
       'Building configuration plan...',
-      async () => await switchboard.buildPlan(profile, selectedAssistants)
+      async () => await switchboard.buildPlan(profile, effectiveSelectedAssistants)
     );
     
     showPlan(plan);

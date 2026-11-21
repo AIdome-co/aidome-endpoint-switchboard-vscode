@@ -33,6 +33,22 @@ describe('provider configuration descriptors', () => {
     expect(descriptors.find(item => item.providerKey === 'gemini-cli')?.support).toBe('guided');
     expect(descriptors.find(item => item.providerKey === 'codegpt')?.driver).toBe('guided-ui');
   });
+
+  it('binds Roo Code Responses-dialect base-URL guidance to the native provider field (Codex round 6, PR 118)', () => {
+    const rooCode = getProviderConfigDescriptors().find(item => item.providerKey === 'roo-code');
+    const baseUrlFields = rooCode?.fields.filter(field => field.field === 'baseUrl') ?? [];
+
+    expect(baseUrlFields.map(field => field.path)).toEqual([
+      'provider-profile.openAiBaseUrl',
+      'provider-profile.openAiNativeBaseUrl'
+    ]);
+    const chatField = baseUrlFields.find(field => field.requiredFor.includes('openai.chat_completions'));
+    const responsesField = baseUrlFields.find(field => field.requiredFor.includes('openai.responses'));
+    expect(chatField?.path).toBe('provider-profile.openAiBaseUrl');
+    // Roo's OpenAI Native provider initializes its OpenAI client from
+    // openAiNativeBaseUrl — not the OpenAI Compatible openAiBaseUrl field.
+    expect(responsesField?.path).toBe('provider-profile.openAiNativeBaseUrl');
+  });
 });
 
 describe('configuration drivers', () => {

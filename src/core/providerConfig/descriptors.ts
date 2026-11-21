@@ -162,7 +162,13 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     dialects: [{ dialect: 'openai.chat_completions', preferred: true }, { dialect: 'openai.responses' }],
     targets: [{ id: 'roo-retired', format: 'ui', driver: 'guided-ui', priority: 1, requiresGuidance: true }],
     fields: [
-      { field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions', 'openai.responses'], secret: false, support: 'guided' },
+      { field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: false, support: 'guided' },
+      // Roo's OpenAI Native provider (the Responses dialect) initializes its
+      // OpenAI client from `openAiNativeBaseUrl`, not `openAiBaseUrl` (which
+      // belongs to the OpenAI Compatible/chat provider) — upstream
+      // src/api/providers/openai-native.ts: `baseURL:
+      // this.options.openAiNativeBaseUrl || undefined` (Codex round 6, PR 118).
+      { field: 'baseUrl', path: 'provider-profile.openAiNativeBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.responses'], secret: false, support: 'guided' },
       { field: 'apiKey', path: 'Roo Code SecretStorage', valueKind: 'ui-only', requiredFor: ['openai.chat_completions', 'openai.responses'], secret: true, support: 'external' }
     ],
     driver: 'guided-ui',
