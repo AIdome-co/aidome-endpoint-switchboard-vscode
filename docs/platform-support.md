@@ -117,6 +117,18 @@ A visual reference of which assistants are available on which platforms — inde
 
 ---
 
+## ⚠️ Known Assistant Limitations
+
+### CodeGPT — chat model selection resets after a window reload (upstream, CodeGPT 3.24.x)
+
+After the Switchboard activates a CodeGPT profile, the configured model appears in the CodeGPT **Manage models → Local** list and remains selectable in the chat model picker. However, **after a full window reload, CodeGPT's chat model picker resets the selected model back to a default** once its default (cloud) model catalog finishes loading — the model itself stays available in the **"Custom"** group; only the active selection is reset.
+
+**What the Switchboard does:** writes the CodeGPT connection (provider, gateway endpoint, API key) and the local-server flavor — all verified against CodeGPT's own sidecar API. This behavior is a UI-state race inside CodeGPT's webview (its providers store is overwritten by the cloud catalog fetch on webview mount, and a selection-reset effect runs on that update). It is **not caused by the Switchboard** and cannot be fixed from the Switchboard side (CodeGPT is closed source).
+
+**Workaround:** after a window reload, re-select your model once from the **"Custom"** group in the CodeGPT chat model picker. The model stays pinned there via CodeGPT favorites.
+
+---
+
 ## 🏢 Enterprise Deployment Note
 
 For organizations deploying AIdome with a centralized LLM gateway (e.g., LiteLLM, Portkey, Azure API Management, Kong AI Gateway), the Switchboard solves the **"last mile" configuration problem** — ensuring every developer's AI tools actually point at the approved gateway endpoint.
