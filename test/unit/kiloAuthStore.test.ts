@@ -165,6 +165,31 @@ describe('kiloAuthStore', () => {
       expect(stat.mode & 0o777).toBe(0o600);
     });
 
+    it('preserves a symlinked auth.json and writes through to its target (dotfiles setups)', async () => {
+      const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kilo-real-'));
+      const realPath = path.join(realDir, 'auth.json');
+      await fs.writeFile(realPath, '{}', { mode: 0o600 });
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.symlink(realPath, authPath);
+
+      try {
+        await writeKiloProviderAuth({
+          baseUrl: 'https://gw.example.com/v1',
+          apiKey: 'aid_pat_sym',
+          dataDir
+        });
+
+        // The link itself must still be a symlink pointing at the target.
+        const linkStat = await fs.lstat(authPath);
+        expect(linkStat.isSymbolicLink()).toBe(true);
+        // The managed target received the credential.
+        const target = JSON.parse(await fs.readFile(realPath, 'utf-8'));
+        expect(target[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_sym' });
+      } finally {
+        await fs.rm(realDir, { recursive: true, force: true });
+      }
+    });
+
     it('clears our entry for a credential-less profile while keeping others', async () => {
       await fs.mkdir(path.dirname(authPath), { recursive: true });
       await fs.writeFile(

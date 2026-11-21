@@ -77,17 +77,33 @@ export interface WriteKiloProviderAuthOptions {
  * so a failure can never leave a truncated credential file, and replacing a
  * pre-existing permissive-mode file enforces 0600 (writeFile's mode is only
  * applied on CREATE — chmod via the fresh temp file is what guarantees it).
+ *
+ * SYMLINKS: a symlinked auth.json (dotfiles-managed Kilo setups) must keep
+ * pointing at its managed target after the write — renaming over the link
+ * itself would silently replace it with a regular file and diverge from the
+ * centrally managed store. The real target is therefore resolved before the
+ * temp file is written, and the rename lands on the target (Codex 154
+ * round 5).
  */
 async function writeAuthFileAtomically(
   authPath: string,
   document: Record<string, unknown>
 ): Promise<void> {
-  const tmpPath = `${authPath}.aidome-tmp`;
-  await fs.mkdir(path.dirname(authPath), { recursive: true });
+  let targetPath = authPath;
+  try {
+    const linkStat = await fs.lstat(authPath);
+    if (linkStat.isSymbolicLink()) {
+      targetPath = await fs.realpath(authPath);
+    }
+  } catch {
+    // lstat failure on the target path is handled by the caller's write.
+  }
+  const tmpPath = `${targetPath}.aidome-tmp`;
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
   try {
     await fs.chmod(tmpPath, 0o600);
-    await fs.rename(tmpPath, authPath);
+    await fs.rename(tmpPath, targetPath);
   } catch (error) {
     await fs.rm(tmpPath, { force: true }).catch(() => undefined);
     throw error;
