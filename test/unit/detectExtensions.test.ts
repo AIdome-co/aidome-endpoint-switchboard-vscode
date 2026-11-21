@@ -313,3 +313,33 @@ describe('UI-kind activation-gap fallback', () => {
     }
   });
 });
+
+describe('UI-kind activation-gap fallback — multi-ID assistants', () => {
+  const entry = {
+    key: 'copilot-like',
+    displayName: 'Multi-ID Assistant',
+    kind: 'vscode-extension',
+    detection: { vscodeExtensionIds: ['GitHub.copilot', 'GitHub.copilot-chat'] },
+    dialect: {},
+    endpointSwitching: { tier: 'A' },
+  } as unknown as Parameters<typeof detectExtensions>[0]['assistants'][number];
+
+  const registry = { assistants: [entry] } as unknown as Parameters<typeof detectExtensions>[0];
+  const fakeResolver = { resolveForAssistant: vi.fn(async () => ({ resolvedIds: ['GitHub.copilot', 'GitHub.copilot-chat'], status: 'not-found' })) } as unknown as ExtensionIdResolver;
+
+  it('scans ALL declared IDs, not only the first', async () => {
+    (globalThis as { __mockRemoteName?: string }).__mockRemoteName = 'ssh-remote';
+    try {
+      const lookup = vi.fn((id: string) =>
+        id === 'GitHub.copilot-chat'
+          ? { extensionId: 'GitHub.copilot-chat', version: '1.0.0', directory: '/x' }
+          : undefined);
+      const detected = await detectExtensions(registry, fakeResolver, lookup);
+      expect(detected).toHaveLength(1);
+      expect(detected[0].extensionId).toBe('GitHub.copilot-chat');
+      expect(detected[0].activationGap).toBe('ui-kind');
+    } finally {
+      delete (globalThis as { __mockRemoteName?: string }).__mockRemoteName;
+    }
+  });
+});

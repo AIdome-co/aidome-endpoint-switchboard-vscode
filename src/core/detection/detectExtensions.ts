@@ -139,11 +139,12 @@ export async function detectExtensions(
     }
 
     // Fallback: the extension may be installed on this machine but running in
-    // the CLIENT extension host (UI-kind manifest in a remote workspace), in
+    // the CLIENT extension host (UI-kind manifest in remote workspace), in
     // which case vscode.extensions.all cannot see it. Report it with an
     // activation gap so the wizard can offer the remote.extensionKind fix.
     if (typeof vscode.env.remoteName !== 'undefined') {
-      for (const candidate of [extensionIds[0], resolvedIds[0]].filter((id): id is string => typeof id === 'string')) {
+      const candidates = [...new Set([...extensionIds, ...resolvedIds])];
+      for (const candidate of candidates) {
         const onDisk = clientSideLookup(candidate);
         if (onDisk) {
           logger.info(

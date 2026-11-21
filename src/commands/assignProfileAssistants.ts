@@ -9,7 +9,7 @@ import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { promptReloadAfterApply } from '../util/assistantReload';
-import { offerUiKindSelfHeal } from '../core/detection/uiKindDetection';
+import { offerUiKindSelfHeal, partitionUiKindGaps } from '../core/detection/uiKindDetection';
 import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
@@ -54,8 +54,14 @@ export async function assignProfileAssistants(
   );
 
   // Self-heal: assistants installed remotely but running client-side
-  // (UI-kind manifests) are offered a remote.extensionKind workspace fix.
-  await offerUiKindSelfHeal(detected.assistants.filter(assistant => assistant.activationGap === 'ui-kind'));
+  // (UI-kind manifests) get explained + clipboard instructions, and are
+  // excluded from the switchable list until the user applies the override
+  // (placement ignores workspace-level remote.extensionKind:
+  // microsoft/vscode#309379).
+  const { gaps: attachUiKindGaps, switchable: remotelySwitchable } =
+    partitionUiKindGaps(detected.assistants);
+  await offerUiKindSelfHeal(attachUiKindGaps);
+  detected.assistants = remotelySwitchable;
 
   const items = buildAssistantSelectionItems(profile, profiles, mappings, registry.assistants, detected);
   if (items.length === 0) {

@@ -1,5 +1,5 @@
 /**
- * Client-side (UI-kind) extension detection and self-heal.
+ * Client-side (UI-kind) extension detection and self-heal guidance.
  *
  * Some assistants declare `extensionKind: ["ui", "workspace"]`, which makes
  * VS Code run them in the LOCAL extension host when a remote workspace is
@@ -10,9 +10,17 @@
  *
  * Detection fallback: scan the on-disk remote extensions directory for the
  * assistant's extension ID. If the on-disk manifest prefers "ui", report the
- * assistant with an `activationGap` so the wizard can offer a one-click
- * self-heal: a workspace-level `remote.extensionKind` override that forces
- * the extension to run in the remote (workspace) extension host.
+ * assistant with an `activationGap` so the wizard can explain the situation,
+ * copy ready-to-paste `remote.extensionKind` instructions into the user's
+ * LOCAL clipboard, and exclude the assistant from switchable selection until
+ * the user applies the override and reloads.
+ *
+ * Why guidance instead of a settings write: extension placement is decided
+ * by the CLIENT before workspace settings load, and a `remote.extensionKind`
+ * value in workspace settings is ignored (microsoft/vscode#309379, open).
+ * Only the client's USER settings are effective — which a remote extension
+ * cannot write. `vscode.env.clipboard.writeText` routes to the client, so
+ * the exact snippet can still be delivered in one click.
  *
  * Reference: https://code.visualstudio.com/api/advanced-topics/remote-extensions
  */
@@ -155,53 +163,33 @@ export function findClientSideExtension(
 }
 
 /**
- * Merges a `remote.extensionKind` override for one extension ID into an
- * existing override map without clobbering the user's other entries.
+ * Builds the ready-to-paste `remote.extensionKind` snippet for the given
+ * extension IDs. The user must merge it into their LOCAL user settings
+ * (existing `remote.extensionKind` entries, if any, must be kept).
  */
-export function mergeExtensionKindOverride(
-  existing: unknown,
-  extensionId: string
-): Record<string, string[]> {
-  const merged: Record<string, string[]> =
-    existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? { ...(existing as Record<string, string[]>) }
-      : {};
-  merged[extensionId] = ['workspace'];
-  return merged;
+export function buildExtensionKindSnippet(extensionIds: string[]): string {
+  const entries = extensionIds.map(id => `    "${id}": ["workspace"]`).join(',\n');
+  return `{\n  "remote.extensionKind": {\n${entries}\n  }\n}`;
 }
 
 /**
- * Writes a workspace-level `remote.extensionKind` override that forces the
- * given extension to run in the remote (workspace) extension host. Existing
- * workspace-level entries are preserved.
- *
- * @returns true when the setting was written.
+ * Partitions detected assistants into the UI-kind activation gaps (installed
+ * remotely but running client-side, not configurable by the Switchboard) and
+ * the assistants that can proceed through the switchable flow.
  */
-export async function applyWorkspaceExtensionKindOverride(extensionId: string): Promise<boolean> {
-  const logger = Logger.getInstance().scoped('Detection');
-  try {
-    const configuration = vscode.workspace.getConfiguration('remote');
-    const inspected = configuration.inspect<Record<string, string[]>>('extensionKind');
-    const merged = mergeExtensionKindOverride(inspected?.workspaceValue ?? {}, extensionId);
-    await configuration.update('extensionKind', merged, vscode.ConfigurationTarget.Workspace);
-    logger.info(`Wrote remote.extensionKind workspace override for ${extensionId}`);
-    return true;
-  } catch (error) {
-    logger.warning(
-      `Failed to write remote.extensionKind override for ${extensionId}: ` +
-      `${error instanceof Error ? error.message : String(error)}`
-    );
-    return false;
-  }
+export function partitionUiKindGaps<T extends { activationGap?: 'ui-kind' }>(
+  detected: T[]
+): { gaps: T[]; switchable: T[] } {
+  const gaps = detected.filter(assistant => assistant.activationGap === 'ui-kind');
+  const switchable = detected.filter(assistant => assistant.activationGap !== 'ui-kind');
+  return { gaps, switchable };
 }
 
 /**
- * Offers a one-click self-heal for assistants that are installed remotely but
- * run client-side (UI-kind) and therefore cannot be configured by the
- * Switchboard. No-op when not connected to a remote or when there is no open
- * workspace folder to receive the override.
- *
- * @param gaps Detected assistants carrying an `activationGap`.
+ * Explains a detected UI-kind activation gap and copies the ready-to-paste
+ * `remote.extensionKind` override into the user's LOCAL clipboard
+ * (`vscode.env.clipboard` routes to the client). No-op outside remote
+ * sessions or for an empty gap list.
  */
 export async function offerUiKindSelfHeal(
   gaps: Array<{ displayName: string; extensionId: string }>
@@ -209,43 +197,28 @@ export async function offerUiKindSelfHeal(
   if (gaps.length === 0 || typeof vscode.env.remoteName === 'undefined') {
     return;
   }
-  if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-    return;
-  }
 
   const logger = Logger.getInstance().scoped('Detection');
   const names = gaps.map(gap => gap.displayName).join(', ');
   const pronoun = gaps.length === 1 ? 'it' : 'them';
-  const choice = await vscode.window.showInformationMessage(
+  const snippet = buildExtensionKindSnippet(gaps.map(gap => gap.extensionId));
+
+  const message =
     `${names} ${gaps.length === 1 ? 'is' : 'are'} installed on this machine but running on your ` +
-    'local computer, so the AIdome Switchboard cannot configure ' +
-    `${pronoun} here. Move ${pronoun} into ` +
-    'the remote workspace? This adds a remote.extensionKind override to the workspace settings.',
-    { modal: true },
-    'Move to remote workspace'
-  );
-  if (choice !== 'Move to remote workspace') {
-    return;
-  }
+    `local computer, so the AIdome Switchboard cannot configure ${pronoun} here. ` +
+    'Paste the copied snippet into your local user settings.json (merge with any existing ' +
+    'remote.extensionKind entries) and reload the window — ' +
+    `${gaps.length === 1 ? 'it' : 'they'} will then run in the remote workspace and be detected.`;
 
-  for (const gap of gaps) {
-    const applied = await applyWorkspaceExtensionKindOverride(gap.extensionId);
-    if (!applied) {
-      await vscode.window.showWarningMessage(
-        `Could not write the remote.extensionKind override for ${gap.displayName}. ` +
-        'Add it manually to your user settings: ' +
-        `"remote.extensionKind": { "${gap.extensionId}": ["workspace"] }`
-      );
-      return;
-    }
+  try {
+    await vscode.env.clipboard.writeText(snippet);
+    await vscode.window.showInformationMessage(`${message}\n\n${snippet}`, { modal: true }, 'OK');
+  } catch (error) {
+    logger.warning(
+      `Could not copy the remote.extensionKind snippet: ` +
+      `${error instanceof Error ? error.message : String(error)}`
+    );
+    await vscode.window.showWarningMessage(`${message}\n\nManual snippet:\n${snippet}`);
   }
-
-  const reload = await vscode.window.showInformationMessage(
-    `Done. Reload the window to run ${names} in the remote workspace.`,
-    'Reload Window'
-  );
-  if (reload === 'Reload Window') {
-    await vscode.commands.executeCommand('workbench.action.reloadWindow');
-  }
-  logger.info(`UI-kind self-heal applied for: ${gaps.map(gap => gap.extensionId).join(', ')}`);
+  logger.info(`UI-kind activation gap reported for: ${gaps.map(gap => gap.extensionId).join(', ')}`);
 }

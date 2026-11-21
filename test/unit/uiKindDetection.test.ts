@@ -1,6 +1,6 @@
 /**
  * Unit tests for src/core/detection/uiKindDetection.ts — UI-kind (client-side)
- * extension fallback detection and the remote.extensionKind self-heal.
+ * extension fallback detection and the remote.extensionKind self-heal guidance.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -10,9 +10,7 @@ import * as path from 'path';
 
 const vscodeState = {
   remoteName: 'ssh-remote' as string | undefined,
-  workspaceFolders: [{ uri: { fsPath: '/ws' }, name: 'ws', index: 0 }],
-  inspected: { workspaceValue: { 'other.ext': ['ui'] } } as Record<string, unknown> | undefined,
-  updates: [] as Array<{ section: string; key: string; value: unknown; target: string }>,
+  clipboardWrites: [] as string[],
   messages: [] as unknown[],
 };
 
@@ -22,35 +20,23 @@ vi.mock('vscode', () => {
       get remoteName() {
         return vscodeState.remoteName;
       },
-    },
-    workspace: {
-      get workspaceFolders() {
-        return vscodeState.workspaceFolders;
-      },
-      getConfiguration: () => ({
-        inspect: (key: string) =>
-          key === 'extensionKind' ? vscodeState.inspected : undefined,
-        update: (key: string, value: unknown, target: string) => {
-          vscodeState.updates.push({ section: 'remote', key, value, target });
+      clipboard: {
+        writeText: vi.fn((text: string) => {
+          vscodeState.clipboardWrites.push(text);
           return Promise.resolve();
-        },
-      }),
+        }),
+      },
     },
     window: {
       showInformationMessage: vi.fn((...args: unknown[]) => {
         vscodeState.messages.push(args);
-        return Promise.resolve(args[1]);
+        return Promise.resolve(undefined);
       }),
       showWarningMessage: vi.fn((...args: unknown[]) => {
         vscodeState.messages.push(args);
         return Promise.resolve(undefined);
       }),
     },
-    commands: {
-      executeCommand: vi.fn(() => Promise.resolve()),
-    },
-    ConfigurationTarget: { Workspace: 2, Global: 1 },
-    ExtensionKind: { UI: 1, Workspace: 2 },
   };
 });
 
@@ -68,8 +54,8 @@ vi.mock('../../src/util/log', () => ({
 
 import {
   findClientSideExtension,
-  mergeExtensionKindOverride,
-  applyWorkspaceExtensionKindOverride,
+  buildExtensionKindSnippet,
+  partitionUiKindGaps,
   offerUiKindSelfHeal,
 } from '../../src/core/detection/uiKindDetection';
 
@@ -83,24 +69,30 @@ function makeExtensionDir(
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
 }
 
-describe('mergeExtensionKindOverride', () => {
-  it('adds the override without clobbering existing user entries', () => {
-    const merged = mergeExtensionKindOverride({ 'other.ext': ['ui'] }, 'Continue.continue');
-    expect(merged).toEqual({ 'other.ext': ['ui'], 'Continue.continue': ['workspace'] });
-  });
-
-  it('replaces an existing entry for the same ID only', () => {
-    const merged = mergeExtensionKindOverride(
-      { 'continue.continue': ['ui'], 'other.ext': ['workspace'] },
-      'continue.continue'
+describe('buildExtensionKindSnippet', () => {
+  it('produces a single-ID snippet', () => {
+    expect(buildExtensionKindSnippet(['Continue.continue'])).toBe(
+      '{\n  "remote.extensionKind": {\n    "Continue.continue": ["workspace"]\n  }\n}'
     );
-    expect(merged['continue.continue']).toEqual(['workspace']);
-    expect(merged['other.ext']).toEqual(['workspace']);
   });
 
-  it('handles a non-object existing value', () => {
-    expect(mergeExtensionKindOverride(undefined, 'a.b')).toEqual({ 'a.b': ['workspace'] });
-    expect(mergeExtensionKindOverride([['x', ['ui']]], 'a.b')).toEqual({ 'a.b': ['workspace'] });
+  it('lists every ID for multi-ID assistants', () => {
+    const snippet = buildExtensionKindSnippet(['GitHub.copilot', 'GitHub.copilot-chat']);
+    expect(snippet).toContain('"GitHub.copilot": ["workspace"]');
+    expect(snippet).toContain('"GitHub.copilot-chat": ["workspace"]');
+  });
+});
+
+describe('partitionUiKindGaps', () => {
+  it('splits gap assistants from switchable ones', () => {
+    const detected = [
+      { activationGap: undefined as 'ui-kind' | undefined },
+      { activationGap: 'ui-kind' as const },
+      { activationGap: 'ui-kind' as const },
+    ];
+    const { gaps, switchable } = partitionUiKindGaps(detected);
+    expect(gaps).toHaveLength(2);
+    expect(switchable).toHaveLength(1);
   });
 });
 
@@ -159,102 +151,46 @@ describe('findClientSideExtension', () => {
   });
 });
 
-describe('applyWorkspaceExtensionKindOverride', () => {
-  beforeEach(() => {
-    vscodeState.updates.length = 0;
-    vscodeState.inspected = { workspaceValue: { 'other.ext': ['ui'] } };
-  });
-
-  it('merges into the existing workspace map and targets the workspace', async () => {
-    const applied = await applyWorkspaceExtensionKindOverride('Continue.continue');
-    expect(applied).toBe(true);
-    expect(vscodeState.updates).toHaveLength(1);
-    expect(vscodeState.updates[0].target).toBe(2);
-    expect(vscodeState.updates[0].value).toEqual({
-      'other.ext': ['ui'],
-      'Continue.continue': ['workspace'],
-    });
-  });
-
-  it('starts from an empty map when no workspace value exists', async () => {
-    vscodeState.inspected = undefined;
-    await applyWorkspaceExtensionKindOverride('a.b');
-    expect(vscodeState.updates[0].value).toEqual({ 'a.b': ['workspace'] });
-  });
-
-  it('fails closed when the configuration write throws (no workspace open)', async () => {
-    const failing = await import('vscode') as unknown as {
-      workspace: { getConfiguration: () => never };
-    };
-    const original = failing.workspace.getConfiguration;
-    (failing.workspace as { getConfiguration: () => unknown }).getConfiguration = () => {
-      throw new Error('no workspace');
-    };
-    try {
-      const applied = await applyWorkspaceExtensionKindOverride('a.b');
-      expect(applied).toBe(false);
-    } finally {
-      (failing.workspace as { getConfiguration: unknown }).getConfiguration = original;
-    }
-  });
-});
-
 describe('offerUiKindSelfHeal', () => {
   beforeEach(() => {
-    vscodeState.updates.length = 0;
+    vscodeState.clipboardWrites.length = 0;
     vscodeState.messages.length = 0;
     vscodeState.remoteName = 'ssh-remote';
-    vscodeState.inspected = { workspaceValue: {} };
   });
 
   it('is a no-op when not connected to a remote', async () => {
     vscodeState.remoteName = undefined;
     await offerUiKindSelfHeal([{ displayName: 'Continue.dev', extensionId: 'Continue.continue' }]);
+    expect(vscodeState.clipboardWrites).toHaveLength(0);
     expect(vscodeState.messages).toHaveLength(0);
-    expect(vscodeState.updates).toHaveLength(0);
   });
 
   it('is a no-op for an empty gap list', async () => {
     await offerUiKindSelfHeal([]);
-    expect(vscodeState.messages).toHaveLength(0);
+    expect(vscodeState.clipboardWrites).toHaveLength(0);
   });
 
-  it('is a no-op without an open workspace folder', async () => {
-    const state = vscodeState as unknown as { workspaceFolders: unknown[] };
-    const original = state.workspaceFolders;
-    state.workspaceFolders = [];
-    try {
-      await offerUiKindSelfHeal([{ displayName: 'Continue.dev', extensionId: 'Continue.continue' }]);
-      expect(vscodeState.messages).toHaveLength(0);
-    } finally {
-      state.workspaceFolders = original;
-    }
+  it('copies the remote.extensionKind snippet and explains the gap', async () => {
+    await offerUiKindSelfHeal([{ displayName: 'Continue.dev', extensionId: 'Continue.continue' }]);
+
+    expect(vscodeState.clipboardWrites).toHaveLength(1);
+    expect(vscodeState.clipboardWrites[0]).toContain('"Continue.continue": ["workspace"]');
+    expect(vscodeState.messages).toHaveLength(1);
+    const [message] = vscodeState.messages[0] as [string, unknown, string];
+    expect(message).toContain('Continue.dev');
+    expect(message).toContain('local user settings.json');
   });
 
-  it('writes the override and offers a reload when accepted', async () => {
-    const { window } = await import('vscode') as unknown as {
-      window: { showInformationMessage: ReturnType<typeof vi.fn> };
+  it('shows manual instructions when the clipboard write fails', async () => {
+    const vscodeModule = await import('vscode') as unknown as {
+      env: { clipboard: { writeText: ReturnType<typeof vi.fn> } };
     };
-    window.showInformationMessage
-      .mockResolvedValueOnce('Move to remote workspace')
-      .mockResolvedValueOnce(undefined);
+    vscodeModule.env.clipboard.writeText.mockRejectedValueOnce(new Error('clipboard denied'));
 
     await offerUiKindSelfHeal([{ displayName: 'Continue.dev', extensionId: 'Continue.continue' }]);
 
-    expect(vscodeState.updates).toHaveLength(1);
-    expect(vscodeState.updates[0].value).toEqual({ 'Continue.continue': ['workspace'] });
-    // Modal self-heal prompt + reload offer
-    expect(window.showInformationMessage).toHaveBeenCalledTimes(2);
-  });
-
-  it('writes nothing when the user dismisses the prompt', async () => {
-    const { window } = await import('vscode') as unknown as {
-      window: { showInformationMessage: ReturnType<typeof vi.fn> };
-    };
-    window.showInformationMessage.mockResolvedValueOnce(undefined);
-
-    await offerUiKindSelfHeal([{ displayName: 'Continue.dev', extensionId: 'Continue.continue' }]);
-
-    expect(vscodeState.updates).toHaveLength(0);
+    expect(vscodeState.messages).toHaveLength(1);
+    const [message] = vscodeState.messages[0] as [string, unknown, string];
+    expect(message).toContain('Manual snippet');
   });
 });

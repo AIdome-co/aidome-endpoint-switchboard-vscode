@@ -17,7 +17,7 @@ import { Logger } from '../util/log';
 import { countConfiguredAssistants } from '../core/orchestration/assistantOutcome';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
-import { offerUiKindSelfHeal } from '../core/detection/uiKindDetection';
+import { offerUiKindSelfHeal, partitionUiKindGaps } from '../core/detection/uiKindDetection';
 import { promptReloadAfterApply } from '../util/assistantReload';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
 import {
@@ -147,8 +147,14 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     }
 
     // Self-heal: assistants installed remotely but running client-side
-    // (UI-kind manifests) are offered a remote.extensionKind workspace fix.
-    await offerUiKindSelfHeal(detected.assistants.filter(assistant => assistant.activationGap === 'ui-kind'));
+    // (UI-kind manifests) get explained + clipboard instructions, and are
+    // excluded from the switchable list until the user applies the override
+    // (placement ignores workspace-level remote.extensionKind:
+    // microsoft/vscode#309379).
+    const { gaps: setupUiKindGaps, switchable: remotelySwitchable } =
+      partitionUiKindGaps(detected.assistants);
+    await offerUiKindSelfHeal(setupUiKindGaps);
+    detected.assistants = remotelySwitchable;
 
     const summary = renderDetectionSummary(detected);
     const outputChannel = vscode.window.createOutputChannel('AIdome Setup');
