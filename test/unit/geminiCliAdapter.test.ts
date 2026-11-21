@@ -7,6 +7,7 @@ import { GeminiCliAdapter } from '../../src/adapters/geminiCli/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
+import * as os from 'node:os';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -305,6 +306,29 @@ describe('GeminiCliAdapter', () => {
         if (original === undefined) delete process.env['GEMINI_CLI_HOME'];
         else process.env['GEMINI_CLI_HOME'] = original;
       }
+    });
+
+    it('falls back to the ordinary home .env when the Gemini-specific one is absent', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      const realHome = os.homedir();
+      const readPaths: string[] = [];
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        readPaths.push(filePath);
+        if (filePath === `${realHome}/.env`) {
+          return 'GOOGLE_GEMINI_BASE_URL="https://gateway.example.com"\n';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+      // The Gemini-specific file must be consulted BEFORE the home .env.
+      expect(readPaths.filter(p => p.endsWith('.env'))).toEqual([
+        `${realHome}/.gemini/.env`,
+        `${realHome}/.env`
+      ]);
     });
 
     it('ignores a malformed user-level .env file instead of failing verification', async () => {

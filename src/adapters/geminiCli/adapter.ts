@@ -76,7 +76,13 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
     ? path.join(path.resolve(process.env['GEMINI_CLI_HOME']), '.gemini')
     : path.join(os.homedir(), '.gemini');
 
-  const envFileContent = await readFileSafe(path.join(geminiDir, '.env'));
+  // findEnvFile's user-level fallback: after $GEMINI_CLI_HOME/.gemini/.env
+  // (or ~/.gemini/.env), the CLI also loads an ordinary ~/.env. The first
+  // match wins, so only consult it when the Gemini-specific file is absent.
+  let envFileContent = await readFileSafe(path.join(geminiDir, '.env'));
+  if (envFileContent === undefined) {
+    envFileContent = await readFileSafe(path.join(os.homedir(), '.env'));
+  }
   if (envFileContent) {
     for (const rawLine of envFileContent.split(/\r?\n/)) {
       const line = rawLine.trim();
