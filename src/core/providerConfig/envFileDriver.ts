@@ -10,6 +10,17 @@
  * import provider modules; providers delegate to this generic driver
  * instead. The observable `.env` behavior is byte-for-byte the one Codex
  * shipped before the extraction.
+ *
+ * Gemini CLI round (PR 159) semantics honored here:
+ * - `export KEY=value` and `KEY=value` are assignments to the SAME key
+ *   (Gemini CLI loads the file with dotenv, which accepts the export
+ *   prefix) — a stale `export GEMINI_API_KEY=...` line must be removed and
+ *   replaced like any other assignment.
+ * - Unrelated lines are preserved BYTE-IDENTICALLY (no reserialization,
+ *   no reordering, no quote normalization) — the writer only touches the
+ *   managed lines.
+ * - Credential files are private: the write keeps an existing file's
+ *   permissions and creates a missing one with 0600.
  */
 
 import { createBackup, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
@@ -26,6 +37,11 @@ export interface EnvFileDriverOptions {
    * are always preserved; removing a key that does not exist is a no-op.
    */
   removeKeys?: readonly string[];
+}
+
+/** Strips an optional `export ` prefix from a parsed dotenv key. */
+function stripExportPrefix(key: string): string {
+  return key.replace(/^export\s+/, '');
 }
 
 /** Parses a .env file into key/value records. */
@@ -53,12 +69,12 @@ export function parseDotEnv(
         'Fix or remove the file manually, then retry — the original file was left untouched.'
       );
     }
-    const key = line.slice(0, separator).trim();
+    const key = stripExportPrefix(line.slice(0, separator).trim());
     let value = line.slice(separator + 1).trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
-    if (key.length === 0) {
+    if (key.length === 0 || key === 'export') {
       throw new Error(`${fileLabel} has an empty variable name at line ${index + 1}.`);
     }
     output[key] = value;
@@ -66,40 +82,107 @@ export function parseDotEnv(
   return output;
 }
 
+/** Matches an assignment line and returns its unexported key, or null. */
+function assignmentKeyOf(rawLine: string): string | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0 || trimmed.startsWith('#')) {
+    return null;
+  }
+  const separator = trimmed.indexOf('=');
+  if (separator <= 0) {
+    return null;
+  }
+  return stripExportPrefix(trimmed.slice(0, separator).trim());
+}
+
 /**
- * Builds the merged .env content: managed variables are updated, unrelated
- * variables and comments are preserved.
+ * Builds the merged .env content with LINE-PRESERVING semantics: only the
+ * managed assignment lines are touched; every unrelated line (comments,
+ * blank lines, quoting, ordering) is emitted byte-identically.
+ *
+ * Managed-key reconciliation: when a key appears multiple times (in either
+ * `KEY=` or `export KEY=` form), the LAST occurrence — the one dotenv's
+ * obj[key]=value semantics make effective — is updated and earlier
+ * duplicates are dropped, so switching profiles can never leave an older
+ * duplicate effective. Keys absent from the file are appended (sorted for
+ * deterministic output). Keys listed in removeKeys have every occurrence
+ * removed.
  */
 export function buildDotEnvContent(
   existingContent: string | undefined,
   vars: Record<string, string>,
   options: EnvFileDriverOptions = {}
 ): string {
-  const existing = parseDotEnv(existingContent, options);
-  const merged: Record<string, string> = { ...existing, ...vars };
-  // Managed-key removal: only the explicitly listed keys are dropped;
-  // unrelated variables and comments survive.
-  for (const key of options.removeKeys ?? []) {
-    delete merged[key];
+  // Fail closed on malformed existing content BEFORE any line is produced.
+  parseDotEnv(existingContent, options);
+
+  const removeKeys = new Set(options.removeKeys ?? []);
+  const managedKeys = new Set([...Object.keys(vars), ...removeKeys]);
+
+  const rawLines = existingContent === undefined || existingContent.trim().length === 0
+    ? []
+    : existingContent.split('\n');
+  // A trailing newline is structure, not a line: strip it before splitting,
+  // so appended managed keys land BEFORE it (preserved byte-identically
+  // through the join below).
+  const hadTrailingNewline = rawLines.length > 0 && rawLines[rawLines.length - 1] === '';
+  if (hadTrailingNewline) {
+    rawLines.pop();
   }
 
-  // Preserve comment lines from the original file where the library contract
-  // allows; keys are re-emitted sorted for deterministic idempotent output.
-  const comments = (existingContent ?? '')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.startsWith('#'));
+  // First pass: collect, per managed key, the indices of ALL its assignment
+  // lines (both `KEY=` and `export KEY=` forms).
+  const occurrences = new Map<string, number[]>();
+  rawLines.forEach((rawLine, index) => {
+    const key = assignmentKeyOf(rawLine);
+    if (key !== null && managedKeys.has(key)) {
+      const list = occurrences.get(key);
+      if (list) {
+        list.push(index);
+      } else {
+        occurrences.set(key, [index]);
+      }
+    }
+  });
 
-  const lines = [
-    ...comments,
-    ...Object.keys(merged).sort().map(key => `${key}=${merged[key]}`)
-  ];
-  return `${lines.join('\n')}\n`;
+  // Second pass: replace the LAST occurrence of an updated key with the new
+  // value, remove every other occurrence (updates and removals alike).
+  const outputLines: string[] = [];
+  rawLines.forEach((rawLine, index) => {
+    const key = assignmentKeyOf(rawLine);
+    if (key === null || !managedKeys.has(key)) {
+      // Unrelated line — preserved byte-identically.
+      outputLines.push(rawLine);
+      return;
+    }
+    if (removeKeys.has(key)) {
+      return;
+    }
+    const list = occurrences.get(key);
+    if (list && list[list.length - 1] === index) {
+      outputLines.push(`${key}=${vars[key]}`);
+    }
+  });
+
+  // Append managed keys the file did not contain (deterministic order).
+  const appended = Object.keys(vars)
+    .filter(key => !occurrences.has(key))
+    .sort();
+  for (const key of appended) {
+    outputLines.push(`${key}=${vars[key]}`);
+  }
+  if (hadTrailingNewline && outputLines.length > 0) {
+    outputLines.push('');
+  }
+
+  const result = outputLines.join('\n');
+  return result.endsWith('\n') || result.length === 0 ? result : `${result}\n`;
 }
 
 /**
  * Patches a dotenv file with the managed variables.
- * Backup-before-modify, atomic write, unrelated variables preserved.
+ * Backup-before-modify, atomic write, unrelated lines preserved
+ * byte-identically, file permissions preserved (0600 for a new file).
  *
  * @returns The backup path, or undefined when the file did not exist.
  */
@@ -121,7 +204,7 @@ export async function patchEnvFile(
   }
 
   const updated = buildDotEnvContent(existingContent, vars, options);
-  const success = await writeFileAtomic(envFilePath, updated);
+  const success = await writeFileAtomic(envFilePath, updated, 1, { mode: 0o600 });
   if (!success) {
     throw new Error(`Failed to write ${options.fileLabel ?? 'env file'} to ${envFilePath}`);
   }

@@ -313,7 +313,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     driver: 'environment-binding',
     support: 'automatic',
     tier: 'A',
-    secretPolicy: 'secret-storage-only',
+    secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-process',
     discovery: { cliCommands: ['gemini'], environmentOverrides: ['GOOGLE_GEMINI_BASE_URL'], notes: ['Switchboard writes the override to the CLI dotenv file; the running parent process environment is never mutated.'] },
     verification: { requiredFields: ['GOOGLE_GEMINI_BASE_URL'], exactUrlMatch: true, selectedProviderRequired: false, protocolRequired: true, notes: ['The env file value is verified on disk; active use still depends on launch-directory project .gemini/.env shadowing and restart.'] },

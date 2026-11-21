@@ -551,8 +551,8 @@ describe('GeminiCliAdapter', () => {
   });
 
   describe('getTier', () => {
-    it('should return tier C', () => {
-      expect(adapter.getTier()).toBe('C');
+    it('reports the registry Tier A of the automatic env-file writer', () => {
+      expect(adapter.getTier()).toBe('A');
     });
   });
 });

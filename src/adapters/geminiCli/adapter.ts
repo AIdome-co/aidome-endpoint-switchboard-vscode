@@ -236,7 +236,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         baseUrl: profile.baseUrl,
         limitation: 'unsupported-gemini-cli-dialect',
         requestedDialect: profile.dialect,
-        tier: DESCRIPTOR?.tier ?? 'C',
+        tier: DESCRIPTOR?.tier ?? 'A',
         configurationStatus: 'unsupported',
       } satisfies GuidedStepsData;
       plan = addStep(plan, {
@@ -275,7 +275,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           baseUrl: profile.baseUrl,
           envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
           limitation: 'gemini-cli-requires-https-base-url',
-          tier: DESCRIPTOR?.tier ?? 'C'
+          tier: DESCRIPTOR?.tier ?? 'A'
         } satisfies GuidedStepsData,
         reversible: false
       });
@@ -378,7 +378,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           : 'Gemini CLI is installed, but a supported gateway base-URL environment variable is not configured.'),
       details: { 
         cli: true,
-        tier: DESCRIPTOR?.tier ?? 'C',
+        tier: DESCRIPTOR?.tier ?? 'A',
         configurationStatus: discovered.configured.length > 0
           ? 'environment-variable-configured'
           : (anyPresent ? 'base-url-configured-unverified-source' : 'manual-configuration-required'),
@@ -396,7 +396,11 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return 'C';
+    // Tier A: the switchboard writes the gateway base URL + credential into
+    // the CLI's own user-level env file automatically (registry tier A) —
+    // the hard-coded 'C' predates the automatic env-file writer and
+    // contradicted the registry, the descriptor and the wizard guidance.
+    return DESCRIPTOR?.tier ?? 'A';
   }
 
   /**
