@@ -190,11 +190,10 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     // require every discovered id to be present. Discovery failure does
     // NOT fail verification — a transient gateway outage must not flag a
     // healthy configuration; the per-entry checks above still hold.
-    // lastPlannedProfile is always set when expectedBaseUrl is (both are
-    // assigned in buildPlan); fall back to a minimal profile derived from
-    // the expected URL so discovery still runs.
-    const plannedProfile = this.lastPlannedProfile
-      ?? ({ baseUrl: expectedBaseUrl } as EndpointProfile);
+    // lastPlannedProfile is always set when expectedBaseUrl is — both are
+    // assigned in buildPlan, and the expectedBaseUrl check above has
+    // already passed — so the cast cannot be undefined here.
+    const plannedProfile = this.lastPlannedProfile as EndpointProfile;
     {
       // discoverModels already tolerates discovery errors (cache fallback),
       // so no extra rejection guard is needed here.
