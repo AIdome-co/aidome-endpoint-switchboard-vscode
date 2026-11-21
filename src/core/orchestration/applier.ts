@@ -154,7 +154,7 @@ export class PlanApplier {
           // (no-op) or left stale state in place. A confirmed no-op with no
           // credential available also leaves auth incomplete: guided-required.
           const credentialGap = appliedChangeSteps.find(step =>
-            step.type === 'write-env-file'
+            (step.type === 'write-env-file' || step.type === 'write-assistant-storage')
             && (step as { secretResolved?: boolean }).secretResolved === false);
           if (credentialGap) {
             assistantResults.set(assistantKey, assistantResult(
@@ -186,7 +186,7 @@ export class PlanApplier {
             // (the user must supply a credential), NOT deferred, even
             // though no file was touched.
             const noOpCredentialGap = appliedChangeSteps.find(step =>
-              step.type === 'write-env-file'
+              (step.type === 'write-env-file' || step.type === 'write-assistant-storage')
               && step.mutationApplied === false
               && (step as { secretResolved?: boolean }).secretResolved === false);
             // P1: no break/continue here — classify THIS assistant and let
@@ -673,12 +673,25 @@ export class PlanApplier {
     }
 
     const result = await writer(step, apiKey);
-    // A returned writer means the write happened (writers throw on failure):
-    // truthful mutation for the outcome/rollback filters below.
-    appliedStep.mutationApplied = true;
+    // Truthful mutation classification: a writer that reports `noOp` executed
+    // no write (nothing to do — e.g. a credential-less profile whose managed
+    // credential entry is already absent), so it is not a mutation and the
+    // missing-secret outcome rules below apply (GAP 9).
+    appliedStep.mutationApplied = result.noOp !== true;
+    // GAP 9: the applier must know whether the credential was available so
+    // the outcome classifier can report guided-required instead of
+    // configured when authentication is incomplete.
+    appliedStep.secretResolved = apiKey !== undefined;
     appliedStep.backupPath = result.backupPath;
     appliedStep.target = result.target ?? step.targetPath ?? `assistant-storage:${assistantKey}`;
-    this.logger.info(`Wrote assistant storage for ${assistantKey} (baseUrl=${redactUrl(baseUrl)}, backup=${result.backupPath ?? 'none'})`);
+    // Rollback contract: EVERY mutated target the writer reported must reach
+    // the applied step — reverseStep restores primary + extraRollbacks and
+    // deletes targets the apply created (Codex 154 round 1, finding n).
+    appliedStep.createdFile = result.createdFile;
+    appliedStep.extraRollbacks = result.extraRollbacks;
+    this.logger.info(
+      `Wrote assistant storage for ${assistantKey} (baseUrl=${redactUrl(baseUrl)}, backup=${result.backupPath ?? 'none'}, noOp=${result.noOp === true})`
+    );
   }
 
   /**

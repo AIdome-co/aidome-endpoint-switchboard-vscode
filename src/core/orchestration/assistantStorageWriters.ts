@@ -28,6 +28,13 @@ export interface AssistantStorageWriteResult {
   createdFile?: boolean;
   /** Additional mutated targets (e.g. settings.json) restored after the primary on rollback. */
   extraRollbacks?: AssistantStorageRollbackTarget[];
+  /**
+   * True when the writer confirmed it had nothing to write (e.g. a
+   * credential-less profile whose managed credential entry is already
+   * absent) — the step is a no-op, NOT a mutation, and the outcome must be
+   * classified with the missing-secret rules (GAP 9).
+   */
+  noOp?: boolean;
 }
 
 export type AssistantStorageWriter = (

@@ -51,6 +51,8 @@ export interface KiloAuthWriteResult {
   createdFile: boolean;
   /** Additional mutated targets (kilo.jsonc model re-render) for rollback. */
   extraRollbacks?: Array<{ target: string; backupPath?: string; createdFile?: boolean }>;
+  /** True when the writer confirmed there was nothing to write (no credential and no managed entry). */
+  noOp?: boolean;
 }
 
 export interface WriteKiloProviderAuthOptions {
@@ -114,7 +116,13 @@ export async function writeKiloProviderAuth(
     );
   }
 
-  const previousEntry = document[KILO_PROVIDER_SLUG];
+  // A credential-less profile with no managed entry present is a confirmed
+  // no-op — nothing to clear, nothing to write. Report it so the applier
+  // classifies the step truthfully (GAP 9: guided-required, not configured).
+  if (!options.apiKey && !(KILO_PROVIDER_SLUG in document)) {
+    return { noOp: true, target: authPath, createdFile: false };
+  }
+
   if (options.apiKey) {
     // Explicit set — never preserve a previous profile's token (Area 7.3).
     document[KILO_PROVIDER_SLUG] = { type: 'api', key: options.apiKey } satisfies KiloAuthKeyEntry;
@@ -127,10 +135,19 @@ export async function writeKiloProviderAuth(
     await fs.mkdir(path.dirname(authPath), { recursive: true });
     await fs.writeFile(authPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
   } catch (error) {
-    // The auth write itself failed — nothing to restore (content unchanged),
-    // but if the directory/file was created half-way, clean up best-effort.
-    if (!authExisted) {
-      await fs.rm(authPath, { force: true }).catch(() => undefined);
+    // A failed write may already have truncated or partially replaced an
+    // EXISTING file (disk full, ENOSPC mid-write) — restore the pre-write
+    // backup before propagating (Codex 154 round 1, finding a).
+    try {
+      if (authExisted && authBackupPath) {
+        await fs.copyFile(authBackupPath, authPath);
+      } else if (!authExisted) {
+        await fs.rm(authPath, { force: true });
+      }
+    } catch (restoreError) {
+      Logger.getInstance().warning(
+        `Failed to restore ${authPath} after a failed write: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
+      );
     }
     throw new Error(
       `Failed to write ${authPath}: ${error instanceof Error ? error.message : String(error)}`
@@ -202,7 +219,9 @@ async function refreshKiloModels(
 
   const merged = mergeModelEntries(existingContent, slugs);
   const models =
-    Object.keys(merged).length > 0 ? merged : buildModelEntries(slugs);
+    Object.keys(merged).length > 0
+      ? (merged as Record<string, { name: string }>)
+      : buildModelEntries(slugs);
   const rendered = buildKiloConfigContent(options.baseUrl, existingContent, undefined, models);
 
   const configBackupPath = await createBackup(configPath);
@@ -232,13 +251,16 @@ async function refreshKiloModels(
 
 /**
  * Merges discovered model slugs under the provider's existing `models` map.
- * Existing entries (user-curated names, limits, etc.) always win.
+ * Existing entries are kept WHOLE (their full metadata object — limits,
+ * costs, modalities, variants, user-curated names — survives; only missing
+ * IDs are added with a name-only fallback), so authenticated discovery can
+ * never discard per-model user configuration.
  */
 export function mergeModelEntries(
   existingContent: string,
   slugs: string[]
-): Record<string, { name: string }> {
-  let existing: Record<string, { name: string }> = {};
+): Record<string, unknown> {
+  let existing: Record<string, unknown> = {};
   try {
     const parsed = parseJsonc<Record<string, unknown>>(existingContent);
     const providerMap = parsed?.['provider'];
@@ -251,19 +273,13 @@ export function mergeModelEntries(
         ? (entry as Record<string, unknown>)['models']
         : undefined;
     if (models !== null && typeof models === 'object' && !Array.isArray(models)) {
-      for (const [id, value] of Object.entries(models as Record<string, unknown>)) {
-        const name =
-          value !== null && typeof value === 'object' && !Array.isArray(value)
-            ? (value as Record<string, unknown>)['name']
-            : undefined;
-        existing[id] = { name: typeof name === 'string' ? name : id };
-      }
+      existing = { ...(models as Record<string, unknown>) };
     }
   } catch {
     existing = {};
   }
 
-  const merged: Record<string, { name: string }> = { ...existing };
+  const merged: Record<string, unknown> = { ...existing };
   for (const slug of slugs) {
     if (!(slug in merged)) {
       merged[slug] = { name: slug };

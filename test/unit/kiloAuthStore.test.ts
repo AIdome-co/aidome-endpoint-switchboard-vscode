@@ -7,11 +7,29 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
-const { mockLoggerWarning, mockDiscoverModels, mockGetKiloConfigPath } = vi.hoisted(() => ({
+const { mockLoggerWarning, mockDiscoverModels, mockGetKiloConfigPath, failNextAuthWrite } = vi.hoisted(() => ({
   mockLoggerWarning: vi.fn(),
   mockDiscoverModels: vi.fn(),
-  mockGetKiloConfigPath: vi.fn((): string | undefined => undefined)
+  mockGetKiloConfigPath: vi.fn((): string | undefined => undefined),
+  failNextAuthWrite: { value: false }
 }));
+
+// ESM namespaces cannot be spied on — wrap fs/promises with a test seam that
+// fails the next writeFile call when requested.
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return {
+    ...actual,
+    writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+      if (failNextAuthWrite.value) {
+        failNextAuthWrite.value = false;
+        throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      }
+      return actual.writeFile(...args);
+    },
+    default: actual
+  };
+});
 
 vi.mock('../../src/util/log', () => ({
   Logger: {
@@ -188,6 +206,20 @@ describe('kiloAuthStore', () => {
       ).rejects.toThrow(/not valid JSON; refusing to overwrite/);
       expect(await fs.readFile(authPath, 'utf-8')).toBe('[]');
     });
+
+    it('restores the pre-write content when the auth write itself fails mid-way', async () => {
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      const original = '{"kilo":{"type":"oauth","refresh":"r","access":"a"}}';
+      await fs.writeFile(authPath, original, { mode: 0o600 });
+
+      failNextAuthWrite.value = true;
+      await expect(
+        writeKiloProviderAuth({ baseUrl: 'https://gw.example.com/v1', apiKey: 'k', dataDir })
+      ).rejects.toThrow(/Failed to write/);
+      // The pre-write content was restored from the backup (Codex 154-a).
+      expect(await fs.readFile(authPath, 'utf-8')).toBe(original);
+      expect(mockLoggerWarning).not.toHaveBeenCalled();
+    });
   });
 
   describe('authenticated model re-render', () => {
@@ -257,8 +289,34 @@ describe('kiloAuthStore', () => {
         configPath
       });
 
-      expect(result.extraRollbacks).toHaveLength(0);
+      // No credential AND no managed entry present: a confirmed no-op — the
+      // applier classifies this as guided-required (GAP 9), not configured.
+      expect(result.noOp).toBe(true);
+      expect(result.extraRollbacks).toBeUndefined();
       expect(mockDiscoverModels).not.toHaveBeenCalled();
+      const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
+      expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
+    });
+
+    it('clears a stale managed entry for a credential-less profile (real mutation, not a no-op)', async () => {
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.writeFile(
+        authPath,
+        JSON.stringify({ [KILO_PROVIDER_SLUG]: { type: 'api', key: 'OLD_PAT' } }),
+        { mode: 0o600 }
+      );
+      await fs.writeFile(configPath, '{"provider":{}}');
+      mockGetKiloConfigPath.mockReturnValue(configPath);
+
+      const result = await writeKiloProviderAuth({
+        baseUrl: 'https://gw.example.com/v1',
+        dataDir,
+        configPath
+      });
+
+      expect(result.noOp).toBeUndefined();
+      expect(result.createdFile).toBe(false);
+      expect(result.backupPath).toBeDefined();
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
       expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
     });
@@ -307,13 +365,15 @@ describe('kiloAuthStore', () => {
   });
 
   describe('mergeModelEntries', () => {
-    it('parses JSONC with comments and falls back to the id for nameless entries', () => {
+    it('parses JSONC with comments, keeps existing entries WHOLE, and adds missing ids', () => {
       const merged = mergeModelEntries(
-        `{\n // comment\n "provider": { "aidome-gateway": { "models": { "a": { "name": "A" }, "b": {} } } } }`,
+        `{\n // comment\n "provider": { "aidome-gateway": { "models": { "a": { "name": "A", "limit": { "context": 128000 } }, "b": {} } } } }`,
         ['b', 'c']
       );
-      expect(merged['a']).toEqual({ name: 'A' });
-      expect(merged['b']).toEqual({ name: 'b' });
+      // Existing entries survive whole — user metadata is never discarded.
+      expect(merged['a']).toEqual({ name: 'A', limit: { context: 128000 } });
+      expect(merged['b']).toEqual({});
+      // Missing discovered ids get a name-only fallback.
       expect(merged['c']).toEqual({ name: 'c' });
     });
 
