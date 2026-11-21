@@ -36,11 +36,13 @@ interface DiscoveredBaseUrlVariables {
 function isValidGeminiBaseUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== 'https:'
-      && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
-      return false;
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    if (parsed.protocol === 'https:') {
+      return true;
     }
-    return true;
+    // Gemini documents HTTPS with a loopback exemption; any other scheme
+    // (http on a remote host, ftp:, data:, ...) is rejected.
+    return parsed.protocol === 'http:' && loopback;
   } catch {
     return false;
   }
@@ -85,13 +87,16 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
       if (equals <= 0) {
         continue;
       }
-      const key = line.slice(0, equals).trim();
+      const key = line.slice(0, equals).trim().replace(/^export /, '');
       if (!(SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)
         || considered.has(key)) {
         continue;
       }
       considered.add(key);
-      const value = line.slice(equals + 1).trim().replace(/^"(.*)"$/, '$1');
+      // dotenv.parse semantics (Gemini loads this file with dotenv): strip
+      // matching single OR double quotes around the value.
+      const value = line.slice(equals + 1).trim()
+        .replace(/^(['"])(.*)\1$/, '$2');
       if (isValidGeminiBaseUrl(value)) {
         result.configured.push(key);
         // The user-level .env is a FALLBACK: a project `.gemini/.env` or
@@ -219,7 +224,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         configurationStatus: configured
           ? (discovered.fileBased.length > 0 ? 'base-url-configured-unverified-source' : 'environment-variable-configured')
           : 'manual-configuration-required',
-        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL; values must be valid HTTPS URLs unless they point at localhost',
+        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL; values must be valid HTTPS URLs unless they point at localhost. Which env file the CLI actually loads depends on its launch directory, workspace trust and project .gemini/.env / .env files (first match wins), so file-based detection is unverified until a request reaches the gateway.',
         supportedEnvironmentVariables: [...SUPPORTED_BASE_URL_VARIABLES],
         configuredEnvironmentVariables: discovered.configured,
         fileBasedEnvironmentVariables: discovered.fileBased,

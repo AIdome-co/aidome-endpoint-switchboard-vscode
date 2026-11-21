@@ -249,7 +249,38 @@ describe('GeminiCliAdapter', () => {
     expect(result.success).toBe(false);
     expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
     expect(JSON.stringify(result)).not.toContain('http://remote-host');
+
+
+  it('rejects non-HTTP schemes even on loopback hosts', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('.env')) {
+        return 'GOOGLE_GEMINI_BASE_URL=ftp://localhost/v1\n';
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
   });
+
+  it('parses single-quoted dotenv values like the CLI does', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('.env')) {
+        return "GOOGLE_GEMINI_BASE_URL='https://gateway.example.com'\n";
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+    expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+    expect(JSON.stringify(result)).not.toContain('gateway.example.com');
+  });  });
 
   it('resolves the .env file under GEMINI_CLI_HOME/.gemini', async () => {
     vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
