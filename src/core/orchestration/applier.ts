@@ -677,9 +677,11 @@ export class PlanApplier {
     }
 
     // Resolve the API key from SecretStorage via the profile's authRef.
+    // A whitespace-only stored value is NOT a credential — normalize it to
+    // missing so `secretResolved` stays truthful (Codex 154 round 7).
     let apiKey: string | undefined;
     if (authRef) {
-      apiKey = await this.profileSecrets.getSecret(authRef);
+      apiKey = (await this.profileSecrets.getSecret(authRef))?.trim() || undefined;
     }
 
     // Generic dispatch: the adapter layer registers the assistant-specific

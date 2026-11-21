@@ -210,6 +210,30 @@ describe('kiloAuthStore', () => {
       expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
       expect(written.kilo).toEqual({ type: 'oauth', refresh: 'r', access: 'a' });
     });
+
+    it('treats a whitespace-only token as missing (Codex 154 round 7)', async () => {
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.writeFile(
+        authPath,
+        JSON.stringify({ kilo: { type: 'oauth', refresh: 'r', access: 'a' } }),
+        { mode: 0o600 }
+      );
+
+      const result = await writeKiloProviderAuth({
+        baseUrl: 'https://gw.example.com/v1',
+        apiKey: '   ',
+        dataDir
+      });
+
+      // A blank credential is normalized to missing: with no managed entry
+      // present this is a confirmed no-op whose outcome signals the
+      // authentication gap (authRequired).
+      expect(result.noOp).toBe(true);
+      expect(result.authRequired).toBe(true);
+      const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
+      expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
+      expect(written.kilo).toEqual({ type: 'oauth', refresh: 'r', access: 'a' });
+    });
   });
 
   describe('writeKiloProviderAuth — fail-closed guards', () => {
