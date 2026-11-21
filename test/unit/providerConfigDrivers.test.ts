@@ -439,6 +439,87 @@ describe('configuration drivers', () => {
       expect(managed.every(m => m.apiBase === BASE_URL && m.apiKey === 'tok-2')).toBe(true);
     });
 
+    it('jsonc: deletes a sole managed entry that ends with a trailing comma', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ model: 'm/b', aidomeManaged: true });
+    });
+
+    it('jsonc: ignores commas inside a block comment between entries', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" } /* a, b */, { "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      // Deleting the managed entry must not truncate the block comment or
+      // corrupt the document.
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      expect(models[0]).toMatchObject({ name: 'UserOwnOpenAI' });
+      expect(models[1]).toMatchObject({ model: 'm/b', aidomeManaged: true });
+      expect(output).toContain('/* a, b */');
+    });
+
+    it('jsonc: repeated application of the same profile is idempotent', () => {
+      const first = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [] }',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+      const second = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: first,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(second);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+    });
+
     it('jsonc: creates the models array when the document has none', () => {
       // First-time setup on a fresh/legacy config.json without models.
       const output = renderConfigFileContent({

@@ -342,7 +342,7 @@ function renderJsoncModelArray(
       apiKey,
       data.useResponsesApi
     );
-    return ensureTrailingNewline(appendJsoncArrayEntries(output, ['models'], managedEntries));
+    return validateJsoncOutput(ensureTrailingNewline(appendJsoncArrayEntries(output, ['models'], managedEntries)));
   }
 
   const match = findManagedModelMatch(
@@ -389,7 +389,7 @@ function renderJsoncModelArray(
       : applyJsoncEdit(output, ['models'], [nextModel]);
   }
 
-  return ensureTrailingNewline(output);
+  return validateJsoncOutput(ensureTrailingNewline(output));
 }
 
 /**
@@ -759,6 +759,61 @@ function getValueAtPath(root: unknown, path: string[]): unknown {
 }
 
 /**
+ * Final safety gate: validates the reconciled JSONC before it reaches the
+ * file applier, so a corrupted document can never be written (the existing
+ * backup/rollback machinery then handles the surfaced failure).
+ */
+function validateJsoncOutput(content: string): string {
+  try {
+    parseJsonc<unknown>(content);
+  } catch (error) {
+    throw new Error('JSONC model-array driver produced invalid JSONC — aborting before any configuration write', { cause: error });
+  }
+  return content;
+}
+
+/**
+ * Finds the STRUCTURAL separator comma inside the gap between two array
+ * elements (or before the closing bracket). Skips whitespace and JSONC
+ * comments, so a comma inside a block or line comment is
+ * never mistaken for the separator (Codex P1 follow-up). Returns the gap
+ * offset of the comma or -1.
+ */
+function findJsoncStructuralComma(gap: string): number {
+  let rest = gap;
+  let consumed = 0;
+  for (;;) {
+    const wsMatch = /^\s+/.exec(rest);
+    if (wsMatch) {
+      consumed += wsMatch[0].length;
+      rest = rest.slice(wsMatch[0].length);
+    }
+    if (rest.length === 0) {
+      return -1;
+    }
+    if (rest.startsWith('//')) {
+      const newline = rest.indexOf('\n');
+      if (newline < 0) {
+        return -1;
+      }
+      consumed += newline + 1;
+      rest = rest.slice(newline + 1);
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const blockEnd = rest.indexOf('*/');
+      if (blockEnd < 0) {
+        return -1;
+      }
+      consumed += blockEnd + 2;
+      rest = rest.slice(blockEnd + 2);
+      continue;
+    }
+    return rest.startsWith(',') ? consumed : -1;
+  }
+}
+
+/**
  * Deletes managed array elements one at a time, each deletion guided by a
  * FRESH parse tree and consuming exactly one adjacent separator comma:
  *  - a non-last element takes the comma immediately after it (so a comment
@@ -811,7 +866,7 @@ function deleteJsoncArrayElements(
     if (managedIndex + 1 < children.length) {
       // Non-last element: consume exactly the separator comma after it.
       const gap = content.slice(end, children[managedIndex + 1].offset);
-      const commaRel = gap.indexOf(',');
+      const commaRel = findJsoncStructuralComma(gap);
       content = commaRel >= 0
         ? content.slice(0, start) + content.slice(end + commaRel + 1)
         : content.slice(0, start) + content.slice(end); // malformed gap: element text only
@@ -821,14 +876,21 @@ function deleteJsoncArrayElements(
       // Last element: consume the separator comma before it.
       const prevEnd = children[managedIndex - 1].offset + children[managedIndex - 1].length;
       const gap = content.slice(prevEnd, start);
-      const commaRel = gap.lastIndexOf(',');
+      const commaRel = findJsoncStructuralComma(gap);
       if (commaRel >= 0) {
         content = content.slice(0, prevEnd + commaRel) + content.slice(end);
         continue;
       }
     }
-    // Sole element: no separator remains.
-    content = content.slice(0, start) + content.slice(end);
+    // Sole element: consume the element plus a trailing comma after it, if
+    // one exists (a hand-edited `[ entry, ]` would otherwise become the
+    // invalid `[, ]` — Codex P1 follow-up).
+    const arrayEnd = node.offset + node.length - 1; // index of the closing ']'
+    const gapAfter = content.slice(end, arrayEnd);
+    const trailingComma = findJsoncStructuralComma(gapAfter);
+    content = trailingComma >= 0
+      ? content.slice(0, start) + content.slice(end + trailingComma + 1)
+      : content.slice(0, start) + content.slice(end);
   }
   return content;
 }
