@@ -139,10 +139,14 @@ export class RooCodeAdapter extends BaseExtensionAdapter {
   /**
    * Roo Code's guided plan configures real OpenAI-compatible providers
    * manually in its settings UI — actionable for openai.chat_completions
-   * and openai.responses dialects (unsupported dialects get their own
-   * explain-and-stop plan at apply time).
+   * and openai.responses dialects; any other profile dialect gets its own
+   * explain-and-stop plan at apply time, so guided eligibility must not
+   * promise setup for it (Codex round 4, PR 118).
    */
-  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+  getGuidedSetupStatus(profile?: EndpointProfile): 'actionable' | 'unsupported' {
+    if (profile && profile.dialect !== OPENAI_CHAT_DIALECT && profile.dialect !== OPENAI_RESPONSES_DIALECT) {
+      return 'unsupported';
+    }
     return 'actionable';
   }
 }

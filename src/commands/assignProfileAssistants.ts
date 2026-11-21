@@ -72,10 +72,13 @@ export async function assignProfileAssistants(
     detected,
     // Only Tier C assistants with ACTIONABLE guided setup stay assignable
     // (Codex round 2, PR 118): unsupported informational guidance such as
-    // Tabnine must not be offered as "guided setup".
+    // Tabnine must not be offered as "guided setup". The selected profile
+    // makes eligibility dialect-aware (Codex round 4): Gemini CLI is only
+    // offered for `google.gemini.generate_content` profiles.
     await getGuidedSetupEligibleKeys(
       [...detected.assistants.map(a => a.assistantKey), ...detected.clis.map(c => c.assistantKey)],
-      registry.assistants
+      registry.assistants,
+      profile
     ),
     // Exclude a gap key only when the assistant has no usable remote CLI
     // detection: claude-code-style entries can be detected BOTH as a UI-kind

@@ -76,7 +76,17 @@ export interface AssistantAdapter {
    * endpoint exists at all). Selection flows only offer guided Tier C
    * candidates whose status is 'actionable'; unsupported ones stay hidden
    * instead of promising setup that does not exist.
+   *
+   * Implementations receive the selected profile when one is known
+   * (assignment flow, plan building) so actionability can be
+   * profile-dialect-aware (Codex round 4, PR 118): Gemini CLI's
+   * GOOGLE_GEMINI_BASE_URL guidance only applies to
+   * `google.gemini.generate_content`, and Roo Code's OpenAI guidance only
+   * to its two supported OpenAI dialects. When no profile is known yet
+   * (setup wizard picker), the status may reflect the adapter's
+   * dialect-agnostic best case.
+   * @param profile Optional selected endpoint profile
    * @returns Guided-setup actionability status
    */
-  getGuidedSetupStatus?(): 'actionable' | 'unsupported';
+  getGuidedSetupStatus?(profile?: EndpointProfile): 'actionable' | 'unsupported';
 }

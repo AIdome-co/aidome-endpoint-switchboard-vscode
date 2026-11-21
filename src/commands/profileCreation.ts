@@ -205,6 +205,11 @@ export const SETUP_DIALECT_OPTIONS: DialectQuickPickItem[] = [
     label: 'OpenAI Responses',
     description: 'Newer /v1/responses format',
     value: 'openai.responses'
+  },
+  {
+    label: 'Google Gemini',
+    description: 'google.gemini.generate_content — required for Gemini CLI',
+    value: 'google.gemini.generate_content'
   }
 ];
 

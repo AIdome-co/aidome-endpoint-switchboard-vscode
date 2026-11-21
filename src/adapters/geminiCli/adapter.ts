@@ -204,6 +204,33 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
 
     let plan = createPlan(profile.id, ['gemini-cli']);
 
+    if (profile.dialect !== 'google.gemini.generate_content') {
+      // GOOGLE_GEMINI_BASE_URL only routes Gemini's own dialect — an
+      // OpenAI/Anthropic profile cannot be pasted into that env var, so
+      // report the plan as unsupported instead of promising guidance
+      // (Codex round 4, PR 118).
+      const unsupportedData = {
+        message: `Gemini CLI cannot use the ${profile.dialect} profile dialect — GOOGLE_GEMINI_BASE_URL only applies to google.gemini.generate_content profiles`,
+        steps: [
+          'Create an endpoint profile using the google.gemini.generate_content dialect.',
+          'Set GOOGLE_GEMINI_BASE_URL in the environment that launches Gemini CLI.',
+        ],
+        baseUrl: profile.baseUrl,
+        limitation: 'unsupported-gemini-cli-dialect',
+        requestedDialect: profile.dialect,
+        tier: DESCRIPTOR?.tier ?? 'C',
+        configurationStatus: 'unsupported',
+      } satisfies GuidedStepsData;
+      plan = addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Gemini CLI requires a Google Gemini dialect profile',
+        assistantKey: 'gemini-cli',
+        data: unsupportedData,
+        reversible: false,
+      });
+      return plan;
+    }
+
     // Gemini CLI upstream refuses plain-HTTP base URLs unless they point at
     // localhost (geminicli.com configuration docs). A profile the creation
     // flow accepted with an http:// self-hosted gateway cannot be honored
@@ -313,8 +340,16 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     return 'C';
   }
 
-  /** Gemini CLI routes via GOOGLE_GEMINI_BASE_URL — guided env setup is actionable. */
-  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+  /**
+   * Gemini CLI's guided env setup is actionable only for the dialect its
+   * descriptor declares — GOOGLE_GEMINI_BASE_URL is required for
+   * `google.gemini.generate_content` and meaningless for OpenAI/Anthropic
+   * profiles (Codex round 4, PR 118).
+   */
+  getGuidedSetupStatus(profile?: EndpointProfile): 'actionable' | 'unsupported' {
+    if (profile && profile.dialect !== 'google.gemini.generate_content') {
+      return 'unsupported';
+    }
     return 'actionable';
   }
 }
