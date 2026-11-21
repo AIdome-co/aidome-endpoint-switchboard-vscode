@@ -191,7 +191,9 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     // NOT fail verification — a transient gateway outage must not flag a
     // healthy configuration; the per-entry checks above still hold.
     if (this.lastPlannedProfile !== undefined) {
-      const discovered = await this.discoverModels(this.lastPlannedProfile).catch(() => []);
+      // discoverModels already tolerates discovery errors (cache fallback),
+      // so no extra rejection guard is needed here.
+      const discovered = await this.discoverModels(this.lastPlannedProfile);
       if (discovered.length > 0) {
         const managedModelIds = new Set(
           managed
