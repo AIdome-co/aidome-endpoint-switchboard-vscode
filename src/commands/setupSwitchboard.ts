@@ -18,6 +18,7 @@ import { countConfiguredAssistants } from '../core/orchestration/assistantOutcom
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
 import { offerUiKindSelfHeal, partitionUiKindGaps } from '../core/detection/uiKindDetection';
+import { getGuidedSetupEligibleKeys } from '../adapters/adapters.index';
 import { promptReloadAfterApply } from '../util/assistantReload';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
 import {
@@ -164,21 +165,39 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const switchableAssistants = detected.assistants.filter(a => a.tier !== 'C');
     const nonSwitchableAssistants = detected.assistants.filter(a => a.tier === 'C');
 
+    // Resolve guided eligibility once: unsupported Tier C assistants (e.g.
+    // Tabnine) must never be promised a guided-setup step that will not run
+    // (Codex round 3, PR 118).
+    const guidedEligibleKeys = await getGuidedSetupEligibleKeys(
+      [...detected.assistants.map(a => a.assistantKey), ...detected.clis.map(c => c.assistantKey)],
+      registry.assistants
+    );
+    const guidedEligibleAssistants = nonSwitchableAssistants.filter(a => guidedEligibleKeys.has(a.assistantKey));
+
     if (switchableAssistants.length === 0 && nonSwitchableAssistants.length > 0) {
       const names = nonSwitchableAssistants.map(a => a.displayName).join(', ');
       const tierANames = getAssistantsByTier(registry, 'A').map(a => a.displayName).join(', ');
-      logger.warning(`Only non-switchable (Tier C) assistants detected: ${names}`);
+      logger.warning(`Only guided-setup (Tier C) assistants detected: ${names}`);
+      // Tier C assistants are still routed below — their guided `show-guided-steps`
+      // plans are the only reachable surface for manual setup (Codex review PR 118).
+      const guidedOffer =
+        guidedEligibleAssistants.length === 0
+          ? `None of them offer guided setup.`
+          : `Guided manual setup will be offered next`;
       await showWarning(
-        `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support endpoint switching. ` +
-        `Install a Tier A assistant (${tierANames}) for automatic configuration.`
+        `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support automatic endpoint switching. ` +
+        `${guidedOffer}; install a Tier A assistant (${tierANames}) for automatic configuration.`
       );
-      return;
     }
 
     const assistantSelectionItems = buildAssistantSelectionItems(
-      switchableAssistants,
+      detected.assistants,
       detected.clis,
-      registry.assistants
+      registry.assistants,
+      // Only Tier C assistants with ACTIONABLE guided setup stay reachable
+      // (Codex round 2, PR 118): unsupported informational guidance such as
+      // Tabnine must not be offered as "guided setup".
+      guidedEligibleKeys
     );
 
     // Step 2/5 — Assistant selection
@@ -369,16 +388,21 @@ async function selectAssistants(items: SetupAssistantSelectionItem[]): Promise<s
 function buildAssistantSelectionItems(
   detectedAssistants: Awaited<ReturnType<Switchboard['detectAll']>>['assistants'],
   detectedClis: Awaited<ReturnType<Switchboard['detectAll']>>['clis'],
-  registryAssistants: AssistantEntry[]
+  registryAssistants: AssistantEntry[],
+  guidedSetupEligible: ReadonlySet<string>
 ): SetupAssistantSelectionItem[] {
   const assistantsByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant]));
-  const switchableExtensionKeys = detectedAssistants
-    .filter(assistant => assistant.tier !== 'C')
+  // Guided Tier C candidates stay selectable when their guided plan is
+  // actionable; they are labeled guided-only so users can distinguish them
+  // from automatically switchable assistants (Codex review PR 118).
+  const guidedExtensionKeys = detectedAssistants
+    .filter(assistant => assistant.tier !== 'C' || guidedSetupEligible.has(assistant.assistantKey))
     .map(assistant => assistant.assistantKey);
   const switchableCliKeys = detectedClis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
+    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C'
+      || guidedSetupEligible.has(cli.assistantKey))
     .map(cli => cli.assistantKey);
-  const candidateKeys = [...new Set([...switchableExtensionKeys, ...switchableCliKeys])];
+  const candidateKeys = [...new Set([...guidedExtensionKeys, ...switchableCliKeys])];
 
   return candidateKeys.map(assistantKey => {
     const registryAssistant = assistantsByKey.get(assistantKey);
@@ -388,11 +412,15 @@ function buildAssistantSelectionItems(
     const label = detectedViaExtension && detectedViaCli
       ? `${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey} (Extension + CLI)`
       : registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey;
-    const detail = detectedViaExtension && detectedViaCli
+    const isGuidedOnly = (registryAssistant?.endpointSwitching.tier ?? detectedAssistant?.tier) === 'C';
+    const baseDetail = detectedViaExtension && detectedViaCli
       ? 'Detected as VS Code extension and CLI'
       : detectedViaExtension
         ? 'Detected as VS Code extension'
         : 'Detected as CLI';
+    const detail = isGuidedOnly
+      ? `${baseDetail} · guided setup only — endpoint routing is configured manually`
+      : baseDetail;
 
     return {
       assistantKey,

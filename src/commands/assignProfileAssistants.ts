@@ -10,6 +10,7 @@ import { showError, showSuccess, showWarning, withProgress } from '../ui/notific
 import { Logger } from '../util/log';
 import { promptReloadAfterApply } from '../util/assistantReload';
 import { offerUiKindSelfHeal, partitionUiKindGaps } from '../core/detection/uiKindDetection';
+import { getGuidedSetupEligibleKeys } from '../adapters/adapters.index';
 import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
@@ -69,6 +70,13 @@ export async function assignProfileAssistants(
     mappings,
     registry.assistants,
     detected,
+    // Only Tier C assistants with ACTIONABLE guided setup stay assignable
+    // (Codex round 2, PR 118): unsupported informational guidance such as
+    // Tabnine must not be offered as "guided setup".
+    await getGuidedSetupEligibleKeys(
+      [...detected.assistants.map(a => a.assistantKey), ...detected.clis.map(c => c.assistantKey)],
+      registry.assistants
+    ),
     // Exclude a gap key only when the assistant has no usable remote CLI
     // detection: claude-code-style entries can be detected BOTH as a UI-kind
     // extension and as a remote CLI, and the CLI candidate must stay
@@ -532,19 +540,23 @@ function buildAssistantSelectionItems(
   mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
   assistants: AssistantEntry[],
   detected: Awaited<ReturnType<Switchboard['detectAll']>>,
+  guidedSetupEligible: ReadonlySet<string>,
   excludedKeys: ReadonlySet<string> = new Set<string>()
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
-  const detectedExtensionKeys = detected.assistants
-    .filter(assistant => assistant.tier !== 'C')
+  // Guided Tier C candidates stay selectable when their guided plan is
+  // actionable — extensions AND CLIs (Codex review PR 118 round 2).
+  const candidateDetectedExtensionKeys = detected.assistants
+    .filter(assistant => assistant.tier !== 'C' || guidedSetupEligible.has(assistant.assistantKey))
     .map(assistant => assistant.assistantKey);
   const detectedCliKeys = detected.clis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
+    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C'
+      || guidedSetupEligible.has(cli.assistantKey))
     .map(cli => cli.assistantKey);
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
     .map(mapping => mapping.assistantKey);
-  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])]
+  const candidateKeys = [...new Set([...assignedKeys, ...candidateDetectedExtensionKeys, ...detectedCliKeys])]
     // UI-kind activation gaps that could not be resolved must not appear even
     // as previously assigned: applying would write a remote configuration the
     // client-side assistant will not read (Codex 156 round 3).
@@ -554,10 +566,16 @@ function buildAssistantSelectionItems(
 
   for (const assistantKey of candidateKeys) {
     const assistant = assistantsByKey.get(assistantKey);
-    if (!assistant || assistant.endpointSwitching.tier === 'C') {
+    if (!assistant) {
       continue;
     }
 
+    const isGuidedOnly = assistant.endpointSwitching.tier === 'C' && guidedSetupEligible.has(assistantKey);
+    if (assistant.endpointSwitching.tier === 'C' && !guidedSetupEligible.has(assistantKey)) {
+      // Unsupported Tier C guidance (e.g. Tabnine) must not be offered —
+      // applying would promise setup that does not exist (Codex round 2).
+      continue;
+    }
     const assistantMappings = mappings.filter(item => item.assistantKey === assistantKey);
     const currentProfileMapping = assistantMappings.find(item => item.profileId === profile.id);
     const otherProfileNames = [...new Set(assistantMappings
@@ -581,11 +599,15 @@ function buildAssistantSelectionItems(
         ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
         : detectionLabel;
 
+    const itemDetail = isGuidedOnly
+      ? `${assignmentLabel} · guided setup only — endpoint routing is configured manually`
+      : assignmentLabel;
+
     items.push({
       assistantKey,
       label: assistant.displayName,
       description: assistantKey,
-      detail: assignmentLabel,
+      detail: itemDetail,
       picked: Boolean(currentProfileMapping)
     });
   }

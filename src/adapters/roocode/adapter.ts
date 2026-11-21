@@ -1,65 +1,130 @@
-/**
- * Adapter for Roo Code.
- *
- * Roo Code is retired upstream. Its old settings are intentionally not
- * mutated because they are no longer a supported configuration contract.
- */
-
+import * as vscode from 'vscode';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
-import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
+import { GuidedStepsData, Plan, createPlan, addStep } from '../../core/orchestration/planBuilder';
+import { validateUrl } from '../../core/profiles/profileValidator';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
-import { validateUrl } from '../../core/profiles/profileValidator';
-import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 
-const DESCRIPTOR = getProviderConfigDescriptor('roo-code');
+const ROO_CODE_EXTENSION_ID = 'RooVeterinaryInc.roo-cline';
+const OPENAI_CHAT_DIALECT = 'openai.chat_completions';
+const OPENAI_RESPONSES_DIALECT = 'openai.responses';
 
-/** Roo Code assistant adapter. */
+/**
+ * Adapter for the final Roo Code extension release.
+ *
+ * Roo Code 3.54.0 (RooCodeInc/Roo-Code v3.54.0, commit
+ * 4a4cbb279bbeb2b9e98cb1808b9ce882384cf3) stores provider profiles in its
+ * own SecretStorage and exposes no VS Code configuration key for endpoint
+ * routing. The repository was archived on May 15, 2026. Keep this adapter
+ * detection- and guidance-only so it never claims to have changed a setting
+ * that Roo Code does not read.
+ */
+
+/**
+ * Roo Code's openai-native provider passes the user-supplied Base URL straight
+ * to the OpenAI SDK (`new OpenAI({ baseURL: ... })`), which appends
+ * `/responses` for the Responses dialect. The SDK default base URL already
+ * includes `/v1`, so the profile base URL must be kept unchanged.
+ */
+
+function getGuidance(profile: EndpointProfile): GuidedStepsData {
+  const isResponses = profile.dialect === OPENAI_RESPONSES_DIALECT;
+  const providerLabel = isResponses ? 'OpenAI' : 'OpenAI Compatible';
+  const baseUrl = profile.baseUrl;
+  const baseUrlField = isResponses ? 'custom Base URL' : 'Base URL';
+
+  return {
+    message: 'Roo Code endpoint routing requires manual configuration in its settings',
+    steps: [
+      'Open the Roo Code sidebar and click its settings gear.',
+      `Choose "${providerLabel}" in the API Provider dropdown.`,
+      `Set ${baseUrlField} to: ${baseUrl}`,
+      'Enter the gateway API key in Roo Code’s API Key field; the Switchboard does not copy secrets into Roo Code.',
+      'Enter or select a model ID exposed by the gateway.',
+      'Save the provider profile and select it for the active Roo Code mode.',
+      'Send a small Roo Code request to confirm that the gateway receives traffic.',
+    ],
+    baseUrl,
+    tier: 'C',
+    configurationType: 'in-extension-ui',
+    limitation: 'roo-code-provider-profiles-use-private-secret-storage',
+  };
+}
+
+/**
+ * Roo Code assistant adapter.
+ */
 export class RooCodeAdapter extends BaseExtensionAdapter {
-  protected readonly extensionId = 'RooVeterinaryInc.roo-cline';
+  protected readonly extensionId = ROO_CODE_EXTENSION_ID;
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
-    if (!validateUrl(profile.baseUrl)) {
+    const plan = createPlan(profile.id, ['roo-code']);
+
+    if (!profile.baseUrl || !validateUrl(profile.baseUrl)) {
       throw new Error('Roo Code endpoint URL is invalid or uses an unsupported scheme');
     }
 
-    const guidanceData = {
-      message: 'Roo Code is retired and cannot be safely configured by Switchboard',
-      steps: [
-        'Roo Code is no longer maintained by its upstream project',
-        'Switchboard will not write the retired roo-cline settings because their behavior cannot be verified',
-        'Use a maintained assistant with an explicit provider contract, such as Cline, Continue, or Kilo Code',
-        `If you have a supported fork, configure its documented OpenAI-compatible endpoint manually: ${profile.baseUrl}`
-      ],
-      baseUrl: profile.baseUrl,
-      tier: DESCRIPTOR?.tier ?? 'C',
-      limitation: 'retired-upstream',
-      // Explicit typed outcome metadata (never inferred from limitation text).
-      configurationStatus: 'unsupported'
-    } satisfies GuidedStepsData;
+    const supportedDialect = profile.dialect === OPENAI_CHAT_DIALECT ||
+      profile.dialect === OPENAI_RESPONSES_DIALECT;
 
-    return addStep(createPlan(profile.id, ['roo-code']), {
+    if (!supportedDialect) {
+      const guidanceData = {
+        message: `Roo Code cannot use the ${profile.dialect} profile dialect through its final supported providers`,
+        steps: [
+          'Choose an endpoint profile using openai.chat_completions or openai.responses.',
+          'Open the Roo Code sidebar and configure the matching OpenAI provider manually.',
+          'Verify the selected model and send a test request from Roo Code.',
+        ],
+        tier: 'C',
+        limitation: 'unsupported-roo-code-dialect',
+        requestedDialect: profile.dialect,
+        // Declared explicitly so PlanApplier classifies this assistant as
+        // 'unsupported' (not 'guided-required'): the instructions require
+        // choosing a different OpenAI profile, so manual follow-up on the
+        // selected profile can never complete it (Codex round 3, PR 118).
+        configurationStatus: 'unsupported',
+      } satisfies GuidedStepsData;
+
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Roo Code requires a supported OpenAI dialect',
+        assistantKey: 'roo-code',
+        data: guidanceData,
+        reversible: false,
+      });
+    }
+
+    return addStep(plan, {
       action: 'show-guided-steps',
-      description: 'Roo Code configuration guidance',
+      description: 'Configure Roo Code endpoint routing manually',
       assistantKey: 'roo-code',
-      data: guidanceData,
-      reversible: false
+      data: getGuidance(profile),
+      reversible: false,
     });
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
-    const installed = await this.detect();
+    const extension = vscode.extensions.getExtension(this.extensionId);
+
+    if (!extension) {
+      return {
+        success: false,
+        message: 'Roo Code is not installed',
+        details: { extension: false, tier: 'C' },
+      };
+    }
+
     return {
       success: false,
-      message: installed
-        ? 'Roo Code is installed, but the retired assistant is unsupported'
-        : 'Roo Code is not installed',
+      message: 'Roo Code is installed, but endpoint routing must be verified manually in Roo Code',
       details: {
-        extension: installed,
-        tier: DESCRIPTOR?.tier ?? 'C',
-        configurationStatus: 'unsupported',
-        limitation: 'retired-upstream'
-      }
+        extension: true,
+        tier: 'C',
+        automated: false,
+        configured: 'unknown',
+        verification: 'manual-request-required',
+        limitation: 'Roo Code provider profiles are stored in Roo Code SecretStorage, which this extension cannot inspect',
+      },
     };
   }
 
@@ -68,6 +133,16 @@ export class RooCodeAdapter extends BaseExtensionAdapter {
   }
 
   getTier(): 'A' | 'B' | 'C' {
-    return DESCRIPTOR?.tier ?? 'C';
+    return 'C';
+  }
+
+  /**
+   * Roo Code's guided plan configures real OpenAI-compatible providers
+   * manually in its settings UI — actionable for openai.chat_completions
+   * and openai.responses dialects (unsupported dialects get their own
+   * explain-and-stop plan at apply time).
+   */
+  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+    return 'actionable';
   }
 }

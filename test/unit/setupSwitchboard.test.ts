@@ -153,7 +153,17 @@ vi.mock('../../src/core/profiles/profileSecrets', () => ({
   }),
 }));
 
+vi.mock('../../src/adapters/adapters.index', () => ({
+  // Eligibility is explicit per test: only the keys listed here offer
+  // actionable guided setup. The helper returns them unchecked for brevity.
+  getGuidedSetupEligibleKeys: vi.fn(async (keys: readonly string[]) =>
+    new Set(keys.filter(key => mockGuidedEligibleKeys.has(key)))
+  ),
+}));
+
 import { setupSwitchboard } from '../../src/commands/setupSwitchboard';
+
+const mockGuidedEligibleKeys = new Set(['github.copilot', 'gemini-cli']);
 
 // ---------- helpers ----------
 function makeContext() {
@@ -190,7 +200,7 @@ describe('setupSwitchboard', () => {
     mockShowSuccess.mockResolvedValue(undefined);
   });
 
-  it('shows a warning and returns early when only Tier C assistants are detected', async () => {
+  it('shows a warning but keeps guided Tier C assistants reachable when only they are detected', async () => {
     mockDetectAll.mockResolvedValue({
       assistants: [makeAssistant('github.copilot', 'C', 'GitHub Copilot')],
       clis: [],
@@ -204,7 +214,12 @@ describe('setupSwitchboard', () => {
     expect(mockShowWarning).toHaveBeenCalledWith(
       expect.stringContaining('Tier A assistant')
     );
-    expect(mockShowQuickPick).not.toHaveBeenCalled();
+    // Guided Tier C assistants stay reachable via show-guided-steps plans.
+    expect(mockShowQuickPick).toHaveBeenCalled();
+    const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
+    const guidedItem = items.find(i => i.assistantKey === 'github.copilot');
+    expect(guidedItem).toBeDefined();
+    expect(guidedItem?.detail).toContain('guided setup only');
   });
 
   it('logs only non-switchable names when only Tier C are detected', async () => {
@@ -226,7 +241,7 @@ describe('setupSwitchboard', () => {
     );
   });
 
-  it('offers only switchable (non-Tier-C) assistants in the QuickPick', async () => {
+  it('offers Tier C assistants as guided-setup-only entries alongside switchable ones', async () => {
     mockDetectAll.mockResolvedValue({
       assistants: [
         makeAssistant('github.copilot', 'C', 'GitHub Copilot'),
@@ -243,7 +258,10 @@ describe('setupSwitchboard', () => {
     const assistantKeys = items.map(i => i.assistantKey);
     expect(labels).toContain('Kilo Code');
     expect(assistantKeys).toContain('kilocode');
-    expect(assistantKeys).not.toContain('github.copilot');
+    // Tier C assistants are now included as guided-setup-only entries.
+    expect(assistantKeys).toContain('github.copilot');
+    const copilotItem = items.find(i => i.assistantKey === 'github.copilot');
+    expect(copilotItem?.detail).toContain('guided setup only');
   });
 
   it('logs "user dismissed" when user closes the assistant QuickPick', async () => {
@@ -404,13 +422,14 @@ describe('setupSwitchboard', () => {
     const registryLoader = await import('../../src/core/registry/registryLoader');
     vi.mocked(registryLoader.loadRegistry).mockResolvedValueOnce({
       assistants: [
-        { key: 'github.copilot', displayName: 'GitHub Copilot', endpointSwitching: { tier: 'C' } },
+        // Tier C CLI WITHOUT actionable guided setup: must not reach the picker.
+        { key: 'tabnine', displayName: 'Tabnine', endpointSwitching: { tier: 'C' } },
       ] as any,
       dialectCatalog: {},
     });
     mockDetectAll.mockResolvedValue({
       assistants: [],
-      clis: [{ assistantKey: 'github.copilot', command: 'copilot', version: '1.0.0' }],
+      clis: [{ assistantKey: 'tabnine', command: 'tabnine', version: '1.0.0' }],
     });
 
     await setupSwitchboard(makeContext());
@@ -419,6 +438,27 @@ describe('setupSwitchboard', () => {
       'No switchable assistants to offer in selection QuickPick'
     );
     expect(mockShowQuickPick).not.toHaveBeenCalled();
+  });
+
+  it('offers an actionable guided Tier C CLI in the QuickPick', async () => {
+    const registryLoader = await import('../../src/core/registry/registryLoader');
+    vi.mocked(registryLoader.loadRegistry).mockResolvedValueOnce({
+      assistants: [
+        { key: 'gemini-cli', displayName: 'Gemini CLI', endpointSwitching: { tier: 'C' } },
+      ] as any,
+      dialectCatalog: {},
+    });
+    mockDetectAll.mockResolvedValue({
+      assistants: [],
+      clis: [{ assistantKey: 'gemini-cli', command: 'gemini', version: '1.0.0' }],
+    });
+
+    await setupSwitchboard(makeContext());
+
+    const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
+    const guidedItem = items.find(i => i.assistantKey === 'gemini-cli');
+    expect(guidedItem).toBeDefined();
+    expect(guidedItem?.detail).toContain('guided setup only');
   });
 
   it('proceeds to profile selection when user picks assistants', async () => {

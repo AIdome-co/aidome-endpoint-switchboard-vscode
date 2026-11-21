@@ -165,7 +165,7 @@ describe('P1: skipped VS Code setting writes are not mutations', () => {
 });
 
 describe('P2: unsupported assistants are explicit', () => {
-  it('Roo Code real adapter plan → status unsupported, no mapping', async () => {
+  it('Roo Code real adapter plan → guided setup outcome, no mapping', async () => {
     const adapter = new RooCodeAdapter();
     const profile = {
       id: 'p1', name: 'Profile 1', profileType: 'aidome',
@@ -177,7 +177,9 @@ describe('P2: unsupported assistants are explicit', () => {
     const result = await applier.applyPlan(plan, 'Profile 1');
 
     const outcome = result.assistantResults.get('roo-code');
-    expect(outcome?.status).toBe('unsupported');
+    // Tier C guided setup: the plan executes guidance-only steps, so the
+    // outcome is guided-required (Roo Code is archived, not unsupported).
+    expect(outcome?.status).toBe('guided-required');
     expect(outcome?.success).toBe(false);
 
     const switchboard = new Switchboard(
