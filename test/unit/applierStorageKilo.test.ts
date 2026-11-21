@@ -57,7 +57,9 @@ describe('PlanApplier write-assistant-storage metadata contract', () => {
       backupPath: '/tmp/primary.bak',
       target: '/tmp/primary',
       createdFile: true,
-      extraRollbacks: extra
+      extraRollbacks: extra,
+      modelsApplied: true,
+      modelsRequired: true
     }));
 
     const applied = await applier.applyStep(step({ baseUrl: 'http://host:8100', authRef: 'p1' }) as any);
@@ -65,6 +67,8 @@ describe('PlanApplier write-assistant-storage metadata contract', () => {
     expect(applied.mutationApplied).toBe(true);
     expect(applied.createdFile).toBe(true);
     expect(applied.extraRollbacks).toEqual(extra);
+    expect(applied.modelsApplied).toBe(true);
+    expect(applied.modelsRequired).toBe(true);
     expect(applied.backupPath).toBe('/tmp/primary.bak');
     expect(applied.target).toBe('/tmp/primary');
     // The applier resolved the secret for the step.

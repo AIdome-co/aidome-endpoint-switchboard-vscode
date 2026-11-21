@@ -31,6 +31,13 @@ export interface AppliedStep {
    * authentication gap (guided-required), not a valid unauthenticated setup.
    */
   authRequired?: boolean;
+  /** For write-assistant-storage: true when the writer populated the model list. */
+  modelsApplied?: boolean;
+  /**
+   * For write-assistant-storage: the writer declared the assistant needs at
+   * least one model, so `modelsApplied !== true` is an incomplete setup.
+   */
+  modelsRequired?: boolean;
 }
 
 /**

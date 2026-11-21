@@ -43,6 +43,14 @@ export interface AssistantStorageWriteResult {
    * missing secret is then NOT an authentication gap.
    */
   authRequired?: boolean;
+  /** True when the writer populated/refreshed the assistant's model list. */
+  modelsApplied?: boolean;
+  /**
+   * True when the assistant cannot function without at least one model, so
+   * an unpopulated model list must classify the outcome as guided-required
+   * rather than configured.
+   */
+  modelsRequired?: boolean;
 }
 
 export type AssistantStorageWriter = (
