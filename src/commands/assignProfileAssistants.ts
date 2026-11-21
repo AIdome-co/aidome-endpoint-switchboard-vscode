@@ -535,8 +535,9 @@ function buildAssistantSelectionItems(
   excludedKeys: ReadonlySet<string> = new Set<string>()
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
-  const detectedExtensionKeys = detected.assistants
-    .filter(assistant => assistant.tier !== 'C')
+  // Guided Tier C extensions stay selectable: their show-guided-steps plans are
+  // the only setup surface they support (Codex review PR 118).
+  const candidateDetectedExtensionKeys = detected.assistants
     .map(assistant => assistant.assistantKey);
   const detectedCliKeys = detected.clis
     .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
@@ -544,7 +545,7 @@ function buildAssistantSelectionItems(
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
     .map(mapping => mapping.assistantKey);
-  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])]
+  const candidateKeys = [...new Set([...assignedKeys, ...candidateDetectedExtensionKeys, ...detectedCliKeys])]
     // UI-kind activation gaps that could not be resolved must not appear even
     // as previously assigned: applying would write a remote configuration the
     // client-side assistant will not read (Codex 156 round 3).
@@ -554,10 +555,11 @@ function buildAssistantSelectionItems(
 
   for (const assistantKey of candidateKeys) {
     const assistant = assistantsByKey.get(assistantKey);
-    if (!assistant || assistant.endpointSwitching.tier === 'C') {
+    if (!assistant) {
       continue;
     }
 
+    const isGuidedOnly = assistant.endpointSwitching.tier === 'C';
     const assistantMappings = mappings.filter(item => item.assistantKey === assistantKey);
     const currentProfileMapping = assistantMappings.find(item => item.profileId === profile.id);
     const otherProfileNames = [...new Set(assistantMappings
@@ -581,11 +583,15 @@ function buildAssistantSelectionItems(
         ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
         : detectionLabel;
 
+    const itemDetail = isGuidedOnly
+      ? `${assignmentLabel} · guided setup only — endpoint routing is configured manually in the extension`
+      : assignmentLabel;
+
     items.push({
       assistantKey,
       label: assistant.displayName,
       description: assistantKey,
-      detail: assignmentLabel,
+      detail: itemDetail,
       picked: Boolean(currentProfileMapping)
     });
   }
