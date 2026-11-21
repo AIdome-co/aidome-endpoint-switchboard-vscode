@@ -501,6 +501,34 @@ describe('configuration drivers', () => {
       expect(managed[0]).toMatchObject({ model: 'm/a', apiBase: BASE_URL, apiKey: 'tok-3' });
     });
 
+    it('jsonc: computes reconcile indexes from the raw array so user entries are never overwritten', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // User entry preserved intact (not overwritten by an index-shifted write).
+      expect(models.some(m => m.name === 'UserOwnOpenAI' && m.apiBase === 'https://api.openai.com/v1')).toBe(true);
+      // Stale managed entry removed, new entry appended.
+      expect(models.some(m => m.apiBase === 'https://stale.example.com/v1')).toBe(false);
+      expect(models.filter(m => m.aidomeManaged === true)).toHaveLength(1);
+      expect(models[models.length - 1]).toMatchObject({ model: 'm/b', apiBase: BASE_URL });
+    });
+
     it('jsonc: writes one managed entry per gateway model with the model field', () => {
       const output = renderConfigFileContent({
         baseUrl: BASE_URL,

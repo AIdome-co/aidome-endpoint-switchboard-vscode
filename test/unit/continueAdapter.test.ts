@@ -425,6 +425,21 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     expect(discovery.discoverOpenAiModels).toHaveBeenCalledWith('https://aidome.example.com/v1', 'tok-from-storage');
   });
 
+  it('falls back to the profile name for discovery credentials when authRef is absent', async () => {
+    const discovery = await import('../../src/core/providerConfig/modelDiscovery');
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([
+      { id: 'm/a', name: 'A' }
+    ]);
+    const getSecret = vi.fn(async () => 'tok-legacy-name');
+    const adapter = new ContinueAdapter({
+      profileSecrets: { getSecret }
+    });
+    const profile = mockProfileLocal(); // no authRef — legacy storage key
+    await adapter.buildPlan(profile);
+    expect(getSecret).toHaveBeenCalledWith('Test Profile');
+    expect(discovery.discoverOpenAiModels).toHaveBeenCalledWith('https://aidome.example.com/v1', 'tok-legacy-name');
+  });
+
   it('fails closed with guidance when discovery returns nothing', async () => {
     const discovery = await import('../../src/core/providerConfig/modelDiscovery');
     vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);

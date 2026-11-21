@@ -212,8 +212,12 @@ export class ContinueAdapter extends BaseExtensionAdapter {
    * indefinitely.
    */
   private async discoverModels(profile: EndpointProfile) {
-    const token = profile.authRef && this.dependencies.profileSecrets
-      ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+    // Same auth-reference fallback as the apply step: legacy profiles store
+    // the secret under profile.name when authRef is absent (Codex 157
+    // round 6).
+    const authRef = profile.authRef ?? profile.name;
+    const token = authRef && this.dependencies.profileSecrets
+      ? await this.dependencies.profileSecrets.getSecret(authRef)
       : undefined;
     const live = await discoverOpenAiModels(profile.baseUrl, token);
     if (live.length > 0) {

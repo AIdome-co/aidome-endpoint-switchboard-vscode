@@ -6,7 +6,7 @@
  */
 
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
-import { applyEdits, modify } from 'jsonc-parser';
+import { applyEdits, findNodeAtLocation, modify, parseTree } from 'jsonc-parser';
 import { parseDocument } from 'yaml';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { validateUrl } from '../profiles/profileValidator';
@@ -316,10 +316,7 @@ function renderJsoncModelArray(
 ): string {
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
-  const existingModels = withoutStaleManagedEntries(
-    toRecordModels(Array.isArray(root.models) ? root.models : []),
-    data.identity ?? modelPath
-  );
+  const existingModels = toRecordModels(Array.isArray(root.models) ? root.models : []);
   let output = request.existingContent ?? '{}';
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
@@ -327,6 +324,9 @@ function renderJsoncModelArray(
     // so user-authored comments inside the models array and unmanaged
     // entries are preserved byte-for-byte: managed entries are deleted by
     // index (descending so indexes stay stable) and new entries appended.
+    // Indexes are computed from the RAW array — any pre-filtering would
+    // shift positions and make the edits hit user entries (Codex 157
+    // round 6).
     const identity = data.identity ?? modelPath;
     const managedIndexes = existingModels
       .map((entry, index) => isManagedModelEntry(entry, identity) ? index : -1)
@@ -343,15 +343,15 @@ function renderJsoncModelArray(
       apiKey,
       data.useResponsesApi
     );
-    let nextIndex = existingModels.length - managedIndexes.length;
-    for (const entry of managedEntries) {
-      output = applyJsoncEdit(output, ['models', nextIndex], entry);
-      nextIndex++;
-    }
-    return ensureTrailingNewline(output);
+    return ensureTrailingNewline(appendJsoncArrayEntries(output, ['models'], managedEntries));
   }
 
-  const match = findManagedModelMatch(existingModels, request.baseUrl, data.identity, modelPath);
+  const match = findManagedModelMatch(
+    withoutStaleManagedEntries(existingModels, data.identity ?? modelPath),
+    request.baseUrl,
+    data.identity,
+    modelPath
+  );
 
   // Credential semantics: set the key when a profile secret was resolved at
   // apply time; CLEAR it otherwise so a previous profile's token never
@@ -735,6 +735,49 @@ function getValueAtPath(root: unknown, path: string[]): unknown {
     current = current[segment];
   }
   return current;
+}
+
+/**
+ * Appends entries to a JSONC array by inserting serialized values directly
+ * before the array's closing bracket. jsonc-parser's `modify` cannot append
+ * past the array length, and replacing the whole array would rewrite (and
+ * strip comments from) every element; this keeps user formatting intact.
+ */
+function appendJsoncArrayEntries(
+  content: string,
+  arrayPath: string[],
+  entries: Record<string, unknown>[]
+): string {
+  if (entries.length === 0) {
+    return content;
+  }
+  const tree = parseTree(content);
+  // The models array is normally at arrayPath inside an object root, but
+  // tolerate a bare array root (arrayPath depth 1) as well.
+  const node = tree
+    ? (tree.type === 'array' && arrayPath.length === 1
+        ? tree
+        : findNodeAtLocation(tree, arrayPath))
+    : undefined;
+  if (!node || node.type !== 'array' || node.offset === undefined || node.length === undefined) {
+    // Structurally unexpected document: fall back to a whole-array write.
+    const root = parseJsonc<Record<string, unknown>>(content);
+    const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
+    return applyJsoncEdit(content, arrayPath, [...current, ...entries]);
+  }
+  const closingBracket = content.lastIndexOf(']', node.offset + node.length);
+  if (closingBracket <= node.offset) {
+    // Structurally unexpected document: fall back to a whole-array write.
+    const root = parseJsonc<Record<string, unknown>>(content);
+    const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
+    return applyJsoncEdit(content, arrayPath, [...current, ...entries]);
+  }
+  const inner = content.slice(node.offset + 1, closingBracket);
+  const hasItems = /\S/.test(inner);
+  const serialized = entries.map(entry => stringifyJsonc(entry, 2)).join(',\n');
+  return content.slice(0, closingBracket)
+    + (hasItems ? ',\n' + serialized : serialized)
+    + content.slice(closingBracket);
 }
 
 function applyJsoncEdit(content: string, path: (string | number)[], value: unknown): string {
