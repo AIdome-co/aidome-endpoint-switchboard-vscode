@@ -7,6 +7,13 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
+/** Windows emulates POSIX modes (chmod can only toggle read-only), so the
+ * strict 0600 assertions are POSIX-only — runner-portable per the Kilo test
+ * recipes. */
+const expectPosix0600 = (stat: { mode: number }) => {
+  expect(process.platform === 'win32' || (stat.mode & 0o777) === 0o600).toBe(true);
+};
+
 const { mockLoggerWarning, mockDiscoverModels, mockGetKiloConfigPath, failNextAuthWrite } = vi.hoisted(() => ({
   mockLoggerWarning: vi.fn(),
   mockDiscoverModels: vi.fn(),
@@ -117,7 +124,7 @@ describe('kiloAuthStore', () => {
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
       expect(written[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_test' });
       const stat = await fs.stat(authPath);
-      expect(stat.mode & 0o777).toBe(0o600);
+      expectPosix0600(stat);
     });
   });
 
@@ -143,7 +150,7 @@ describe('kiloAuthStore', () => {
       expect(result.backupPath).toBeDefined();
       // Credential backups are always 0600 — a legacy 0644 source must not
       // leave a world-readable PAT copy behind (Codex 154 round 6).
-      expect((await fs.stat(result.backupPath!)).mode & 0o777).toBe(0o600);
+      expectPosix0600(await fs.stat(result.backupPath!));
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
       // Never COALESCE-preserve the previous credential (Area 7.3).
       expect(written[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_new' });
@@ -164,8 +171,7 @@ describe('kiloAuthStore', () => {
 
       // writeFile's mode only applies on CREATE — the atomic temp+rename
       // replacement is what narrows a legacy 0644 file back to 0600.
-      const stat = await fs.stat(authPath);
-      expect(stat.mode & 0o777).toBe(0o600);
+      expectPosix0600(await fs.stat(authPath));
     });
 
     it('preserves a DANGLING symlinked auth.json and materializes its target', async () => {
