@@ -446,8 +446,11 @@ export class PlanApplier {
       ? step.data.authRef.trim()
       : undefined;
     const secretPolicy = step.data.secretPolicy;
+    // Normalize BEFORE the missing-secret decision: a whitespace-only stored
+    // token is NOT a credential — without normalization the clear happens
+    // silently and the actionable warning never fires (Codex 155 round 1).
     const secret = secretPolicy === 'target-persisted-at-apply' && authRef
-      ? await this.profileSecrets.getSecret(authRef)
+      ? (await this.profileSecrets.getSecret(authRef))?.trim() || undefined
       : undefined;
 
     if (secretPolicy === 'target-persisted-at-apply' && !secret && step.data.clearAuthWhenMissing === true) {

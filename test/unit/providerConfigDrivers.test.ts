@@ -243,6 +243,31 @@ describe('configuration drivers', () => {
     expect(parsed.models[1].apiKey).toBeUndefined();
   });
 
+  it('never rewrites a USER entry matched by URL fallback when no identity entry exists (Codex 155 round 1)', () => {
+    // A user model pointing at the SAME gateway URL but with its own name and
+    // its own credential: the URL-fallback match must not touch its apiKey —
+    // a distinct managed entry is appended instead.
+    const output = renderConfigFileContent({
+      baseUrl: BASE_URL,
+      existingContent: 'models:\n  - name: UserOwnGateway\n    title: UserOwnGateway\n    provider: openai\n    apiBase: ' + BASE_URL + '\n    apiKey: user_own_gateway_key\n',
+      format: 'yaml',
+      secret: 'aid_pat_profile',
+      options: {
+        driver: 'yaml-model-array',
+        format: 'yaml',
+        provider: 'openai',
+        identity: 'AIdome Gateway'
+      }
+    });
+
+    const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+    const models = parsed.models as Array<Record<string, unknown>>;
+    const userEntry = models.find(model => model.title === 'UserOwnGateway');
+    expect(userEntry?.apiKey).toBe('user_own_gateway_key');
+    const managed = models.find(model => model.title === 'AIdome Gateway');
+    expect(managed?.apiKey).toBe('aid_pat_profile');
+  });
+
   it('persists the secret on a NEWLY created managed entry (jsonc)', () => {
     const output = renderConfigFileContent({
       baseUrl: BASE_URL,
