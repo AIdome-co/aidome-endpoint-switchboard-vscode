@@ -89,7 +89,7 @@ export interface WriteKiloProviderAuthOptions {
 async function writeAuthFileAtomically(
   authPath: string,
   document: Record<string, unknown>
-): Promise<void> {
+): Promise<string> {
   let targetPath = authPath;
   try {
     const linkStat = await fs.lstat(authPath);
@@ -114,6 +114,7 @@ async function writeAuthFileAtomically(
     await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
     await fs.chmod(tmpPath, 0o600);
     await fs.rename(tmpPath, targetPath);
+    return targetPath;
   } finally {
     // A mid-write failure (ENOSPC, permissions) can leave a stale credential
     // fragment in the temp file beside the resolved target — always clean up
@@ -277,8 +278,9 @@ export async function writeKiloProviderAuth(
     applyChange(document);
   }
 
+  let resolvedTarget: string | undefined;
   try {
-    await writeAuthFileAtomically(authPath, document);
+    resolvedTarget = await writeAuthFileAtomically(authPath, document);
   } catch (error) {
     // The write is ATOMIC (temp file + rename): a failure can never leave a
     // truncated or partially replaced auth.json behind, so no restore of the
@@ -311,8 +313,12 @@ export async function writeKiloProviderAuth(
     const { extraRollbacks, modelsApplied } = await refreshKiloModels(normalized);
     return {
       backupPath: authBackupPath,
-      target: authPath,
-      createdFile: !authExisted,
+      // For a dangling symlink the credential lives in the MATERIALIZED
+      // target, not at the link path — report the resolved target so a
+      // generic rollback removes the created file and the dangling link
+      // survives untouched (Codex 154 round 10).
+      target: resolvedTarget ?? authPath,
+      createdFile: !authExisted || danglingSymlinkText !== undefined,
       extraRollbacks,
       // Kilo's provider cannot authenticate without a key — a missing
       // credential is an authentication gap (GAP 9), not a valid config.
@@ -491,11 +497,25 @@ export function reconcileModelEntries(
     existing = {};
   }
 
-  const reconciled: Record<string, unknown> = {};
+  // Prototype-free records: a gateway model ID inherited from
+  // Object.prototype ('constructor', 'toString', '__proto__') must round-trip
+  // as an OWN model entry, not collide with inherited members (Codex 154
+  // round 10).
+  const reconciled: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const slug of slugs) {
     // Surviving entries keep their whole existing metadata; new ids fall
     // back to a name-only entry.
-    reconciled[slug] = existing[slug] ?? { name: slug };
+    const inherited =
+      Object.prototype.hasOwnProperty.call(existing, slug) ? existing[slug] : undefined;
+    if (inherited !== undefined) {
+      Object.defineProperty(reconciled, slug, { value: inherited, enumerable: true, writable: true });
+    } else {
+      Object.defineProperty(reconciled, slug, {
+        value: { name: slug },
+        enumerable: true,
+        writable: true
+      });
+    }
   }
   return reconciled;
 }
