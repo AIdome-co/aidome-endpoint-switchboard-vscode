@@ -63,7 +63,14 @@ export async function assignProfileAssistants(
   await offerUiKindSelfHeal(attachUiKindGaps);
   detected.assistants = remotelySwitchable;
 
-  const items = buildAssistantSelectionItems(profile, profiles, mappings, registry.assistants, detected);
+  const items = buildAssistantSelectionItems(
+    profile,
+    profiles,
+    mappings,
+    registry.assistants,
+    detected,
+    new Set(attachUiKindGaps.map(gap => gap.assistantKey))
+  );
   if (items.length === 0) {
     await showWarning('No switchable assistants are currently detected. Run setup after installing an assistant or CLI first.');
     return;
@@ -466,7 +473,8 @@ function buildAssistantSelectionItems(
   profiles: EndpointProfile[],
   mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
   assistants: AssistantEntry[],
-  detected: Awaited<ReturnType<Switchboard['detectAll']>>
+  detected: Awaited<ReturnType<Switchboard['detectAll']>>,
+  excludedKeys: ReadonlySet<string> = new Set<string>()
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
   const detectedExtensionKeys = detected.assistants
@@ -478,7 +486,11 @@ function buildAssistantSelectionItems(
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
     .map(mapping => mapping.assistantKey);
-  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])];
+  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])]
+    // UI-kind activation gaps that could not be resolved must not appear even
+    // as previously assigned: applying would write a remote configuration the
+    // client-side assistant will not read (Codex 156 round 3).
+    .filter(assistantKey => !excludedKeys.has(assistantKey));
 
   const items: AssistantSelectionItem[] = [];
 
