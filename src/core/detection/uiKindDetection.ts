@@ -111,12 +111,16 @@ function getActiveServerExtensionRoots(): string[] {
   //   (microsoft/vscode-remote-release#11845, microsoft/vscode#318299).
   //   The container-local HOME makes that root active-by-construction.
   const remoteName = vscode.env.remoteName ?? '';
-  // Product-specific root: Insiders uses ~/.vscode-server-insiders (VS Code
-  // remote troubleshooting guide); derive the channel from appName so an
-  // Insiders dev container never scans Stable's root (and vice versa).
-  const serverDirName = /insiders/i.test(vscode.env.appName ?? '')
+  // Product-specific root (VS Code remote troubleshooting guide): derive the
+  // channel from appName so a dev container never scans another product's
+  // root — Insiders -> ~/.vscode-server-insiders, VSCodium / Code - OSS ->
+  // ~/.vscode-server-oss, everything else (Stable) -> ~/.vscode-server.
+  const appName = vscode.env.appName ?? '';
+  const serverDirName = /insiders/i.test(appName)
     ? '.vscode-server-insiders'
-    : '.vscode-server';
+    : /codium/i.test(appName) || /code\s*-\s*oss/i.test(appName)
+      ? '.vscode-server-oss'
+      : '.vscode-server';
   const fallbackRoot = /^codespace/.test(remoteName)
     ? path.join(os.homedir(), '.vscode-remote', 'extensions')
     : /^(dev-container|attached-container)/.test(remoteName)
