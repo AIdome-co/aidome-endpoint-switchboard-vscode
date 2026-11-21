@@ -48,6 +48,27 @@ function isValidGeminiBaseUrl(value: string): boolean {
   }
 }
 
+/**
+ * GOOGLE_GEMINI_BASE_URL applies only under Gemini API-key authentication
+ * and GOOGLE_VERTEX_BASE_URL only under Vertex authentication (upstream
+ * configuration reference). Without evidence that the matching auth mode
+ * is selected, a variable can only be classified as present-but-unverified,
+ * never as an active gateway configuration.
+ */
+function isAuthenticatedForVariable(name: string): boolean {
+  if (name === 'GOOGLE_GEMINI_BASE_URL') {
+    return Boolean(process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY']);
+  }
+  if (name === 'GOOGLE_VERTEX_BASE_URL') {
+    return Boolean(
+      process.env['GOOGLE_APPLICATION_CREDENTIALS']
+      || process.env['GOOGLE_CLOUD_PROJECT']
+      || process.env['GOOGLE_CLOUD_LOCATION']
+    );
+  }
+  return false;
+}
+
 async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVariables> {
   const result: DiscoveredBaseUrlVariables = {
     configured: [],
@@ -57,23 +78,36 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
   const considered = new Set<string>();
 
   for (const name of SUPPORTED_BASE_URL_VARIABLES) {
-    const value = process.env[name];
-    if (!value) {
+    // Gemini's loader imports a file value only when the key is ABSENT
+    // from the process environment (Object.hasOwn semantics): an
+    // explicitly empty inherited variable BLOCKS the file value, so it
+    // must be treated as an invalid override, not as absence.
+    if (!Object.prototype.hasOwnProperty.call(process.env, name)) {
       continue;
     }
+    const value = process.env[name];
     considered.add(name);
-    if (isValidGeminiBaseUrl(value)) {
-      result.configured.push(name);
+    if (value && isValidGeminiBaseUrl(value)) {
+      if (isAuthenticatedForVariable(name)) {
+        result.configured.push(name);
+      } else {
+        result.fileBased.push(name);
+      }
     } else {
       result.invalid.push(name);
     }
   }
 
   // GEMINI_CLI_HOME is an alternate HOME: the CLI creates a `.gemini`
-  // folder inside it (enterprise docs), so the env file lives at
-  // `$GEMINI_CLI_HOME/.gemini/.env`.
-  const geminiDir = process.env['GEMINI_CLI_HOME']
-    ? path.join(path.resolve(process.env['GEMINI_CLI_HOME']), '.gemini')
+  // folder inside it (enterprise docs) and its homedir() uses the
+  // override for BOTH fallback paths, so the env files live at
+  // `$GEMINI_CLI_HOME/.gemini/.env` and `$GEMINI_CLI_HOME/.env`.
+  const overrideHome = process.env['GEMINI_CLI_HOME']
+    ? path.resolve(process.env['GEMINI_CLI_HOME'])
+    : undefined;
+  const userHome = overrideHome ?? os.homedir();
+  const geminiDir = overrideHome
+    ? path.join(overrideHome, '.gemini')
     : path.join(os.homedir(), '.gemini');
 
   // findEnvFile's user-level fallback: after $GEMINI_CLI_HOME/.gemini/.env
@@ -81,7 +115,7 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
   // match wins, so only consult it when the Gemini-specific file is absent.
   let envFileContent = await readFileSafe(path.join(geminiDir, '.env'));
   if (envFileContent === undefined) {
-    envFileContent = await readFileSafe(path.join(os.homedir(), '.env'));
+    envFileContent = await readFileSafe(path.join(userHome, '.env'));
   }
   if (envFileContent) {
     for (const rawLine of envFileContent.split(/\r?\n/)) {
@@ -100,14 +134,26 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
       }
       considered.add(key);
       // dotenv.parse semantics (Gemini loads this file with dotenv): strip
-      // matching single OR double quotes around the value.
-      const value = line.slice(equals + 1).trim()
-        .replace(/^(['"])(.*)\1$/, '$2');
-      if (isValidGeminiBaseUrl(value)) {
-        result.configured.push(key);
+      // unquoted inline comments, then matching single OR double quotes
+      // around the value.
+      let rawValue = line.slice(equals + 1).trim();
+      const quoteChar = rawValue[0];
+      if (quoteChar === '"' || quoteChar === '\'') {
+        const closing = rawValue.lastIndexOf(quoteChar);
+        if (closing > 0) {
+          rawValue = rawValue.slice(0, closing + 1);
+        }
+        rawValue = rawValue.replace(/^(['"])(.*)\1$/, '$2');
+      } else {
+        const hash = rawValue.indexOf(' #');
+        if (hash > 0) {
+          rawValue = rawValue.slice(0, hash).trim();
+        }
+      }
+      if (isValidGeminiBaseUrl(rawValue)) {
         // The user-level .env is a FALLBACK: a project `.gemini/.env` or
         // `.env` closer to the CLI's launch directory wins, so this is
-        // configured but not conclusively active for every invocation.
+        // present but not conclusively active for every invocation.
         result.fileBased.push(key);
       } else {
         result.invalid.push(key);
@@ -213,13 +259,16 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     }
 
     const discovered = await discoverConfiguredBaseUrlVariables();
-    const configured = discovered.configured.length > 0;
+    // "Configured" means a syntactically valid value exists somewhere the
+    // CLI could read it; only auth-evidence-backed variables count as
+    // fully verified (see isAuthenticatedForVariable).
+    const anyPresent = discovered.configured.length + discovered.fileBased.length > 0;
 
     return {
-      success: configured,
-      message: configured
+      success: anyPresent,
+      message: anyPresent
         ? (discovered.fileBased.length > 0
-          ? 'Gemini CLI is installed and a gateway base-URL variable is configured (from the user-level Gemini CLI .env file; a project .gemini/.env or .env closer to the CLI launch directory can shadow it).'
+          ? 'Gemini CLI is installed and a gateway base-URL variable is present, but its active use is unverified (env-file sourcing, shadowing, workspace trust or unmatched authentication mode).'
           : 'Gemini CLI is installed and a supported gateway base-URL environment variable is configured.')
         : (discovered.invalid.length > 0
           ? 'Gemini CLI is installed, but the configured base-URL variable value is not a valid Gemini CLI endpoint (HTTPS required unless localhost).'
@@ -227,12 +276,12 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       details: { 
         cli: true,
         tier: DESCRIPTOR?.tier ?? 'C',
-        configurationStatus: configured
-          ? (discovered.fileBased.length > 0 ? 'base-url-configured-unverified-source' : 'environment-variable-configured')
-          : 'manual-configuration-required',
-        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL; values must be valid HTTPS URLs unless they point at localhost. Which env file the CLI actually loads depends on its launch directory, workspace trust and project .gemini/.env / .env files (first match wins), so file-based detection is unverified until a request reaches the gateway.',
+        configurationStatus: discovered.configured.length > 0
+          ? 'environment-variable-configured'
+          : (anyPresent ? 'base-url-configured-unverified-source' : 'manual-configuration-required'),
+        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL; values must be valid HTTPS URLs unless they point at localhost, and each variable applies only under its matching authentication mode. Which env file the CLI actually loads depends on its launch directory, workspace trust and project .gemini/.env / .env files (first match wins), so file-based or auth-unmatched detection is unverified until a request reaches the gateway.',
         supportedEnvironmentVariables: [...SUPPORTED_BASE_URL_VARIABLES],
-        configuredEnvironmentVariables: discovered.configured,
+        configuredEnvironmentVariables: [...discovered.configured, ...discovered.fileBased],
         fileBasedEnvironmentVariables: discovered.fileBased,
         invalidEnvironmentVariables: discovered.invalid
       }

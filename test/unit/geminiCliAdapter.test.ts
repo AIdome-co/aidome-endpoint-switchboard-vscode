@@ -185,6 +185,9 @@ describe('GeminiCliAdapter', () => {
     it('should verify a configured gateway environment variable without exposing its value', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
       process.env['GOOGLE_GEMINI_BASE_URL'] = 'https://gateway.example.com/v1beta';
+      // GOOGLE_GEMINI_BASE_URL applies only under Gemini API-key auth, so
+      // full "configured" classification requires auth-mode evidence.
+      process.env['GEMINI_API_KEY'] = 'pat-token';
 
       const result = await adapter.verify();
 
@@ -192,6 +195,50 @@ describe('GeminiCliAdapter', () => {
       expect(result.details?.configurationStatus).toBe('environment-variable-configured');
       expect(result.details?.configuredEnvironmentVariables).toEqual(['GOOGLE_GEMINI_BASE_URL']);
       expect(JSON.stringify(result.details)).not.toContain('gateway.example.com');
+      delete process.env['GEMINI_API_KEY'];
+    });
+
+    it('classifies a base-URL variable without matching auth evidence as unverified', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_GEMINI_BASE_URL'] = 'https://gateway.example.com/v1beta';
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configurationStatus).toBe('base-url-configured-unverified-source');
+      expect(result.details?.fileBasedEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+    });
+
+    it('treats an explicitly empty inherited variable as an override that blocks the file value', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      process.env['GOOGLE_GEMINI_BASE_URL'] = '';
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('.env')) {
+          return 'GOOGLE_GEMINI_BASE_URL=https://gateway.example.com\n';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+    });
+
+    it('strips unquoted inline comments from dotenv values', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('.env')) {
+          return 'GOOGLE_GEMINI_BASE_URL=https://gateway.example.com # corporate proxy\n';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
     });
 
     it('should handle errors gracefully', async () => {
