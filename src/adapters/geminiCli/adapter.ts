@@ -312,4 +312,9 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
   getTier(): 'A' | 'B' | 'C' {
     return 'C';
   }
+
+  /** Gemini CLI routes via GOOGLE_GEMINI_BASE_URL — guided env setup is actionable. */
+  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+    return 'actionable';
+  }
 }
