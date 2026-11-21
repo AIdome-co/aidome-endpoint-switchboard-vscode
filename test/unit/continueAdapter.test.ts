@@ -631,6 +631,56 @@ describe('ContinueAdapter verification completeness', () => {
     expect(result.success).toBe(true);
   });
 
+  it('reports every missing model in the plural message', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' },
+      { id: 'legacy/model-2', name: 'Model 2' },
+      { id: 'legacy/model-3', name: 'Model 3' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - legacy/model-1',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl,
+          apiKey: 'pat-token',
+          aidomeManaged: true
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('missing 2 AIdome Gateway model entries');
+  });
+
+  it('skips the completeness check when discovery returns no models at verify time', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([] as never);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - legacy/model-1',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl,
+          apiKey: 'pat-token',
+          aidomeManaged: true
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+  });
+
   it('does not fail verification when discovery is unavailable', async () => {
     vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockRejectedValue(new Error('gateway down'));
     await adapter.buildPlan(mockProfile);
