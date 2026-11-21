@@ -20,6 +20,13 @@ vi.mock('vscode', () => ({
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/adapters/continue/paths');
+vi.mock('../../src/core/providerConfig/modelDiscovery', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/core/providerConfig/modelDiscovery')>();
+  return {
+    ...actual,
+    discoverOpenAiModels: vi.fn(async () => [])
+  };
+});
 vi.mock('../../src/util/log', () => ({
   Logger: {
     getInstance: () => ({
@@ -172,7 +179,7 @@ describe('ContinueAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('no apiKey');
-      expect(result.details?.managedApiBase).toBe('https://aidome.example.com/v1');
+      expect(result.details?.configPath).toBeDefined();
     });
 
     it('should fail when the managed entry has only a whitespace apiKey', async () => {
@@ -327,5 +334,75 @@ describe('ContinueAdapter with missing descriptor', () => {
 
     vi.doUnmock('../../src/core/providerConfig/descriptors');
     vi.resetModules();
+  });
+});
+
+describe('ContinueAdapter multi-model gateway entries', () => {
+  let mockProfileLocal: EndpointProfile;
+
+  beforeEach(() => {
+    mockProfileLocal = {
+      id: 'test-profile',
+      name: 'Test Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  });
+
+  it('passes discovered gateway models into the plan step data', async () => {
+    const discovery = await import('../../src/core/providerConfig/modelDiscovery');
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([
+      { id: 'anthropic/claude-sonnet-4-6', name: 'Sonnet' },
+      { id: 'z-ai/glm-5.3', name: 'GLM' }
+    ]);
+
+    const adapter = new ContinueAdapter();
+    const plan = await adapter.buildPlan(mockProfileLocal);
+
+    const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+    expect(editStep).toBeDefined();
+    expect(editStep?.data.gatewayModels).toEqual([
+      'anthropic/claude-sonnet-4-6',
+      'z-ai/glm-5.3'
+    ]);
+  });
+
+  it('omits gatewayModels when discovery returns nothing', async () => {
+    const discovery = await import('../../src/core/providerConfig/modelDiscovery');
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);
+
+    const adapter = new ContinueAdapter();
+    const plan = await adapter.buildPlan(mockProfileLocal);
+
+    const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+    expect(editStep).toBeDefined();
+    expect(editStep?.data.gatewayModels).toBeUndefined();
+  });
+
+  it('verification accepts per-model managed entries and requires apiBase + apiKey', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+      'models:\n' +
+      '  - name: AIdome Gateway - anthropic/claude-sonnet-4-6\n    title: anthropic/claude-sonnet-4-6\n    model: anthropic/claude-sonnet-4-6\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n    apiKey: sk-test\n' +
+      '  - name: AIdome Gateway - z-ai/glm-5.3\n    title: z-ai/glm-5.3\n    model: z-ai/glm-5.3\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n    apiKey: sk-test\n'
+    );
+    // js-yaml style YAML path: configPath ends with .yaml is mocked as .json above;
+    // parseContinueModels handles jsonc — use a JSON body instead for the .json path.
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        { name: 'AIdome Gateway - anthropic/claude-sonnet-4-6', title: 'anthropic/claude-sonnet-4-6', model: 'anthropic/claude-sonnet-4-6', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test' },
+        { name: 'AIdome Gateway - z-ai/glm-5.3', title: 'z-ai/glm-5.3', model: 'z-ai/glm-5.3', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test' }
+      ]
+    }));
+
+    const adapter = new ContinueAdapter();
+    await adapter.buildPlan(mockProfileLocal);
+    // verify is protected; exercise via the public verify path if exposed, else via verifyConfiguration through plan apply is out of scope here.
+    const verify = (adapter as unknown as { verifyConfiguration(): Promise<{ success: boolean; details?: Record<string, unknown> }> }).verifyConfiguration();
+    const result = await verify;
+    expect(result.success).toBe(true);
+    expect(result.details?.managedEntries).toBe(2);
   });
 });

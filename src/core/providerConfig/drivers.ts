@@ -50,6 +50,15 @@ export interface ModelArrayDriverData {
   provider?: string;
   useResponsesApi?: boolean;
   /**
+   * Model ids discovered from the gateway. When present and non-empty, the
+   * driver writes ONE managed entry per id — each carrying the vendor-required
+   * `model` field (Continue config schema: model is mandatory) — and removes
+   * previously managed entries whose model is no longer in the list
+   * (reconcile-on-apply, Kilo precedent). User-authored entries are never
+   * touched.
+   */
+  gatewayModels?: string[];
+  /**
    * Stable Switchboard-managed entry identity. Only the entry whose
    * name/title equals this value (or, failing that, whose apiBase equals the
    * gateway URL) is ever mutated — an unrelated user OpenAI model is never
@@ -225,7 +234,11 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const provider = data.provider?.trim() || 'openai';
 
   if (data.format === 'yaml') {
-    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi, data.identity);
+    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi, data.identity, data.gatewayModels);
+  }
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    return renderJsoncModelArray(request, data, modelPath, provider);
   }
 
   if (request.existingContent !== undefined && isValidJsonc(request.existingContent)) {
@@ -235,6 +248,17 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const parsed = request.existingContent ? parseJsonObject(request.existingContent, 'jsonc') : {};
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
+    const apiKey = request.secret?.trim() || undefined;
+    output.models = [
+      ...kept,
+      ...buildManagedModelEntries(data.identity ?? modelPath, data.gatewayModels, provider, request.baseUrl, apiKey, data.useResponsesApi)
+    ];
+    return `${stringifyJsonc(output, 2)}\n`;
+  }
+
   const match = findManagedModelMatch(models, request.baseUrl, data.identity, modelPath);
   // Credential semantics (target-persisted-at-apply): the managed entry gets
   // the profile's key when one is saved, and a credential-less profile switch
@@ -290,8 +314,25 @@ function renderJsoncModelArray(
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
   const existingModels = Array.isArray(root.models) ? root.models : [];
-  const match = findManagedModelMatch(existingModels, request.baseUrl, data.identity, modelPath);
   let output = request.existingContent ?? '{}';
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    // Multi-model reconcile (see renderYamlModelArray).
+    const kept = existingModels.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
+    const apiKey = request.secret?.trim() || undefined;
+    const managedEntries = buildManagedModelEntries(
+      data.identity ?? modelPath,
+      data.gatewayModels,
+      provider,
+      request.baseUrl,
+      apiKey,
+      data.useResponsesApi
+    );
+    output = applyJsoncEdit(output, ['models'], [...kept, ...managedEntries]);
+    return ensureTrailingNewline(output);
+  }
+
+  const match = findManagedModelMatch(existingModels, request.baseUrl, data.identity, modelPath);
 
   // Credential semantics: set the key when a profile secret was resolved at
   // apply time; CLEAR it otherwise so a previous profile's token never
@@ -333,12 +374,56 @@ function renderJsoncModelArray(
   return ensureTrailingNewline(output);
 }
 
+/**
+ * Builds the Switchboard-managed model entries for a Continue-style model
+ * array when gateway model ids are known: ONE entry per model, each carrying
+ * the vendor-required `model` field. The entry name embeds the managed
+ * identity so later applies can find, update, and reconcile exactly the
+ * entries this extension owns without touching user-authored entries.
+ */
+function buildManagedModelEntries(
+  identity: string,
+  gatewayModels: string[],
+  provider: string,
+  baseUrl: string,
+  apiKey: string | undefined,
+  useResponsesApi: boolean | undefined
+): Record<string, unknown>[] {
+  return gatewayModels.map(modelId => {
+    const entry: Record<string, unknown> = {
+      name: `${identity} - ${modelId}`,
+      title: modelId,
+      model: modelId,
+      provider,
+      apiBase: baseUrl
+    };
+    if (apiKey) {
+      entry.apiKey = apiKey;
+    }
+    if (useResponsesApi !== undefined) {
+      entry.useResponsesApi = useResponsesApi;
+    }
+    return entry;
+  });
+}
+
+/** True when an entry was authored by this extension's managed identity. */
+function isManagedModelEntry(entry: Record<string, unknown>, identity: string): boolean {
+  const name = typeof entry.name === 'string' ? entry.name : undefined;
+  const title = typeof entry.title === 'string' ? entry.title : undefined;
+  const withSeparator = `${identity} - `;
+  return name === identity || title === identity
+    || (name !== undefined && name.startsWith(withSeparator))
+    || (title !== undefined && title.startsWith(withSeparator));
+}
+
 function renderYamlModelArray(
   request: ConfigDriverRequest,
   modelPath: string,
   provider: string,
   useResponsesApi?: boolean,
-  identity?: string
+  identity?: string,
+  gatewayModels?: string[]
 ): string {
   const document = parseDocument(request.existingContent || '');
 
@@ -356,6 +441,20 @@ function renderYamlModelArray(
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+
+  if (gatewayModels && gatewayModels.length > 0) {
+    // Multi-model reconcile: drop exactly the entries this extension managed
+    // (identity-named) and write one entry per discovered gateway model.
+    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath));
+    const apiKey = request.secret?.trim() || undefined;
+    output.models = [
+      ...kept,
+      ...buildManagedModelEntries(identity ?? modelPath, gatewayModels, provider, request.baseUrl, apiKey, useResponsesApi)
+    ];
+    document.set('models', output.models);
+    return document.toString({ lineWidth: 0 });
+  }
+
   const match = findManagedModelMatch(models, request.baseUrl, identity, modelPath);
 
   // Credential semantics: same clear-not-replay contract as the JSONC path,

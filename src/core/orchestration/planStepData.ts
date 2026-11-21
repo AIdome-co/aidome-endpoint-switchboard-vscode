@@ -56,6 +56,12 @@ export interface YamlModelArrayStepData extends PlanStepDataCommon {
   identity?: string;
   provider?: string;
   useResponsesApi?: boolean;
+  /**
+   * Discovered gateway model ids: when non-empty, the driver writes one
+   * managed entry per model (each with the vendor-required `model` field).
+   * Never secrets.
+   */
+  gatewayModels?: string[];
 }
 
 export interface TomlTableStepData extends PlanStepDataCommon {
@@ -134,6 +140,7 @@ const CONFIG_METADATA_KEYS: ReadonlySet<string> = new Set([
   'envKey',
   'identity',
   'models',
+  'gatewayModels',
   'profileId'
 ]);
 

@@ -2,9 +2,11 @@
  * Adapter for Continue.dev assistant.
  *
  * Thin wrapper around the ProviderConfigEngine: the descriptor's declarative
- * plan operations define the model-array mutation; the adapter only resolves
- * the active config path (YAML primary, legacy JSONC fallback) — an allowed
- * unusual-target hook.
+ * plan operations define the model-array mutation; the adapter resolves the
+ * active config path (YAML primary, legacy JSONC fallback — an allowed
+ * unusual-target hook) and discovers the gateway's model ids so the driver
+ * can write one managed entry per model (Continue's config schema requires a
+ * `model` field on every entry).
  */
 
 import { EndpointProfile } from '../../core/profiles/profileTypes';
@@ -20,6 +22,11 @@ import {
   getProviderConfigDescriptor,
 } from '../../core/providerConfig/descriptors';
 import { AIDOME_MODEL_IDENTITY } from '../../core/providerConfig/types';
+import {
+  discoverOpenAiModels,
+  getCachedOpenAiModels,
+} from '../../core/providerConfig/modelDiscovery';
+import type { AdapterDependencies } from '../adapterDependencies';
 
 const DESCRIPTOR = getProviderConfigDescriptor('continue');
 
@@ -32,6 +39,10 @@ export class ContinueAdapter extends BaseExtensionAdapter {
   /** Profile URL expected by the most recent buildPlan, for exact verification. */
   private expectedBaseUrl: string | undefined;
 
+  constructor(private readonly dependencies: AdapterDependencies = {}) {
+    super();
+  }
+
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getContinueConfigPath();
     if (!DESCRIPTOR) {
@@ -39,9 +50,11 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     }
 
     const targetId = configPath.endsWith('.yaml') ? 'continue-primary-yaml' : 'continue-legacy-json';
+    const models = await this.discoverModels(profile);
     const { plan } = buildProviderConfigPlan(DESCRIPTOR, {
       profile,
       resolvedTargetPaths: { [targetId]: configPath },
+      discoveredModels: models.map(model => model.id)
     });
     this.expectedBaseUrl = profile.baseUrl;
 
@@ -66,17 +79,16 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
-    // Profile-aware verification: the Switchboard-managed entry
-    // (identity: AIdome Gateway) must exist AND its apiBase must exactly
+    // Profile-aware verification: at least one Switchboard-managed entry
+    // (identity name, or the per-model "identity - <modelId>" name the
+    // multi-model driver writes) must exist AND its apiBase must exactly
     // match the expected profile URL. "Some model has apiBase" is not a
     // pass — that would false-positive on unrelated user models.
     const format = configPath.endsWith('.yaml') ? 'yaml' : 'jsonc';
     const models = parseContinueModels(content, format);
-    const managed = models.find(model =>
-      model.title === AIDOME_MODEL_IDENTITY || model.name === AIDOME_MODEL_IDENTITY
-    );
+    const managed = models.filter(model => this.isManagedEntry(model));
 
-    if (!managed) {
+    if (managed.length === 0) {
       return {
         success: false,
         message: `Continue.dev config has no ${AIDOME_MODEL_IDENTITY} model entry`,
@@ -84,11 +96,11 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const managedApiBase = typeof managed.apiBase === 'string' ? managed.apiBase : undefined;
-    if (managedApiBase === undefined) {
+    const withApiBase = managed.filter(model => typeof model.apiBase === 'string');
+    if (withApiBase.length === 0) {
       return {
         success: false,
-        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entry has no apiBase configured`,
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entries have no apiBase configured`,
         details: { configPath, format, modelCount: models.length }
       };
     }
@@ -100,26 +112,29 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       return {
         success: false,
         message: 'Continue.dev apiBase is set, but the expected AIdome profile URL is unknown — apply a profile first to verify an exact match',
-        details: { configPath, format, modelCount: models.length, managedApiBase }
+        details: { configPath, format, modelCount: models.length }
       };
     }
 
-    if (managedApiBase !== expectedBaseUrl) {
+    const wrongUrl = managed.filter(model => model.apiBase !== expectedBaseUrl);
+    if (wrongUrl.length > 0) {
       return {
         success: false,
-        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} apiBase (${managedApiBase}) does not match the expected profile URL (${expectedBaseUrl})`,
-        details: { configPath, format, modelCount: models.length, managedApiBase, expectedBaseUrl }
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} apiBase (${String(wrongUrl[0].apiBase)}) does not match the expected profile URL (${expectedBaseUrl})`,
+        details: { configPath, format, modelCount: models.length, expectedBaseUrl }
       };
     }
 
-    // Credential verification (Tier A): the managed entry must carry the
+    // Credential verification (Tier A): managed entries must carry the
     // gateway key — Continue reads it from this file at request time.
-    const managedApiKey = typeof managed.apiKey === 'string' ? managed.apiKey : undefined;
-    if (managedApiKey === undefined || managedApiKey.trim().length === 0) {
+    const missingKey = managed.filter(model =>
+      typeof model.apiKey !== 'string' || model.apiKey.trim().length === 0
+    );
+    if (missingKey.length > 0) {
       return {
         success: false,
-        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entry has no apiKey configured — save a credential for the profile and re-apply it`,
-        details: { configPath, format, modelCount: models.length, managedApiBase }
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entries have no apiKey configured — save a credential for the profile and re-apply it`,
+        details: { configPath, format, modelCount: models.length }
       };
     }
 
@@ -130,9 +145,30 @@ export class ContinueAdapter extends BaseExtensionAdapter {
         configPath,
         format,
         modelCount: models.length,
-        managedEntry: { apiBase: managedApiBase, provider: managed.provider, apiKeyConfigured: true }
+        managedEntries: managed.length
       }
     };
+  }
+
+  /** Managed-entry predicate: identity name or per-model "identity - <id>" name. */
+  private isManagedEntry(model: { name?: string; title?: string; [key: string]: unknown }): boolean {
+    const withSeparator = `${AIDOME_MODEL_IDENTITY} - `;
+    return model.name === AIDOME_MODEL_IDENTITY
+      || model.title === AIDOME_MODEL_IDENTITY
+      || (typeof model.name === 'string' && model.name.startsWith(withSeparator))
+      || (typeof model.title === 'string' && model.title.startsWith(withSeparator));
+  }
+
+  private async discoverModels(profile: EndpointProfile) {
+    const cached = getCachedOpenAiModels(profile);
+    if (cached.length > 0) {
+      return cached;
+    }
+
+    const token = profile.authRef && this.dependencies.profileSecrets
+      ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+      : undefined;
+    return discoverOpenAiModels(profile.baseUrl, token);
   }
 
   getDisplayName(): string {
