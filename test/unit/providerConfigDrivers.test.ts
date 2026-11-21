@@ -439,6 +439,51 @@ describe('configuration drivers', () => {
       expect(managed.every(m => m.apiBase === BASE_URL && m.apiKey === 'tok-2')).toBe(true);
     });
 
+    it('jsonc: creates the models array when the document has none', () => {
+      // First-time setup on a fresh/legacy config.json without models.
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{}',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+    });
+
+    it('jsonc: does not mistake a comma inside a comment for the array separator', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" } // note, keep,\n' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      // The comment's commas must not suppress the structural separator.
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      expect(models[1]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+    });
+
     it('yaml: adds the required top-level name/version when the existing config lacks them', () => {
       // Continue's baseConfigYamlSchema requires top-level name/version;
       // without them the whole config.yaml fails the schema and Continue

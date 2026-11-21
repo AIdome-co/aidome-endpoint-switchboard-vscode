@@ -788,9 +788,12 @@ function deleteJsoncArrayElements(
       : undefined;
     if (!node || node.type !== 'array' || !node.children
       || node.offset === undefined || node.length === undefined) {
-      // No reliable parse tree: fail closed rather than risk corrupting a
-      // user file with text-level guesses.
-      throw new Error('JSONC model-array driver could not locate the models array for reconciliation');
+      // No models array at all (first-time setup on a fresh config.json, or
+      // a document without one): there is nothing managed to reconcile, so
+      // return unchanged and let the append step create the array
+      // (Codex 157 round 10). A structurally broken document still fails
+      // closed further down in the append path.
+      return content;
     }
     const children = node.children.filter(child =>
       child.offset !== undefined && child.length !== undefined
@@ -859,6 +862,11 @@ function appendJsoncArrayEntries(
         : findNodeAtLocation(tree, arrayPath))
     : undefined;
   if (!node || node.type !== 'array' || node.offset === undefined || node.length === undefined) {
+    if (node === undefined && parseJsonc<Record<string, unknown>>(content).models === undefined) {
+      // First-time setup: the document (possibly `{}`) has no models array
+      // at all — create it with the managed entries (Codex 157 round 10).
+      return applyJsoncEdit(content, arrayPath, entries);
+    }
     // Structurally unexpected document: fall back to a whole-array write.
     const root = parseJsonc<Record<string, unknown>>(content);
     const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
@@ -871,58 +879,61 @@ function appendJsoncArrayEntries(
     const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
     return applyJsoncEdit(content, arrayPath, [...current, ...entries]);
   }
-  const inner = content.slice(node.offset + 1, closingBracket);
   const serialized = entries.map(entry => stringifyJsonc(entry, 2)).join(',\n');
   return content.slice(0, closingBracket)
-    + jsoncArraySeparator(inner) + serialized
+    + jsoncArraySeparator(content, node) + serialized
     + content.slice(closingBracket);
 }
 
 /**
  * Separator to insert before appended array entries. A valid JSONC array
- * may already end with a trailing comma (possibly followed by a comment) —
- * adding another comma would corrupt the document (Codex 157 round 7).
+ * may already end with a trailing comma — adding another comma would
+ * corrupt the document (Codex 157 round 7). Detection is TREE-GUIDED
+ * (Codex 157 round 10): only the gap between the last VALUE child and the
+ * closing bracket is inspected, walking whitespace and comments, so a
+ * comma inside a comment or string can never be mistaken for the
+ * array's separator.
  */
-function jsoncArraySeparator(arrayInner: string): string {
-  if (!/\S/.test(arrayInner)) {
+type JsoncArrayNode = {
+  offset: number;
+  length?: number;
+  children?: Array<{ offset?: number; length?: number }>;
+};
+
+function jsoncArraySeparator(content: string, node: JsoncArrayNode): string {
+  if (!node.children || node.children.length === 0) {
     return ''; // empty array: no separator needed
   }
-  const lastComma = arrayInner.lastIndexOf(',');
-  if (lastComma >= 0) {
-    const tail = arrayInner.slice(lastComma + 1);
-    // Everything after the last comma must be whitespace/comments only.
-    if (isJsoncCommentAndWhitespaceOnly(tail)) {
-      return '\n';
-    }
+  const lastChild = node.children[node.children.length - 1];
+  if (lastChild.offset === undefined || lastChild.length === undefined) {
+    return ',\n';
   }
-  return ',\n';
-}
-
-/** True when the text is only whitespace and JSONC comments. */
-function isJsoncCommentAndWhitespaceOnly(text: string): boolean {
-  let rest = text;
+  const gapStart = lastChild.offset + lastChild.length;
+  const gapEnd = node.length !== undefined ? node.offset + node.length - 1 : content.length;
+  const gap = content.slice(gapStart, gapEnd);
+  let rest = gap;
   for (;;) {
     rest = rest.replace(/^\s+/, '');
     if (rest.length === 0) {
-      return true;
+      return ',\n';
     }
     if (rest.startsWith('//')) {
       const newline = rest.indexOf('\n');
       if (newline < 0) {
-        return true;
+        return ',\n';
       }
       rest = rest.slice(newline + 1);
       continue;
     }
     if (rest.startsWith('/*')) {
-      const end = rest.indexOf('*/');
-      if (end < 0) {
-        return false;
+      const blockEnd = rest.indexOf('*/');
+      if (blockEnd < 0) {
+        return ',\n';
       }
-      rest = rest.slice(end + 2);
+      rest = rest.slice(blockEnd + 2);
       continue;
     }
-    return false;
+    return rest.startsWith(',') ? '\n' : ',\n';
   }
 }
 
