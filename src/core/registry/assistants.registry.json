@@ -389,11 +389,18 @@
         "supported": "partially",
         "tier": "C",
         "configurationModes": [
+          "environment-variable",
           "guided-only"
         ],
+        "envVarHints": [
+          "GOOGLE_GEMINI_BASE_URL",
+          "GOOGLE_VERTEX_BASE_URL"
+        ],
         "notes": [
-          "Gemini CLI supports gateway routing through GOOGLE_GEMINI_BASE_URL in the process environment.",
-          "Switchboard provides guidance only because it cannot modify or verify the environment of an already running CLI parent process."
+          "Gemini CLI supports GOOGLE_GEMINI_BASE_URL for Gemini API-key authentication.",
+          "Gemini CLI supports GOOGLE_VERTEX_BASE_URL for Vertex AI authentication.",
+          "The environment variables must be set before launching Gemini CLI; Switchboard provides guided instructions rather than mutating an existing process environment.",
+          "The selected gateway must expose the Gemini or Vertex-compatible API expected by the chosen authentication mode."
         ]
       },
       "tlsVerification": {
@@ -401,7 +408,9 @@
         "notes": "Gemini CLI has no documented mechanism to disable TLS verification or supply custom CA certificates."
       },
       "sources": [
-        "https://github.com/google-gemini/gemini-cli"
+        "https://github.com/google-gemini/gemini-cli",
+        "https://geminicli.com/docs/reference/configuration/",
+        "https://geminicli.com/docs/get-started/authentication/"
       ]
     },
     {
