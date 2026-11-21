@@ -18,27 +18,63 @@ const DESCRIPTOR = getProviderConfigDescriptor('gemini-cli');
 const SUPPORTED_BASE_URL_VARIABLES = ['GOOGLE_GEMINI_BASE_URL', 'GOOGLE_VERTEX_BASE_URL'] as const;
 
 /**
- * Gemini CLI reads environment variables from more places than the parent
- * process: it auto-loads `~/.gemini/.env` (documented user-level env file —
- * variables from it are never excluded) and honors an `env` object inside
- * `~/.gemini/settings.json` (observed Gemini CLI settings format). A user
- * who persisted the override there would be falsely reported "not
- * configured" if verification only inspected process.env, so check all
- * three surfaces. Never report variable VALUES — only names/sources.
+ * Gemini CLI reads base-URL overrides from two places the extension host's
+ * process.env cannot see: it auto-loads `~/.gemini/.env` (documented
+ * user-level env file — variables from it are never excluded) as a
+ * FALLBACK after project `.gemini/.env` / `.env` files, and honors
+ * `$GEMINI_CLI_HOME/.gemini` as an alternate home. Never report variable
+ * VALUES — only names and sources. Values must satisfy Gemini CLI's
+ * documented constraint (valid URL, HTTPS unless a loopback host) before
+ * counting as configured.
  */
-async function discoverConfiguredBaseUrlVariables(): Promise<string[]> {
-  const configured = new Set<string>();
+interface DiscoveredBaseUrlVariables {
+  configured: string[];
+  fileBased: string[];
+  invalid: string[];
+}
+
+function isValidGeminiBaseUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:'
+      && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVariables> {
+  const result: DiscoveredBaseUrlVariables = {
+    configured: [],
+    fileBased: [],
+    invalid: []
+  };
+  const considered = new Set<string>();
+
   for (const name of SUPPORTED_BASE_URL_VARIABLES) {
-    if (process.env[name]) {
-      configured.add(name);
+    const value = process.env[name];
+    if (!value) {
+      continue;
+    }
+    considered.add(name);
+    if (isValidGeminiBaseUrl(value)) {
+      result.configured.push(name);
+    } else {
+      result.invalid.push(name);
     }
   }
 
-  const geminiHome = process.env['GEMINI_CLI_HOME']
-    ? path.resolve(process.env['GEMINI_CLI_HOME'])
+  // GEMINI_CLI_HOME is an alternate HOME: the CLI creates a `.gemini`
+  // folder inside it (enterprise docs), so the env file lives at
+  // `$GEMINI_CLI_HOME/.gemini/.env`.
+  const geminiDir = process.env['GEMINI_CLI_HOME']
+    ? path.join(path.resolve(process.env['GEMINI_CLI_HOME']), '.gemini')
     : path.join(os.homedir(), '.gemini');
 
-  const envFileContent = await readFileSafe(path.join(geminiHome, '.env'));
+  const envFileContent = await readFileSafe(path.join(geminiDir, '.env'));
   if (envFileContent) {
     for (const rawLine of envFileContent.split(/\r?\n/)) {
       const line = rawLine.trim();
@@ -50,31 +86,27 @@ async function discoverConfiguredBaseUrlVariables(): Promise<string[]> {
         continue;
       }
       const key = line.slice(0, equals).trim();
-      if ((SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)) {
-        configured.add(key);
+      if (!(SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)
+        || considered.has(key)) {
+        continue;
+      }
+      considered.add(key);
+      const value = line.slice(equals + 1).trim().replace(/^"(.*)"$/, '$1');
+      if (isValidGeminiBaseUrl(value)) {
+        result.configured.push(key);
+        // The user-level .env is a FALLBACK: a project `.gemini/.env` or
+        // `.env` closer to the CLI's launch directory wins, so this is
+        // configured but not conclusively active for every invocation.
+        result.fileBased.push(key);
+      } else {
+        result.invalid.push(key);
       }
     }
   }
 
-  const settingsContent = await readFileSafe(path.join(geminiHome, 'settings.json'));
-  if (settingsContent) {
-    try {
-      const parsed = JSON.parse(settingsContent) as { env?: Record<string, unknown> };
-      if (parsed.env && typeof parsed.env === 'object') {
-        for (const name of SUPPORTED_BASE_URL_VARIABLES) {
-          if (typeof parsed.env[name] === 'string' && parsed.env[name]) {
-            configured.add(name);
-          }
-        }
-      }
-    } catch {
-      // Malformed settings.json must not break verification — the CLI
-      // itself would report its own configuration problem.
-    }
-  }
-
-  return [...configured];
+  return result;
 }
+
 
 /**
  * Gemini CLI adapter.
@@ -169,21 +201,29 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const configuredEnvironmentVariables = await discoverConfiguredBaseUrlVariables();
-    const configured = configuredEnvironmentVariables.length > 0;
+    const discovered = await discoverConfiguredBaseUrlVariables();
+    const configured = discovered.configured.length > 0;
 
     return {
       success: configured,
       message: configured
-        ? 'Gemini CLI is installed and a supported gateway base-URL environment variable is configured.'
-        : 'Gemini CLI is installed, but a supported gateway base-URL environment variable is not configured.',
+        ? (discovered.fileBased.length > 0
+          ? 'Gemini CLI is installed and a gateway base-URL variable is configured (from the user-level Gemini CLI .env file; a project .gemini/.env or .env closer to the CLI launch directory can shadow it).'
+          : 'Gemini CLI is installed and a supported gateway base-URL environment variable is configured.')
+        : (discovered.invalid.length > 0
+          ? 'Gemini CLI is installed, but the configured base-URL variable value is not a valid Gemini CLI endpoint (HTTPS required unless localhost).'
+          : 'Gemini CLI is installed, but a supported gateway base-URL environment variable is not configured.'),
       details: { 
         cli: true,
         tier: DESCRIPTOR?.tier ?? 'C',
-        configurationStatus: configured ? 'environment-variable-configured' : 'manual-configuration-required',
-        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+        configurationStatus: configured
+          ? (discovered.fileBased.length > 0 ? 'base-url-configured-unverified-source' : 'environment-variable-configured')
+          : 'manual-configuration-required',
+        limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL; values must be valid HTTPS URLs unless they point at localhost',
         supportedEnvironmentVariables: [...SUPPORTED_BASE_URL_VARIABLES],
-        configuredEnvironmentVariables
+        configuredEnvironmentVariables: discovered.configured,
+        fileBasedEnvironmentVariables: discovered.fileBased,
+        invalidEnvironmentVariables: discovered.invalid
       }
     };
   }

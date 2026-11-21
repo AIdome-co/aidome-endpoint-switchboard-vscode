@@ -218,7 +218,9 @@ describe('GeminiCliAdapter', () => {
     expect(JSON.stringify(result)).not.toContain('https://gateway.example.com');
   });
 
-  it('counts an env object persisted in the Gemini CLI settings.json', async () => {
+  it('does not treat a settings.json env object as a configuration surface', async () => {
+    // The official settings schema (additionalProperties: false) has no
+    // top-level env property, so settings.json cannot define variables.
     vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
     vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('settings.json')) {
@@ -229,9 +231,63 @@ describe('GeminiCliAdapter', () => {
 
     const result = await adapter.verify();
 
-    expect(result.success).toBe(true);
-    expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_VERTEX_BASE_URL');
-    expect(JSON.stringify(result)).not.toContain('https://gateway.example.com');
+    expect(result.success).toBe(false);
+    expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+  });
+
+  it('treats an invalid base-URL value as not configured', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('.env')) {
+        return 'GOOGLE_GEMINI_BASE_URL=http://remote-host\n';
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+    expect(JSON.stringify(result)).not.toContain('http://remote-host');
+  });
+
+  it('resolves the .env file under GEMINI_CLI_HOME/.gemini', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    const original = process.env['GEMINI_CLI_HOME'];
+    process.env['GEMINI_CLI_HOME'] = '/alt/gemini-home';
+    try {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === '/alt/gemini-home/.gemini/.env') {
+          return 'GOOGLE_VERTEX_BASE_URL="https://gateway.example.com"\n';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(true);
+      expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_VERTEX_BASE_URL');
+      expect(result.details?.fileBasedEnvironmentVariables).toContain('GOOGLE_VERTEX_BASE_URL');
+      expect(result.details?.configurationStatus).toBe('base-url-configured-unverified-source');
+    } finally {
+      if (original === undefined) delete process.env['GEMINI_CLI_HOME'];
+      else process.env['GEMINI_CLI_HOME'] = original;
+    }
+  });
+
+  it('does not count a malformed settings.json as configuration', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('settings.json')) {
+        return '{ not json';
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.details?.configurationStatus).toBe('manual-configuration-required');
   });
 
   it('ignores a malformed settings.json instead of failing verification', async () => {
