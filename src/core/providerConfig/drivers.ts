@@ -253,7 +253,7 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   );
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
-    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath, request.baseUrl));
+    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
     const apiKey = request.secret?.trim() || undefined;
     output.models = [
       ...kept,
@@ -317,24 +317,37 @@ function renderJsoncModelArray(
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
   const existingModels = withoutStaleManagedEntries(
-    Array.isArray(root.models) ? root.models : [],
+    toRecordModels(Array.isArray(root.models) ? root.models : []),
     data.identity ?? modelPath
   );
   let output = request.existingContent ?? '{}';
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
-    // Multi-model reconcile (see renderYamlModelArray).
-    const kept = existingModels.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath, request.baseUrl));
+    // Multi-model reconcile (see renderYamlModelArray), performed SURGICALLY
+    // so user-authored comments inside the models array and unmanaged
+    // entries are preserved byte-for-byte: managed entries are deleted by
+    // index (descending so indexes stay stable) and new entries appended.
+    const identity = data.identity ?? modelPath;
+    const managedIndexes = existingModels
+      .map((entry, index) => isManagedModelEntry(entry, identity) ? index : -1)
+      .filter(index => index >= 0);
+    for (let i = managedIndexes.length - 1; i >= 0; i--) {
+      output = applyJsoncEdit(output, ['models', managedIndexes[i]], undefined);
+    }
     const apiKey = request.secret?.trim() || undefined;
     const managedEntries = buildManagedModelEntries(
-      data.identity ?? modelPath,
+      identity,
       data.gatewayModels,
       provider,
       request.baseUrl,
       apiKey,
       data.useResponsesApi
     );
-    output = applyJsoncEdit(output, ['models'], [...kept, ...managedEntries]);
+    let nextIndex = existingModels.length - managedIndexes.length;
+    for (const entry of managedEntries) {
+      output = applyJsoncEdit(output, ['models', nextIndex], entry);
+      nextIndex++;
+    }
     return ensureTrailingNewline(output);
   }
 
@@ -424,15 +437,17 @@ function buildManagedModelEntries(
 /**
  * True when an entry was authored by this extension's managed identity.
  * The exact identity name is the legacy single-entry shape (always ours);
- * a per-model prefix is ours only with the marker or when the entry points
- * at the gateway URL currently being written. Continue's config schema
- * strips unknown fields, so the marker never breaks the vendor parser.
+ * a per-model prefix is ours ONLY when it carries the marker — URL equality
+ * is deliberately NOT ownership evidence, because a user's manually
+ * configured AIdome model can point at the same gateway (Codex 157 round 5).
+ * Non-object array elements (e.g. a null in a hand-edited file) are never
+ * managed. Continue's config schema strips unknown fields, so the marker
+ * never breaks the vendor parser.
  */
-function isManagedModelEntry(
-  entry: Record<string, unknown>,
-  identity: string,
-  baseUrl?: string
-): boolean {
+function isManagedModelEntry(entry: unknown, identity: string): boolean {
+  if (!isRecord(entry)) {
+    return false;
+  }
   const name = typeof entry.name === 'string' ? entry.name : undefined;
   const title = typeof entry.title === 'string' ? entry.title : undefined;
   if (name === identity || title === identity) {
@@ -441,11 +456,7 @@ function isManagedModelEntry(
   const withSeparator = `${identity} - `;
   const prefixMatch = (name !== undefined && name.startsWith(withSeparator))
     || (title !== undefined && title.startsWith(withSeparator));
-  if (!prefixMatch) {
-    return false;
-  }
-  return entry[AIDOME_MANAGED_MARKER] === true
-    || (baseUrl !== undefined && entry.apiBase === baseUrl);
+  return prefixMatch && entry[AIDOME_MANAGED_MARKER] === true;
 }
 
 /**
@@ -466,6 +477,11 @@ function withoutStaleManagedEntries(
       && entry.name !== identity
       && entry.title !== identity)
   );
+}
+
+/** Filters an untyped models array down to object entries. */
+function toRecordModels(models: unknown[]): Record<string, unknown>[] {
+  return models.filter(isRecord);
 }
 
 function renderYamlModelArray(
@@ -499,7 +515,7 @@ function renderYamlModelArray(
   if (gatewayModels && gatewayModels.length > 0) {
     // Multi-model reconcile: drop exactly the entries this extension managed
     // (identity-named) and write one entry per discovered gateway model.
-    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath, request.baseUrl));
+    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath));
     const apiKey = request.secret?.trim() || undefined;
     output.models = [
       ...kept,

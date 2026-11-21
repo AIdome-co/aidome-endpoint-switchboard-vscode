@@ -204,16 +204,22 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     return prefixMatch && model.aidomeManaged === true;
   }
 
+  /**
+   * Queries the CURRENT endpoint first and falls back to the capabilities
+   * cache only when the live lookup fails or returns nothing (Codex 157
+   * round 5): the cache has no expiry and does not invalidate on URL/token
+   * changes, so trusting it first would apply a stale model catalog
+   * indefinitely.
+   */
   private async discoverModels(profile: EndpointProfile) {
-    const cached = getCachedOpenAiModels(profile);
-    if (cached.length > 0) {
-      return cached;
-    }
-
     const token = profile.authRef && this.dependencies.profileSecrets
       ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
       : undefined;
-    return discoverOpenAiModels(profile.baseUrl, token);
+    const live = await discoverOpenAiModels(profile.baseUrl, token);
+    if (live.length > 0) {
+      return live;
+    }
+    return getCachedOpenAiModels(profile);
   }
 
   getDisplayName(): string {

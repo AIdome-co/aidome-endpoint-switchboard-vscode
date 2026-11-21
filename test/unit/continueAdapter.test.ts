@@ -378,7 +378,10 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     ]);
   });
 
-  it('uses cached capabilities models before network discovery', async () => {
+  it('falls back to cached capabilities models only when the live lookup fails', async () => {
+    // Network-first: the cache has no expiry and does not invalidate on
+    // URL/token changes, so it must only fill in for a failed live lookup
+    // (Codex 157 round 5).
     const discovery = await import('../../src/core/providerConfig/modelDiscovery');
     vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);
     const profile = {
@@ -395,7 +398,13 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     const plan = await adapter.buildPlan(profile);
     const editStep = plan.steps.find(step => step.action === 'edit-config-file');
     expect(editStep?.data.gatewayModels).toEqual(['cached/model-1', 'cached/model-2']);
-    expect(discovery.discoverOpenAiModels).not.toHaveBeenCalled();
+    expect(discovery.discoverOpenAiModels).toHaveBeenCalledTimes(1);
+
+    // A fresh live result wins over the cache.
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([{ id: 'live/model-1', name: 'Live' }]);
+    const plan2 = await adapter.buildPlan(profile);
+    const editStep2 = plan2.steps.find(step => step.action === 'edit-config-file');
+    expect(editStep2?.data.gatewayModels).toEqual(['live/model-1']);
   });
 
   it('resolves the profile token through profileSecrets for network discovery', async () => {
