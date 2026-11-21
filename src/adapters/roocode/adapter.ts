@@ -78,6 +78,11 @@ export class RooCodeAdapter extends BaseExtensionAdapter {
         tier: 'C',
         limitation: 'unsupported-roo-code-dialect',
         requestedDialect: profile.dialect,
+        // Declared explicitly so PlanApplier classifies this assistant as
+        // 'unsupported' (not 'guided-required'): the instructions require
+        // choosing a different OpenAI profile, so manual follow-up on the
+        // selected profile can never complete it (Codex round 3, PR 118).
+        configurationStatus: 'unsupported',
       } satisfies GuidedStepsData;
 
       return addStep(plan, {
