@@ -171,6 +171,17 @@ function inspectExtensionDirectory(
 }
 
 /**
+ * NOTE on extension enablement (microsoft/vscode#98024): a disabled
+ * extension keeps its on-disk manifest but is omitted from
+ * vscode.extensions.all. Enablement state lives in the CLIENT's global
+ * storage database and there is no API surface to read it from a remote
+ * extension host — `vscode.extensions.getExtension(id)` returns undefined
+ * for both a client-side-running extension and a disabled one, so the two
+ * cases are indistinguishable from the remote side. The guidance message
+ * therefore mentions checking the Extensions panel instead of a check.
+ */
+
+/**
  * Reads an extension root's `.obsolete` marker file. VS Code records
  * directories pending cleanup there (JSON map of directory name to true)
  * after an uninstall; such entries are omitted from the extension API and
@@ -275,7 +286,9 @@ export async function offerUiKindSelfHeal(
     `local computer, so the AIdome Switchboard cannot configure ${pronoun} here. ` +
     'Paste the copied snippet into your local user settings.json (merge with any existing ' +
     'remote.extensionKind entries) and reload the window — ' +
-    `${gaps.length === 1 ? 'it' : 'they'} will then run in the remote workspace and be detected.`;
+    `${gaps.length === 1 ? 'it' : 'they'} will then run in the remote workspace and be detected. ` +
+    'If the override does not resolve it, also check the extension is not disabled in your ' +
+    'local Extensions panel (a disabled extension looks identical from the remote side).';
 
   try {
     await vscode.env.clipboard.writeText(snippet);

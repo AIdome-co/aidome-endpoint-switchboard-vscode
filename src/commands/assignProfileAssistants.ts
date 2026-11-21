@@ -224,7 +224,24 @@ export async function assignProfileAssistants(
 
 
 
+  // UI-kind gaps that are NOT also CLI-detectable take a mapping-only
+  // detach path (Codex 156 round 7): the generic fallback reapply would
+  // buildPlan/applyPlan for another profile with an assistant that cannot
+  // consume a remote configuration in this session.
+  const uiKindGapKeys = new Set(attachUiKindGaps
+    .filter(gap => !detected.clis.some(cli => cli.assistantKey === gap.assistantKey))
+    .map(gap => gap.assistantKey));
+
   for (const assistantKey of deselectedAssistantKeys) {
+    if (uiKindGapKeys.has(assistantKey)) {
+      await profileStore.deleteAssistantMapping(assistantKey, profile.id);
+      detachedAssistantKeys.push(assistantKey);
+      detachWarnings.push(
+        `${assistantKey} mapping removed without a remote reapply: the assistant currently runs on your local machine, so no remote configuration was written.`
+      );
+      continue;
+    }
+
     const outcome = await detachAssistantFromProfile(
       profileStore,
       switchboard,
