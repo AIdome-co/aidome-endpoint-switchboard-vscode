@@ -439,6 +439,49 @@ describe('configuration drivers', () => {
       expect(managed.every(m => m.apiBase === BASE_URL && m.apiKey === 'tok-2')).toBe(true);
     });
 
+    it('yaml: adds the required top-level name/version when the existing config lacks them', () => {
+      // Continue's baseConfigYamlSchema requires top-level name/version;
+      // without them the whole config.yaml fails the schema and Continue
+      // shows "No models configured" regardless of valid model entries.
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'models:\n  - name: KeepMe\n    model: k\n    provider: openai\n    apiBase: https://elsewhere.example.com/v1\n',
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      expect(typeof parsed.name).toBe('string');
+      expect(typeof parsed.version).toBe('string');
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models.some(m => m.name === 'KeepMe')).toBe(true);
+    });
+
+    it('yaml: preserves an existing assistant name instead of overwriting it', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'name: My Assistant\nversion: 1.2.3\nmodels: []\n',
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      expect(parsed.name).toBe('My Assistant');
+      expect(parsed.version).toBe('1.2.3');
+    });
+
     it('removes stale per-model managed entries on a profile switch without discovery results', () => {
       const existing = 'models:\n' +
         '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n    aidomeManaged: true\n';

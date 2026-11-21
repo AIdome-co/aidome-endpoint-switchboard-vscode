@@ -520,6 +520,17 @@ function renderYamlModelArray(
       ...kept,
       ...buildManagedModelEntries(identity ?? modelPath, gatewayModels, provider, request.baseUrl, apiKey, useResponsesApi)
     ];
+  // Continue's config.yaml schema (baseConfigYamlSchema) requires top-level
+  // `name` and `version`; a config.yaml without them fails the whole schema
+  // and Continue ignores every model entry ("No models configured"). Only
+  // set them when absent, so a user-named assistant keeps its identity.
+  const yamlRoot = document.toJSON();
+  if (!isRecord(yamlRoot) || typeof yamlRoot.name !== 'string' || yamlRoot.name.length === 0) {
+    document.set('name', 'AIdome Gateway Assistant');
+  }
+  if (!isRecord(yamlRoot) || typeof yamlRoot.version !== 'string' || yamlRoot.version.length === 0) {
+    document.set('version', '0.0.1');
+  }
     document.set('models', output.models);
     return document.toString({ lineWidth: 0 });
   }
@@ -561,6 +572,17 @@ function renderYamlModelArray(
     models.push(nextModel);
   }
 
+  // Continue's config.yaml schema (baseConfigYamlSchema) requires top-level
+  // `name` and `version`; a config.yaml without them fails the whole schema
+  // and Continue ignores every model entry ("No models configured"). Only
+  // set them when absent, so a user-named assistant keeps its identity.
+  const yamlRoot = document.toJSON();
+  if (!isRecord(yamlRoot) || typeof yamlRoot.name !== 'string' || yamlRoot.name.length === 0) {
+    document.set('name', 'AIdome Gateway Assistant');
+  }
+  if (!isRecord(yamlRoot) || typeof yamlRoot.version !== 'string' || yamlRoot.version.length === 0) {
+    document.set('version', '0.0.1');
+  }
   document.set('models', models);
   return document.toString({ lineWidth: 0 });
 }
