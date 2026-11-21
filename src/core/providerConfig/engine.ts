@@ -235,6 +235,12 @@ function compileTargetPlan(
           identity: identityValue,
           provider,
           ...(useResponsesApi === undefined ? {} : { useResponsesApi }),
+          // One managed entry per discovered gateway model — Continue's
+          // config schema requires a `model` field on every entry, so a
+          // single model-less entry is silently dropped by the vendor.
+          ...(context.discoveredModels && context.discoveredModels.length > 0
+            ? { gatewayModels: context.discoveredModels }
+            : {}),
           // Credential write: the profile's saved gateway token is persisted
           // into the managed model entry's `apiKey` field at apply time
           // (Continue reads the key from its own config file — the vendor's

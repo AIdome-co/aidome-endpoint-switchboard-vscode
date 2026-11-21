@@ -343,7 +343,577 @@ describe('configuration drivers', () => {
     })).toThrow('invalid field path');
   });
 
-  describe('fail-closed on malformed existing configuration', () => {
+    describe('yaml-model-array with discovered gateway models', () => {
+    it('writes one managed entry per gateway model, each with the required model field', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'models:\n  - name: UserOwnOpenAI\n    provider: openai\n    model: gpt-4o\n    apiBase: https://api.openai.com/v1\n',
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(3);
+      expect(models[0]).toMatchObject({ name: 'UserOwnOpenAI', model: 'gpt-4o' });
+      const managed = models.filter(model => String(model.name).startsWith('AIdome Gateway - '));
+      expect(managed).toHaveLength(2);
+      for (const entry of managed) {
+        expect(['m/a', 'm/b']).toContain(entry.model);
+        expect(entry.title).toBe(entry.model);
+        expect(entry.provider).toBe('openai');
+        expect(entry.apiBase).toBe(BASE_URL);
+        expect(typeof entry.model).toBe('string');
+        expect(String(entry.model).length).toBeGreaterThan(0);
+      }
+    });
+
+    it('persists the profile secret on every managed entry and clears it when unresolved', () => {
+      const withSecret = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '',
+        format: 'yaml',
+        secret: 'tok-1',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+      let parsed = parseDocument(withSecret).toJSON() as Record<string, unknown>;
+      let managed = (parsed.models as Array<Record<string, unknown>>)
+        .filter(model => String(model.name).startsWith('AIdome Gateway - '));
+      expect(managed.map(m => m.apiKey)).toEqual(['tok-1', 'tok-1']);
+
+      const cleared = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: withSecret,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+      parsed = parseDocument(cleared).toJSON() as Record<string, unknown>;
+      managed = (parsed.models as Array<Record<string, unknown>>)
+        .filter(model => String(model.name).startsWith('AIdome Gateway - '));
+      expect(managed.map(m => m.apiKey)).toEqual([undefined, undefined]);
+    });
+
+    it('migrates the legacy single managed entry and reconciles removed models', () => {
+      const existing = 'models:\n' +
+        '  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n' +
+        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n    aidomeManaged: true\n' +
+        '  - name: KeepMe\n    title: KeepMe\n    model: k\n    provider: openai\n    apiBase: https://elsewhere.example.com/v1\n';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        secret: 'tok-2',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/c']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(3); // KeepMe + 2 managed
+      expect(models.some(m => m.name === 'KeepMe' && m.apiBase === 'https://elsewhere.example.com/v1')).toBe(true);
+      const managed = models.filter(m => String(m.name).startsWith('AIdome Gateway'));
+      expect(managed.map(m => m.model).sort()).toEqual(['m/a', 'm/c']);
+      expect(managed.every(m => m.apiBase === BASE_URL && m.apiKey === 'tok-2')).toBe(true);
+    });
+
+    it('jsonc: deletes a sole managed entry that ends with a trailing comma', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ model: 'm/b', aidomeManaged: true });
+    });
+
+    it('jsonc: ignores commas inside a block comment between entries', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" } /* a, b */, { "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      // Deleting the managed entry must not truncate the block comment or
+      // corrupt the document.
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      expect(models[0]).toMatchObject({ name: 'UserOwnOpenAI' });
+      expect(models[1]).toMatchObject({ model: 'm/b', aidomeManaged: true });
+      expect(output).toContain('/* a, b */');
+    });
+
+    it('jsonc: repeated application of the same profile is idempotent', () => {
+      const first = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [] }',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+      const second = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: first,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(second);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+    });
+
+    it('jsonc: creates managed entries from an empty or whitespace-only config.json', () => {
+      for (const existing of [undefined, '', '   \n  ']) {
+        const output = renderConfigFileContent({
+          baseUrl: BASE_URL,
+          existingContent: existing,
+          format: 'jsonc',
+          options: {
+            driver: 'yaml-model-array',
+            format: 'jsonc',
+            provider: 'openai',
+            identity: 'AIdome Gateway',
+            gatewayModels: ['m/a']
+          }
+        });
+        const parsed = parseJsonc<Record<string, unknown>>(output);
+        const models = parsed.models as Array<Record<string, unknown>>;
+        expect(models).toHaveLength(1);
+        expect(models[0]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+      }
+    });
+
+    it('jsonc: still fails closed on a malformed nonempty config.json', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [ oops',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      })).toThrow();
+    });
+
+    it('jsonc: creates the models array when the document has none', () => {
+      // First-time setup on a fresh/legacy config.json without models.
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{}',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+    });
+
+    it('jsonc: does not mistake a comma inside a comment for the array separator', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" } // note, keep,\n' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      // The comment's commas must not suppress the structural separator.
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      expect(models[1]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+    });
+
+    it('yaml: reconciles marker-stripped managed entries so re-apply does not duplicate models', () => {
+      // Continue's config editor strips the unknown aidomeManaged marker
+      // when it rewrites config.yaml; the exact "<identity> - <model>"
+      // name shape at the gateway URL must still be recognized as ours.
+      const existing = [
+        'name: AIdome Gateway Assistant',
+        'version: 0.0.1',
+        'models:',
+        '  - name: UserOwnOpenAI',
+        '    model: gpt-4o',
+        '    provider: openai',
+        '    apiBase: https://api.openai.com/v1',
+        `  - name: AIdome Gateway - m/a`,
+        '    title: m/a',
+        '    model: m/a',
+        '    provider: openai',
+        `    apiBase: ${BASE_URL}`
+      ].join('\n');
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as { models: Array<Record<string, unknown>> };
+      const models = parsed.models;
+      expect(models).toHaveLength(3); // user + 2 managed, no duplicates
+      const gatewayNames = models.map(m => m.name).filter(n => typeof n === 'string' && (n as string).startsWith('AIdome Gateway'));
+      expect(new Set(gatewayNames).size).toBe(gatewayNames.length);
+      expect(models.some(m => m.name === 'UserOwnOpenAI')).toBe(true);
+    });
+
+    it('yaml: never reconciles a marker-stripped entry whose apiBase is not this gateway', () => {
+      const existing = [
+        'models:',
+        '  - name: AIdome Gateway - m/a',
+        '    title: m/a',
+        '    model: m/a',
+        '    provider: openai',
+        '    apiBase: https://elsewhere.example.com/v1'
+      ].join('\n');
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as { models: Array<Record<string, unknown>> };
+      // The foreign-URL entry stays (it is not provably ours); a fresh
+      // managed entry for m/a is appended.
+      expect(parsed.models).toHaveLength(2);
+      expect(parsed.models[0]).toMatchObject({ apiBase: 'https://elsewhere.example.com/v1' });
+    });
+
+    it('yaml: adds the required top-level name/version when the existing config lacks them', () => {
+      // Continue's baseConfigYamlSchema requires top-level name/version;
+      // without them the whole config.yaml fails the schema and Continue
+      // shows "No models configured" regardless of valid model entries.
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'models:\n  - name: KeepMe\n    model: k\n    provider: openai\n    apiBase: https://elsewhere.example.com/v1\n',
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      expect(typeof parsed.name).toBe('string');
+      expect(typeof parsed.version).toBe('string');
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models.some(m => m.name === 'KeepMe')).toBe(true);
+    });
+
+    it('yaml: preserves an existing assistant name instead of overwriting it', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'name: My Assistant\nversion: 1.2.3\nmodels: []\n',
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      expect(parsed.name).toBe('My Assistant');
+      expect(parsed.version).toBe('1.2.3');
+    });
+
+    it('removes stale per-model managed entries on a profile switch without discovery results', () => {
+      const existing = 'models:\n' +
+        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n    aidomeManaged: true\n';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway'
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // The stale per-model entry (old URL + old key) is gone; only the
+      // legacy identity entry remains.
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ name: 'AIdome Gateway', apiBase: BASE_URL });
+    });
+
+    it('keeps the single-entry legacy behavior when no gateway models are provided', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '',
+        format: 'yaml',
+        options: { driver: 'yaml-model-array', format: 'yaml', provider: 'openai', identity: 'AIdome Gateway' }
+      });
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(1);
+      expect(models[0].name).toBe('AIdome Gateway');
+    });
+
+    it('stamps the ownership marker on managed entries and preserves a user entry that collides with the prefix', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'models:\n' +
+          '  - name: AIdome Gateway - my-custom-model\n    title: my-custom-model\n    model: my-custom-model\n    provider: openai\n    apiBase: https://api.openai.com/v1\n    apiKey: user-key\n',
+        format: 'yaml',
+        secret: 'tok-3',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // The user's colliding entry is NOT ours (no marker, foreign apiBase)
+      // and must survive untouched.
+      expect(models.some(m => m.name === 'AIdome Gateway - my-custom-model' && m.apiKey === 'user-key')).toBe(true);
+      const managed = models.filter(m => m.aidomeManaged === true);
+      expect(managed).toHaveLength(1);
+      expect(managed[0]).toMatchObject({ model: 'm/a', apiBase: BASE_URL, apiKey: 'tok-3' });
+    });
+
+    it('jsonc: computes reconcile indexes from the raw array so user entries are never overwritten', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // User entry preserved intact (not overwritten by an index-shifted write).
+      expect(models.some(m => m.name === 'UserOwnOpenAI' && m.apiBase === 'https://api.openai.com/v1')).toBe(true);
+      // Stale managed entry removed, new entry appended.
+      expect(models.some(m => m.apiBase === 'https://stale.example.com/v1')).toBe(false);
+      expect(models.filter(m => m.aidomeManaged === true)).toHaveLength(1);
+      expect(models[models.length - 1]).toMatchObject({ model: 'm/b', apiBase: BASE_URL });
+    });
+
+    it('jsonc: tolerates non-object elements and keeps raw indexes intact', () => {
+      const existing = '{ "models": [' +
+        'null,' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" },' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // Raw positions preserved: the null and the user entry are untouched,
+      // the stale managed entry was deleted by its raw index, the new entry
+      // appended at the end.
+      expect(models[0]).toBeNull();
+      expect(models[1]).toMatchObject({ name: 'UserOwnOpenAI', apiBase: 'https://api.openai.com/v1' });
+      expect(models.filter(m => m && m.aidomeManaged === true)).toHaveLength(1);
+      expect(models[models.length - 1]).toMatchObject({ model: 'm/b', apiBase: BASE_URL });
+    });
+
+    it('jsonc: does not add a second comma when the array already ends with a trailing comma', () => {
+      const existing = '{ "models": [' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" },' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      // The output must parse cleanly (a doubled comma would throw).
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      expect(models[1]).toMatchObject({ model: 'm/a', apiBase: BASE_URL });
+      expect(output).not.toContain(',,');
+    });
+
+    it('jsonc: removes multiple adjacent managed entries without corrupting separators and keeps the following comment', () => {
+      // Round 8: adjacent managed entries (the normal multi-model output)
+      // plus a comment attached to the following user entry.
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '{ "name": "AIdome Gateway - m/b", "title": "m/b", "model": "m/b", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '// my models below\n' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/c']
+        }
+      });
+
+      // Must parse cleanly (no dangling/overlapping ranges).
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      // The user entry AND its preceding comment survive.
+      expect(models[0]).toMatchObject({ name: 'UserOwnOpenAI', apiBase: 'https://api.openai.com/v1' });
+      expect(output).toContain('// my models below');
+      // One fresh managed entry appended.
+      expect(models[1]).toMatchObject({ model: 'm/c', apiBase: BASE_URL, aidomeManaged: true });
+    });
+
+    it('jsonc: writes one managed entry per gateway model with the model field', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [ { "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" } ] }',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(3);
+      const managed = models.filter(model => String(model.name).startsWith('AIdome Gateway - '));
+      expect(managed).toHaveLength(2);
+      expect(managed.every(m => typeof m.model === 'string' && m.apiBase === BASE_URL)).toBe(true);
+    });
+  });
+
+describe('fail-closed on malformed existing configuration', () => {
     it('aborts and never replaces a malformed existing JSON file', () => {
       const malformed = '{ "broken": tru';
 
@@ -360,7 +930,7 @@ describe('configuration drivers', () => {
     });
 
     it('aborts and never replaces a malformed existing JSONC file', () => {
-      const malformed = '{\\n  // comment without a document end\\n  "broken":';
+      const malformed = '{\n  // comment without a document end\n  "broken":';
 
       expect(() => renderConfigFileContent({
         baseUrl: BASE_URL,
@@ -405,7 +975,7 @@ describe('configuration drivers', () => {
     });
 
     it('fails closed when a YAML document has parser errors', () => {
-      const malformed = 'models:\\n  - name: [unclosed\\n  - "bad';
+      const malformed = 'models:\n  - name: [unclosed\n  - "bad';
 
       expect(() => renderConfigFileContent({
         baseUrl: BASE_URL,
@@ -420,7 +990,7 @@ describe('configuration drivers', () => {
     });
 
     it('fails closed when an existing TOML file cannot be parsed', () => {
-      const malformed = 'model = "broken\\n[model_providers.aidome';
+      const malformed = 'model = "broken\n[model_providers.aidome';
 
       expect(() => renderConfigFileContent({
         baseUrl: BASE_URL,

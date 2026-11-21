@@ -6,7 +6,7 @@
  */
 
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
-import { applyEdits, modify } from 'jsonc-parser';
+import { applyEdits, findNodeAtLocation, modify, parseTree } from 'jsonc-parser';
 import { parseDocument } from 'yaml';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { validateUrl } from '../profiles/profileValidator';
@@ -49,6 +49,15 @@ export interface ModelArrayDriverData {
   modelPath?: string;
   provider?: string;
   useResponsesApi?: boolean;
+  /**
+   * Model ids discovered from the gateway. When present and non-empty, the
+   * driver writes ONE managed entry per id — each carrying the vendor-required
+   * `model` field (Continue config schema: model is mandatory) — and removes
+   * previously managed entries whose model is no longer in the list
+   * (reconcile-on-apply, Kilo precedent). User-authored entries are never
+   * touched.
+   */
+  gatewayModels?: string[];
   /**
    * Stable Switchboard-managed entry identity. Only the entry whose
    * name/title equals this value (or, failing that, whose apiBase equals the
@@ -225,7 +234,11 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const provider = data.provider?.trim() || 'openai';
 
   if (data.format === 'yaml') {
-    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi, data.identity);
+    return renderYamlModelArray(request, modelPath, provider, data.useResponsesApi, data.identity, data.gatewayModels);
+  }
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    return renderJsoncModelArray(request, data, modelPath, provider);
   }
 
   if (request.existingContent !== undefined && isValidJsonc(request.existingContent)) {
@@ -234,7 +247,21 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
 
   const parsed = request.existingContent ? parseJsonObject(request.existingContent, 'jsonc') : {};
   const output = isRecord(parsed) ? parsed : {};
-  const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+  const models = withoutStaleManagedEntries(
+    Array.isArray(output.models) ? output.models.filter(isRecord) : [],
+    data.identity ?? modelPath
+  );
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
+    const apiKey = request.secret?.trim() || undefined;
+    output.models = [
+      ...kept,
+      ...buildManagedModelEntries(data.identity ?? modelPath, data.gatewayModels, provider, request.baseUrl, apiKey, data.useResponsesApi)
+    ];
+    return `${stringifyJsonc(output, 2)}\n`;
+  }
+
   const match = findManagedModelMatch(models, request.baseUrl, data.identity, modelPath);
   // Credential semantics (target-persisted-at-apply): the managed entry gets
   // the profile's key when one is saved, and a credential-less profile switch
@@ -287,11 +314,50 @@ function renderJsoncModelArray(
   modelPath: string,
   provider: string
 ): string {
-  const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
+  // Empty or whitespace-only legacy config.json is a valid first-time
+  // setup, not an error (same semantics as main's creation path): normalize
+  // it to an empty document before parsing. A NONEMPTY malformed file still
+  // fails closed below (Codex P2 follow-up).
+  const existingContent = request.existingContent !== undefined && request.existingContent.trim().length > 0
+    ? request.existingContent
+    : undefined;
+  const parsed = parseJsonc<unknown>(existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
+  // RAW array: the reconcile indexes below are applied to the original
+  // document, so any compaction here would shift them onto user entries
+  // (Codex 157 round 7). Non-object elements are rejected by
+  // isManagedModelEntry itself.
   const existingModels = Array.isArray(root.models) ? root.models : [];
-  const match = findManagedModelMatch(existingModels, request.baseUrl, data.identity, modelPath);
-  let output = request.existingContent ?? '{}';
+  let output = existingContent ?? '{}';
+
+  if (data.gatewayModels && data.gatewayModels.length > 0) {
+    // Multi-model reconcile (see renderYamlModelArray), performed SURGICALLY
+    // so user-authored comments inside the models array and unmanaged
+    // entries are preserved byte-for-byte: managed entries are deleted by
+    // index (descending so indexes stay stable) and new entries appended.
+    // Indexes are computed from the RAW array — any pre-filtering would
+    // shift positions and make the edits hit user entries (Codex 157
+    // round 6).
+    const identity = data.identity ?? modelPath;
+    output = deleteJsoncArrayElements(output, ['models'], entry => isManagedModelEntry(entry, identity, request.baseUrl));
+    const apiKey = request.secret?.trim() || undefined;
+    const managedEntries = buildManagedModelEntries(
+      identity,
+      data.gatewayModels,
+      provider,
+      request.baseUrl,
+      apiKey,
+      data.useResponsesApi
+    );
+    return validateJsoncOutput(ensureTrailingNewline(appendJsoncArrayEntries(output, ['models'], managedEntries)));
+  }
+
+  const match = findManagedModelMatch(
+    withoutStaleManagedEntries(existingModels, data.identity ?? modelPath, request.baseUrl),
+    request.baseUrl,
+    data.identity,
+    modelPath
+  );
 
   // Credential semantics: set the key when a profile secret was resolved at
   // apply time; CLEAR it otherwise so a previous profile's token never
@@ -330,7 +396,122 @@ function renderJsoncModelArray(
       : applyJsoncEdit(output, ['models'], [nextModel]);
   }
 
-  return ensureTrailingNewline(output);
+  return validateJsoncOutput(ensureTrailingNewline(output));
+}
+
+/**
+ * Unambiguous ownership marker written on every managed model entry. A name
+ * prefix alone is NOT ownership evidence — a user may legitimately name
+ * their own entry "AIdome Gateway - <something>" (Codex 157 round 3) — so
+ * reconciliation only touches prefixed entries that carry this marker (or
+ * whose apiBase equals the gateway URL currently being written).
+ */
+const AIDOME_MANAGED_MARKER = 'aidomeManaged';
+
+/**
+ * Builds the Switchboard-managed model entries for a Continue-style model
+ * array when gateway model ids are known: ONE entry per model, each carrying
+ * the vendor-required `model` field and the ownership marker.
+ */
+function buildManagedModelEntries(
+  identity: string,
+  gatewayModels: string[],
+  provider: string,
+  baseUrl: string,
+  apiKey: string | undefined,
+  useResponsesApi: boolean | undefined
+): Record<string, unknown>[] {
+  return gatewayModels.map(modelId => {
+    const entry: Record<string, unknown> = {
+      name: `${identity} - ${modelId}`,
+      title: modelId,
+      model: modelId,
+      provider,
+      apiBase: baseUrl,
+      [AIDOME_MANAGED_MARKER]: true
+    };
+    if (apiKey) {
+      entry.apiKey = apiKey;
+    }
+    if (useResponsesApi !== undefined) {
+      entry.useResponsesApi = useResponsesApi;
+    }
+    return entry;
+  });
+}
+
+/**
+ * True when an entry was authored by this extension's managed identity.
+ * The exact identity name is the legacy single-entry shape (always ours);
+ * a per-model prefix is ours ONLY when it carries the marker — URL equality
+ * is deliberately NOT ownership evidence, because a user's manually
+ * configured AIdome model can point at the same gateway (Codex 157 round 5).
+ * Non-object array elements (e.g. a null in a hand-edited file) are never
+ * managed. Continue's config schema strips unknown fields, so the marker
+ * never breaks the vendor parser.
+ */
+function isManagedModelEntry(
+  entry: unknown,
+  identity: string,
+  gatewayUrl?: string
+): boolean {
+  if (!isRecord(entry)) {
+    return false;
+  }
+  const name = typeof entry.name === 'string' ? entry.name : undefined;
+  const title = typeof entry.title === 'string' ? entry.title : undefined;
+  if (name === identity || title === identity) {
+    return true;
+  }
+  const withSeparator = `${identity} - `;
+  const prefixMatch = (name !== undefined && name.startsWith(withSeparator))
+    || (title !== undefined && title.startsWith(withSeparator));
+  if (prefixMatch && entry[AIDOME_MANAGED_MARKER] === true) {
+    return true;
+  }
+  // Marker-less recovery (user-reported duplicate regression): Continue's
+  // own config editor round-trips entries through its zod schema and
+  // STRIPS the unknown aidomeManaged marker, so a marker-only rule would
+  // no longer recognize the extension's own entries and re-apply would
+  // append duplicates. An entry whose name/title is EXACTLY
+  // "<identity> - <model>" (the shape only this extension writes) AND
+  // whose apiBase is this gateway is ours even without the marker. A user
+  // entry keeps a different name shape, so it is never matched.
+  if (prefixMatch && gatewayUrl !== undefined) {
+    const model = typeof entry.model === 'string' ? entry.model : undefined;
+    if (model !== undefined && model.trim().length > 0
+      && (name === `${identity} - ${model}` || title === `${identity} - ${model}`)
+      && entry.apiBase === gatewayUrl) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Removes stale per-model managed entries ("identity - <model>") from the
+ * single-entry legacy path: after one multi-model apply, a profile switch
+ * WITHOUT discovery results would otherwise leave those entries — with the
+ * previous profile's URL and credential — in place while appending the
+ * model-less legacy entry that Continue drops (Codex 157 round 1). Per-model
+ * prefixed entries are authored by this extension, so removing them is safe;
+ * user-authored entries are never matched.
+ */
+function withoutStaleManagedEntries(
+  models: Record<string, unknown>[],
+  identity: string,
+  gatewayUrl?: string
+): Record<string, unknown>[] {
+  return models.filter(entry =>
+    !(isManagedModelEntry(entry, identity, gatewayUrl)
+      && entry.name !== identity
+      && entry.title !== identity)
+  );
+}
+
+/** Filters an untyped models array down to object entries. */
+function toRecordModels(models: unknown[]): Record<string, unknown>[] {
+  return models.filter(isRecord);
 }
 
 function renderYamlModelArray(
@@ -338,7 +519,8 @@ function renderYamlModelArray(
   modelPath: string,
   provider: string,
   useResponsesApi?: boolean,
-  identity?: string
+  identity?: string,
+  gatewayModels?: string[]
 ): string {
   const document = parseDocument(request.existingContent || '');
 
@@ -355,7 +537,36 @@ function renderYamlModelArray(
 
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
-  const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+  const models = withoutStaleManagedEntries(
+    Array.isArray(output.models) ? output.models.filter(isRecord) : [],
+    identity ?? modelPath,
+    request.baseUrl
+  );
+
+  if (gatewayModels && gatewayModels.length > 0) {
+    // Multi-model reconcile: drop exactly the entries this extension managed
+    // (identity-named) and write one entry per discovered gateway model.
+    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath, request.baseUrl));
+    const apiKey = request.secret?.trim() || undefined;
+    output.models = [
+      ...kept,
+      ...buildManagedModelEntries(identity ?? modelPath, gatewayModels, provider, request.baseUrl, apiKey, useResponsesApi)
+    ];
+  // Continue's config.yaml schema (baseConfigYamlSchema) requires top-level
+  // `name` and `version`; a config.yaml without them fails the whole schema
+  // and Continue ignores every model entry ("No models configured"). Only
+  // set them when absent, so a user-named assistant keeps its identity.
+  const yamlRoot = document.toJSON();
+  if (!isRecord(yamlRoot) || typeof yamlRoot.name !== 'string' || yamlRoot.name.length === 0) {
+    document.set('name', 'AIdome Gateway Assistant');
+  }
+  if (!isRecord(yamlRoot) || typeof yamlRoot.version !== 'string' || yamlRoot.version.length === 0) {
+    document.set('version', '0.0.1');
+  }
+    document.set('models', output.models);
+    return document.toString({ lineWidth: 0 });
+  }
+
   const match = findManagedModelMatch(models, request.baseUrl, identity, modelPath);
 
   // Credential semantics: same clear-not-replay contract as the JSONC path,
@@ -393,6 +604,17 @@ function renderYamlModelArray(
     models.push(nextModel);
   }
 
+  // Continue's config.yaml schema (baseConfigYamlSchema) requires top-level
+  // `name` and `version`; a config.yaml without them fails the whole schema
+  // and Continue ignores every model entry ("No models configured"). Only
+  // set them when absent, so a user-named assistant keeps its identity.
+  const yamlRoot = document.toJSON();
+  if (!isRecord(yamlRoot) || typeof yamlRoot.name !== 'string' || yamlRoot.name.length === 0) {
+    document.set('name', 'AIdome Gateway Assistant');
+  }
+  if (!isRecord(yamlRoot) || typeof yamlRoot.version !== 'string' || yamlRoot.version.length === 0) {
+    document.set('version', '0.0.1');
+  }
   document.set('models', models);
   return document.toString({ lineWidth: 0 });
 }
@@ -566,6 +788,247 @@ function getValueAtPath(root: unknown, path: string[]): unknown {
     current = current[segment];
   }
   return current;
+}
+
+/**
+ * Final safety gate: validates the reconciled JSONC before it reaches the
+ * file applier, so a corrupted document can never be written (the existing
+ * backup/rollback machinery then handles the surfaced failure).
+ */
+function validateJsoncOutput(content: string): string {
+  try {
+    parseJsonc<unknown>(content);
+  } catch (error) {
+    throw new Error('JSONC model-array driver produced invalid JSONC — aborting before any configuration write', { cause: error });
+  }
+  return content;
+}
+
+/**
+ * Finds the STRUCTURAL separator comma inside the gap between two array
+ * elements (or before the closing bracket). Skips whitespace and JSONC
+ * comments, so a comma inside a block or line comment is
+ * never mistaken for the separator (Codex P1 follow-up). Returns the gap
+ * offset of the comma or -1.
+ */
+function findJsoncStructuralComma(gap: string): number {
+  let rest = gap;
+  let consumed = 0;
+  for (;;) {
+    const wsMatch = /^\s+/.exec(rest);
+    if (wsMatch) {
+      consumed += wsMatch[0].length;
+      rest = rest.slice(wsMatch[0].length);
+    }
+    if (rest.length === 0) {
+      return -1;
+    }
+    if (rest.startsWith('//')) {
+      const newline = rest.indexOf('\n');
+      if (newline < 0) {
+        return -1;
+      }
+      consumed += newline + 1;
+      rest = rest.slice(newline + 1);
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const blockEnd = rest.indexOf('*/');
+      if (blockEnd < 0) {
+        return -1;
+      }
+      consumed += blockEnd + 2;
+      rest = rest.slice(blockEnd + 2);
+      continue;
+    }
+    return rest.startsWith(',') ? consumed : -1;
+  }
+}
+
+/**
+ * Deletes managed array elements one at a time, each deletion guided by a
+ * FRESH parse tree and consuming exactly one adjacent separator comma:
+ *  - a non-last element takes the comma immediately after it (so a comment
+ *    describing the following entry is never touched — Codex 157 round 9);
+ *  - the last element takes the comma immediately before it;
+ *  - a sole element leaves no separator.
+ * Reparsing between deletions keeps every range exact on the current
+ * document, so no range bookkeeping can overlap or shift, and managed
+ * membership is re-evaluated from the live content each pass. All text
+ * outside the deleted [element + one comma] spans — user entries, their
+ * comments, string contents — is preserved byte-for-byte.
+ * jsonc-parser's `modify` with `undefined` is NOT used for deletions: it
+ * corrupts the document when deleting the last element (it eats the
+ * array's closing bracket — Codex 157 round 7).
+ */
+function deleteJsoncArrayElements(
+  content: string,
+  arrayPath: string[],
+  isManaged: (entry: unknown) => boolean
+): string {
+  for (let pass = 0; pass < 1024; pass++) {
+    const tree = parseTree(content);
+    const node = tree
+      ? (tree.type === 'array' && arrayPath.length === 1
+          ? tree
+          : findNodeAtLocation(tree, arrayPath))
+      : undefined;
+    if (!node || node.type !== 'array' || !node.children
+      || node.offset === undefined || node.length === undefined) {
+      // No models array at all (first-time setup on a fresh config.json, or
+      // a document without one): there is nothing managed to reconcile, so
+      // return unchanged and let the append step create the array
+      // (Codex 157 round 10). A structurally broken document still fails
+      // closed further down in the append path.
+      return content;
+    }
+    const children = node.children.filter(child =>
+      child.offset !== undefined && child.length !== undefined
+    );
+    const managedIndex = children.findIndex(child => {
+      const entry = content.slice(child.offset, child.offset + child.length);
+      return isManaged(safeJsoncSliceParse(entry, content));
+    });
+    if (managedIndex < 0) {
+      return content;
+    }
+    const child = children[managedIndex];
+    const start = child.offset;
+    const end = child.offset + child.length;
+    if (managedIndex + 1 < children.length) {
+      // Non-last element: consume exactly the separator comma after it.
+      const gap = content.slice(end, children[managedIndex + 1].offset);
+      const commaRel = findJsoncStructuralComma(gap);
+      content = commaRel >= 0
+        ? content.slice(0, start) + content.slice(end + commaRel + 1)
+        : content.slice(0, start) + content.slice(end); // malformed gap: element text only
+      continue;
+    }
+    if (managedIndex > 0) {
+      // Last element: consume the separator comma before it.
+      const prevEnd = children[managedIndex - 1].offset + children[managedIndex - 1].length;
+      const gap = content.slice(prevEnd, start);
+      const commaRel = findJsoncStructuralComma(gap);
+      if (commaRel >= 0) {
+        content = content.slice(0, prevEnd + commaRel) + content.slice(end);
+        continue;
+      }
+    }
+    // Sole element: consume the element plus a trailing comma after it, if
+    // one exists (a hand-edited `[ entry, ]` would otherwise become the
+    // invalid `[, ]` — Codex P1 follow-up).
+    const arrayEnd = node.offset + node.length - 1; // index of the closing ']'
+    const gapAfter = content.slice(end, arrayEnd);
+    const trailingComma = findJsoncStructuralComma(gapAfter);
+    content = trailingComma >= 0
+      ? content.slice(0, start) + content.slice(end + trailingComma + 1)
+      : content.slice(0, start) + content.slice(end);
+  }
+  return content;
+}
+
+/** Parses one array element's text; non-object elements yield undefined. */
+function safeJsoncSliceParse(entryText: string, fullContent: string): unknown {
+  try {
+    return parseJsonc<unknown>(entryText);
+  } catch {
+    // A slice can be unparsable in exotic hand-edited files; the full
+    // document already parsed, so treat the element as unmanaged.
+    void fullContent;
+    return undefined;
+  }
+}
+
+function appendJsoncArrayEntries(
+  content: string,
+  arrayPath: string[],
+  entries: Record<string, unknown>[]
+): string {
+  if (entries.length === 0) {
+    return content;
+  }
+  const tree = parseTree(content);
+  // The models array is normally at arrayPath inside an object root, but
+  // tolerate a bare array root (arrayPath depth 1) as well.
+  const node = tree
+    ? (tree.type === 'array' && arrayPath.length === 1
+        ? tree
+        : findNodeAtLocation(tree, arrayPath))
+    : undefined;
+  if (!node || node.type !== 'array' || node.offset === undefined || node.length === undefined) {
+    if (node === undefined && parseJsonc<Record<string, unknown>>(content).models === undefined) {
+      // First-time setup: the document (possibly `{}`) has no models array
+      // at all — create it with the managed entries (Codex 157 round 10).
+      return applyJsoncEdit(content, arrayPath, entries);
+    }
+    // Structurally unexpected document: fall back to a whole-array write.
+    const root = parseJsonc<Record<string, unknown>>(content);
+    const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
+    return applyJsoncEdit(content, arrayPath, [...current, ...entries]);
+  }
+  const closingBracket = content.lastIndexOf(']', node.offset + node.length);
+  if (closingBracket <= node.offset) {
+    // Structurally unexpected document: fall back to a whole-array write.
+    const root = parseJsonc<Record<string, unknown>>(content);
+    const current = Array.isArray(root.models) ? root.models.filter(isRecord) : [];
+    return applyJsoncEdit(content, arrayPath, [...current, ...entries]);
+  }
+  const serialized = entries.map(entry => stringifyJsonc(entry, 2)).join(',\n');
+  return content.slice(0, closingBracket)
+    + jsoncArraySeparator(content, node) + serialized
+    + content.slice(closingBracket);
+}
+
+/**
+ * Separator to insert before appended array entries. A valid JSONC array
+ * may already end with a trailing comma — adding another comma would
+ * corrupt the document (Codex 157 round 7). Detection is TREE-GUIDED
+ * (Codex 157 round 10): only the gap between the last VALUE child and the
+ * closing bracket is inspected, walking whitespace and comments, so a
+ * comma inside a comment or string can never be mistaken for the
+ * array's separator.
+ */
+type JsoncArrayNode = {
+  offset: number;
+  length?: number;
+  children?: Array<{ offset?: number; length?: number }>;
+};
+
+function jsoncArraySeparator(content: string, node: JsoncArrayNode): string {
+  if (!node.children || node.children.length === 0) {
+    return ''; // empty array: no separator needed
+  }
+  const lastChild = node.children[node.children.length - 1];
+  if (lastChild.offset === undefined || lastChild.length === undefined) {
+    return ',\n';
+  }
+  const gapStart = lastChild.offset + lastChild.length;
+  const gapEnd = node.length !== undefined ? node.offset + node.length - 1 : content.length;
+  const gap = content.slice(gapStart, gapEnd);
+  let rest = gap;
+  for (;;) {
+    rest = rest.replace(/^\s+/, '');
+    if (rest.length === 0) {
+      return ',\n';
+    }
+    if (rest.startsWith('//')) {
+      const newline = rest.indexOf('\n');
+      if (newline < 0) {
+        return ',\n';
+      }
+      rest = rest.slice(newline + 1);
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const blockEnd = rest.indexOf('*/');
+      if (blockEnd < 0) {
+        return ',\n';
+      }
+      rest = rest.slice(blockEnd + 2);
+      continue;
+    }
+    return rest.startsWith(',') ? '\n' : ',\n';
+  }
 }
 
 function applyJsoncEdit(content: string, path: (string | number)[], value: unknown): string {

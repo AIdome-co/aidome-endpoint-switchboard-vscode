@@ -18,9 +18,9 @@ const ADAPTER_REGISTRY: Record<string, (dependencies?: AdapterDependencies) => P
     const { RooCodeAdapter } = await import('./roocode/adapter');
     return new RooCodeAdapter();
   },
-  'continue': async () => {
+  'continue': async (dependencies) => {
     const { ContinueAdapter } = await import('./continue/adapter');
-    return new ContinueAdapter();
+    return new ContinueAdapter(dependencies);
   },
   'kilo-code': async () => {
     const { KiloCodeAdapter } = await import('./kilocode/adapter');
