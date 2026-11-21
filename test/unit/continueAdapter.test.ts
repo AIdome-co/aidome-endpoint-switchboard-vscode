@@ -681,6 +681,31 @@ describe('ContinueAdapter verification completeness', () => {
     expect(result.success).toBe(true);
   });
 
+  it('treats a marker-stripped exact-shape gateway entry as managed', async () => {
+    // Continue's config editor strips the aidomeManaged marker when it
+    // rewrites the file; the exact name shape at the gateway URL must
+    // still count as ours for verification.
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - legacy/model-1',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl,
+          apiKey: 'pat-token'
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+  });
+
   it('does not fail verification when discovery is unavailable', async () => {
     vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockRejectedValue(new Error('gateway down'));
     await adapter.buildPlan(mockProfile);

@@ -601,6 +601,74 @@ describe('configuration drivers', () => {
       expect(models[1]).toMatchObject({ model: 'm/a', aidomeManaged: true });
     });
 
+    it('yaml: reconciles marker-stripped managed entries so re-apply does not duplicate models', () => {
+      // Continue's config editor strips the unknown aidomeManaged marker
+      // when it rewrites config.yaml; the exact "<identity> - <model>"
+      // name shape at the gateway URL must still be recognized as ours.
+      const existing = [
+        'name: AIdome Gateway Assistant',
+        'version: 0.0.1',
+        'models:',
+        '  - name: UserOwnOpenAI',
+        '    model: gpt-4o',
+        '    provider: openai',
+        '    apiBase: https://api.openai.com/v1',
+        `  - name: AIdome Gateway - m/a`,
+        '    title: m/a',
+        '    model: m/a',
+        '    provider: openai',
+        `    apiBase: ${BASE_URL}`
+      ].join('\n');
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a', 'm/b']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as { models: Array<Record<string, unknown>> };
+      const models = parsed.models;
+      expect(models).toHaveLength(3); // user + 2 managed, no duplicates
+      const gatewayNames = models.map(m => m.name).filter(n => typeof n === 'string' && (n as string).startsWith('AIdome Gateway'));
+      expect(new Set(gatewayNames).size).toBe(gatewayNames.length);
+      expect(models.some(m => m.name === 'UserOwnOpenAI')).toBe(true);
+    });
+
+    it('yaml: never reconciles a marker-stripped entry whose apiBase is not this gateway', () => {
+      const existing = [
+        'models:',
+        '  - name: AIdome Gateway - m/a',
+        '    title: m/a',
+        '    model: m/a',
+        '    provider: openai',
+        '    apiBase: https://elsewhere.example.com/v1'
+      ].join('\n');
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as { models: Array<Record<string, unknown>> };
+      // The foreign-URL entry stays (it is not provably ours); a fresh
+      // managed entry for m/a is appended.
+      expect(parsed.models).toHaveLength(2);
+      expect(parsed.models[0]).toMatchObject({ apiBase: 'https://elsewhere.example.com/v1' });
+    });
+
     it('yaml: adds the required top-level name/version when the existing config lacks them', () => {
       // Continue's baseConfigYamlSchema requires top-level name/version;
       // without them the whole config.yaml fails the schema and Continue

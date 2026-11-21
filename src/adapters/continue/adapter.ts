@@ -233,14 +233,31 @@ export class ContinueAdapter extends BaseExtensionAdapter {
    * "identity - <id>" name carrying the ownership marker — the same strict
    * rule the driver uses, so a user entry that merely collides with the
    * prefix is never pulled into verification checks. */
-  private isManagedEntry(model: { name?: string; title?: string; aidomeManaged?: unknown; [key: string]: unknown }): boolean {
+  private isManagedEntry(model: { name?: string; title?: string; aidomeManaged?: unknown; apiBase?: unknown; model?: unknown; [key: string]: unknown }): boolean {
     const withSeparator = `${AIDOME_MODEL_IDENTITY} - `;
     if (model.name === AIDOME_MODEL_IDENTITY || model.title === AIDOME_MODEL_IDENTITY) {
       return true;
     }
     const prefixMatch = (typeof model.name === 'string' && model.name.startsWith(withSeparator))
       || (typeof model.title === 'string' && model.title.startsWith(withSeparator));
-    return prefixMatch && model.aidomeManaged === true;
+    if (prefixMatch && model.aidomeManaged === true) {
+      return true;
+    }
+    // Marker-less recovery: Continue's config editor strips the unknown
+    // aidomeManaged marker when it rewrites the file, so mirror the
+    // driver's rule — the exact "<identity> - <model>" name shape (only
+    // this extension writes it) at THIS profile's gateway URL is ours.
+    if (prefixMatch && this.expectedBaseUrl !== undefined
+      && typeof model.apiBase === 'string'
+      && model.apiBase === normalizeOpenAiBaseUrl(this.expectedBaseUrl)) {
+      const modelId = typeof model.model === 'string' ? model.model : undefined;
+      if (modelId !== undefined && modelId.trim().length > 0
+        && (model.name === `${AIDOME_MODEL_IDENTITY} - ${modelId}`
+          || model.title === `${AIDOME_MODEL_IDENTITY} - ${modelId}`)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

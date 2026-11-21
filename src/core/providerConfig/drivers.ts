@@ -339,7 +339,7 @@ function renderJsoncModelArray(
     // shift positions and make the edits hit user entries (Codex 157
     // round 6).
     const identity = data.identity ?? modelPath;
-    output = deleteJsoncArrayElements(output, ['models'], entry => isManagedModelEntry(entry, identity));
+    output = deleteJsoncArrayElements(output, ['models'], entry => isManagedModelEntry(entry, identity, request.baseUrl));
     const apiKey = request.secret?.trim() || undefined;
     const managedEntries = buildManagedModelEntries(
       identity,
@@ -353,7 +353,7 @@ function renderJsoncModelArray(
   }
 
   const match = findManagedModelMatch(
-    withoutStaleManagedEntries(existingModels, data.identity ?? modelPath),
+    withoutStaleManagedEntries(existingModels, data.identity ?? modelPath, request.baseUrl),
     request.baseUrl,
     data.identity,
     modelPath
@@ -450,7 +450,11 @@ function buildManagedModelEntries(
  * managed. Continue's config schema strips unknown fields, so the marker
  * never breaks the vendor parser.
  */
-function isManagedModelEntry(entry: unknown, identity: string): boolean {
+function isManagedModelEntry(
+  entry: unknown,
+  identity: string,
+  gatewayUrl?: string
+): boolean {
   if (!isRecord(entry)) {
     return false;
   }
@@ -462,7 +466,26 @@ function isManagedModelEntry(entry: unknown, identity: string): boolean {
   const withSeparator = `${identity} - `;
   const prefixMatch = (name !== undefined && name.startsWith(withSeparator))
     || (title !== undefined && title.startsWith(withSeparator));
-  return prefixMatch && entry[AIDOME_MANAGED_MARKER] === true;
+  if (prefixMatch && entry[AIDOME_MANAGED_MARKER] === true) {
+    return true;
+  }
+  // Marker-less recovery (user-reported duplicate regression): Continue's
+  // own config editor round-trips entries through its zod schema and
+  // STRIPS the unknown aidomeManaged marker, so a marker-only rule would
+  // no longer recognize the extension's own entries and re-apply would
+  // append duplicates. An entry whose name/title is EXACTLY
+  // "<identity> - <model>" (the shape only this extension writes) AND
+  // whose apiBase is this gateway is ours even without the marker. A user
+  // entry keeps a different name shape, so it is never matched.
+  if (prefixMatch && gatewayUrl !== undefined) {
+    const model = typeof entry.model === 'string' ? entry.model : undefined;
+    if (model !== undefined && model.trim().length > 0
+      && (name === `${identity} - ${model}` || title === `${identity} - ${model}`)
+      && entry.apiBase === gatewayUrl) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -476,10 +499,11 @@ function isManagedModelEntry(entry: unknown, identity: string): boolean {
  */
 function withoutStaleManagedEntries(
   models: Record<string, unknown>[],
-  identity: string
+  identity: string,
+  gatewayUrl?: string
 ): Record<string, unknown>[] {
   return models.filter(entry =>
-    !(isManagedModelEntry(entry, identity)
+    !(isManagedModelEntry(entry, identity, gatewayUrl)
       && entry.name !== identity
       && entry.title !== identity)
   );
@@ -515,13 +539,14 @@ function renderYamlModelArray(
   const output = isRecord(parsed) ? parsed : {};
   const models = withoutStaleManagedEntries(
     Array.isArray(output.models) ? output.models.filter(isRecord) : [],
-    identity ?? modelPath
+    identity ?? modelPath,
+    request.baseUrl
   );
 
   if (gatewayModels && gatewayModels.length > 0) {
     // Multi-model reconcile: drop exactly the entries this extension managed
     // (identity-named) and write one entry per discovered gateway model.
-    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath));
+    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath, request.baseUrl));
     const apiKey = request.secret?.trim() || undefined;
     output.models = [
       ...kept,
