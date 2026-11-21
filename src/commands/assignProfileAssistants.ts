@@ -9,6 +9,7 @@ import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { promptReloadAfterApply } from '../util/assistantReload';
+import { offerUiKindSelfHeal } from '../core/detection/uiKindDetection';
 import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
@@ -51,6 +52,10 @@ export async function assignProfileAssistants(
     `Detecting assistants for ${profile.name}...`,
     async () => await switchboard.detectAll()
   );
+
+  // Self-heal: assistants installed remotely but running client-side
+  // (UI-kind manifests) are offered a remote.extensionKind workspace fix.
+  await offerUiKindSelfHeal(detected.assistants.filter(assistant => assistant.activationGap === 'ui-kind'));
 
   const items = buildAssistantSelectionItems(profile, profiles, mappings, registry.assistants, detected);
   if (items.length === 0) {

@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { Logger } from '../../util/log';
 import { AssistantRegistry, AssistantEntry } from '../registry/registryTypes';
 import { ExtensionIdResolver } from './extensionIdResolver';
+import { findClientSideExtension, ClientSideExtension } from './uiKindDetection';
 
 /**
  * Detected assistant information.
@@ -18,6 +19,13 @@ export interface DetectedAssistant {
   isActive: boolean;
   tier: 'A' | 'B' | 'C';
   kind: string;
+  /**
+   * Set when the extension is installed on this machine but NOT loaded in
+   * this extension host because its manifest prefers the UI side
+   * (`extensionKind: ["ui", "workspace"]`) in a remote workspace. The
+   * wizard offers a remote.extensionKind workspace override to self-heal.
+   */
+  activationGap?: 'ui-kind';
 }
 
 /**
@@ -88,7 +96,8 @@ function getDefaultResolver(): ExtensionIdResolver {
  */
 export async function detectExtensions(
   registry: AssistantRegistry,
-  resolver: ExtensionIdResolver = getDefaultResolver()
+  resolver: ExtensionIdResolver = getDefaultResolver(),
+  clientSideLookup: (extensionId: string) => ClientSideExtension | undefined = findClientSideExtension
 ): Promise<DetectedAssistant[]> {
   const allExtensions = getAllExtensions();
   const logger = Logger.getInstance().scoped('Detection');
@@ -126,6 +135,32 @@ export async function detectExtensions(
       const resolvedMatch = matchExtension(entry, resolvedIds, allExtensions);
       if (resolvedMatch) {
         return resolvedMatch;
+      }
+    }
+
+    // Fallback: the extension may be installed on this machine but running in
+    // the CLIENT extension host (UI-kind manifest in a remote workspace), in
+    // which case vscode.extensions.all cannot see it. Report it with an
+    // activation gap so the wizard can offer the remote.extensionKind fix.
+    if (typeof vscode.env.remoteName !== 'undefined') {
+      for (const candidate of [extensionIds[0], resolvedIds[0]].filter((id): id is string => typeof id === 'string')) {
+        const onDisk = clientSideLookup(candidate);
+        if (onDisk) {
+          logger.info(
+            `Found ${entry.key} installed on disk (${onDisk.version}) but running in the client ` +
+            `extension host (UI-kind manifest in remote workspace ${vscode.env.remoteName})`
+          );
+          return {
+            assistantKey: entry.key,
+            displayName: entry.displayName,
+            extensionId: candidate,
+            version: onDisk.version,
+            isActive: false,
+            tier: entry.endpointSwitching.tier,
+            kind: entry.kind,
+            activationGap: 'ui-kind'
+          };
+        }
       }
     }
 

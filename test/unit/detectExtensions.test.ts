@@ -32,6 +32,11 @@ vi.mock('vscode', () => {
       }),
       onDidChange: onDidChangeFn,
     },
+    env: {
+      get remoteName() {
+        return (globalThis as { __mockRemoteName?: string }).__mockRemoteName;
+      },
+    },
   };
 });
 
@@ -259,5 +264,52 @@ describe('initializeExtensionCaching', () => {
     initializeExtensionCaching(mockContext as any);
     expect(vscode.extensions.onDidChange).toHaveBeenCalled();
     expect(mockContext.subscriptions).toHaveLength(1);
+  });
+});
+
+describe('UI-kind activation-gap fallback', () => {
+  const entry = {
+    key: 'continue',
+    displayName: 'Continue.dev',
+    kind: 'vscode-extension',
+    detection: { vscodeExtensionIds: ['Acme.fictional-assistant'] },
+    dialect: {},
+    endpointSwitching: { tier: 'A' },
+  } as unknown as Parameters<typeof detectExtensions>[0]['assistants'][number];
+
+  const registry = { assistants: [entry] } as unknown as Parameters<typeof detectExtensions>[0];
+  const fakeResolver = { resolveForAssistant: vi.fn(async () => ({ resolvedIds: ['Acme.fictional-assistant'], status: 'not-found' })) } as unknown as ExtensionIdResolver;
+
+  it('reports a UI-kind assistant installed on disk with an activation gap when remote', async () => {
+    (globalThis as { __mockRemoteName?: string }).__mockRemoteName = 'ssh-remote';
+    try {
+      const lookup = vi.fn(() => ({ extensionId: 'Acme.fictional-assistant', version: '2.1.0', directory: '/x' }));
+      const detected = await detectExtensions(registry, fakeResolver, lookup);
+      expect(detected).toHaveLength(1);
+      expect(detected[0].activationGap).toBe('ui-kind');
+      expect(detected[0].extensionId).toBe('Acme.fictional-assistant');
+      expect(detected[0].isActive).toBe(false);
+      expect(detected[0].tier).toBe('A');
+    } finally {
+      delete (globalThis as { __mockRemoteName?: string }).__mockRemoteName;
+    }
+  });
+
+  it('does not consult the on-disk fallback when not connected to a remote', async () => {
+    (globalThis as { __mockRemoteName?: string }).__mockRemoteName = undefined;
+    const lookup = vi.fn(() => ({ extensionId: 'Continue.continue', version: '2.1.0', directory: '/x' }));
+    const detected = await detectExtensions(registry, fakeResolver, lookup);
+    expect(detected).toHaveLength(0);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing when the on-disk lookup finds no UI-kind manifest', async () => {
+    (globalThis as { __mockRemoteName?: string }).__mockRemoteName = 'ssh-remote';
+    try {
+      const detected = await detectExtensions(registry, fakeResolver, () => undefined);
+      expect(detected).toHaveLength(0);
+    } finally {
+      delete (globalThis as { __mockRemoteName?: string }).__mockRemoteName;
+    }
   });
 });

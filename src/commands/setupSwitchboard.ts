@@ -17,6 +17,7 @@ import { Logger } from '../util/log';
 import { countConfiguredAssistants } from '../core/orchestration/assistantOutcome';
 import { getAssistantsByTier } from '../core/registry/registryLoader';
 import { startTimer } from '../util/operationTimer';
+import { offerUiKindSelfHeal } from '../core/detection/uiKindDetection';
 import { promptReloadAfterApply } from '../util/assistantReload';
 import { UserCancellationError, ConfigurationError } from '../util/errors';
 import {
@@ -144,7 +145,11 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       await showWarning('No supported AI assistants detected. Please install an AI assistant extension first.');
       return;
     }
-    
+
+    // Self-heal: assistants installed remotely but running client-side
+    // (UI-kind manifests) are offered a remote.extensionKind workspace fix.
+    await offerUiKindSelfHeal(detected.assistants.filter(assistant => assistant.activationGap === 'ui-kind'));
+
     const summary = renderDetectionSummary(detected);
     const outputChannel = vscode.window.createOutputChannel('AIdome Setup');
     outputChannel.appendLine(summary);
