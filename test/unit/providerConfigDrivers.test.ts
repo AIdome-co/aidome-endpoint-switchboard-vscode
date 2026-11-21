@@ -30,7 +30,8 @@ describe('provider configuration descriptors', () => {
       'tabnine'
     ]);
     expect(descriptors.find(item => item.providerKey === 'roo-code')?.support).toBe('guided');
-    expect(descriptors.find(item => item.providerKey === 'gemini-cli')?.support).toBe('guided');
+    expect(descriptors.find(item => item.providerKey === 'gemini-cli')?.support).toBe('automatic');
+    expect(descriptors.find(item => item.providerKey === 'gemini-cli')?.tier).toBe('A');
     expect(descriptors.find(item => item.providerKey === 'codegpt')?.driver).toBe('guided-ui');
   });
 
@@ -1048,6 +1049,49 @@ describe('fail-closed on malformed existing configuration', () => {
           patches: [{ path: ['a'], value: 1 }]
         }
       })).toThrow('expected an object');
+    });
+
+    it('dotenv-var merges the managed variable while preserving unrelated variables and comments', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '# AIdome managed\nOTHER_VALUE=keep\n# trailing comment\n',
+        options: {
+          driver: 'dotenv-var',
+          envVarName: 'GOOGLE_GEMINI_BASE_URL'
+        }
+      });
+
+      expect(output).toContain('GOOGLE_GEMINI_BASE_URL=https://gateway.example.com/v1');
+      expect(output).toContain('OTHER_VALUE=keep');
+      expect(output).toContain('# AIdome managed');
+      // Idempotent: re-rendering the output changes nothing.
+      const rerendered = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: output,
+        options: {
+          driver: 'dotenv-var',
+          envVarName: 'GOOGLE_GEMINI_BASE_URL'
+        }
+      });
+      expect(rerendered).toBe(output);
+    });
+
+    it('dotenv-var rejects an empty managed variable name', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        options: { driver: 'dotenv-var', envVarName: '' }
+      })).toThrow('non-empty envVarName');
+    });
+
+    it('dotenv-var fails closed on malformed existing env content', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'not-a-valid-env-line\n',
+        options: {
+          driver: 'dotenv-var',
+          envVarName: 'GOOGLE_GEMINI_BASE_URL'
+        }
+      })).toThrow('malformed');
     });
   });
 });

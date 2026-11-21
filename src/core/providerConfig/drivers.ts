@@ -10,6 +10,7 @@ import { applyEdits, findNodeAtLocation, modify, parseTree } from 'jsonc-parser'
 import { parseDocument } from 'yaml';
 import { parseJsonc, stringifyJsonc } from '../../util/jsonc';
 import { validateUrl } from '../profiles/profileValidator';
+import { buildDotEnvContent } from './envFileDriver';
 import { ConfigDriverRequest } from './types';
 
 /** A JSON path assignment used by the JSON object driver. */
@@ -76,12 +77,19 @@ export interface TomlTableDriverData {
   model?: string;
 }
 
+/** Data accepted by the Gemini CLI dotenv-var driver. */
+export interface DotEnvVarDriverData {
+  driver: 'dotenv-var';
+  envVarName: string;
+}
+
 /** Union of file-driver plan data. */
 export type ConfigFileDriverData =
   | JsonObjectDriverData
   | JsoncProviderMapDriverData
   | ModelArrayDriverData
-  | TomlTableDriverData;
+  | TomlTableDriverData
+  | DotEnvVarDriverData;
 
 /**
  * Renders a file-backed plan step using its declared driver.
@@ -109,9 +117,24 @@ export function renderConfigFileContent(request: ConfigDriverRequest): string {
       return renderModelArray(request, data);
     case 'toml-table':
       return renderTomlTable(request, data);
+    case 'dotenv-var':
+      return renderDotEnvVar(request, data);
     default:
       throw new Error(`Driver ${String((data as { driver?: unknown }).driver)} cannot render a file`);
   }
+}
+
+/**
+ * Dotenv-var driver: writes a single managed variable (typically a base-URL
+ * override such as GOOGLE_GEMINI_BASE_URL) into a dotenv file, preserving
+ * unrelated variables and comments. The value is NEVER a secret — credential
+ * writes go through the `write-env-file` applier path instead.
+ */
+function renderDotEnvVar(request: ConfigDriverRequest, data: DotEnvVarDriverData): string {
+  if (typeof data.envVarName !== 'string' || data.envVarName.trim().length === 0) {
+    throw new Error('dotenv-var driver requires a non-empty envVarName');
+  }
+  return buildDotEnvContent(request.existingContent, { [data.envVarName]: request.baseUrl as string });
 }
 
 function renderJsonObject(request: ConfigDriverRequest, data: JsonObjectDriverData): string {

@@ -399,21 +399,22 @@
         ]
       },
       "endpointSwitching": {
-        "supported": "partially",
-        "tier": "C",
+        "supported": true,
+        "tier": "A",
         "configurationModes": [
-          "environment-variable",
-          "guided-only"
+          "env-file",
+          "env-vars",
+          "guided"
         ],
         "envVarHints": [
           "GOOGLE_GEMINI_BASE_URL",
           "GOOGLE_VERTEX_BASE_URL"
         ],
         "notes": [
-          "Gemini CLI supports GOOGLE_GEMINI_BASE_URL for Gemini API-key authentication.",
-          "Gemini CLI supports GOOGLE_VERTEX_BASE_URL for Vertex AI authentication.",
-          "The environment variables must be set before launching Gemini CLI; Switchboard provides guided instructions rather than mutating an existing process environment.",
-          "The selected gateway must expose the Gemini or Vertex-compatible API expected by the chosen authentication mode."
+          "Switchboard writes GOOGLE_GEMINI_BASE_URL to the Gemini CLI user-level env file (~/.gemini/.env, honoring $GEMINI_CLI_HOME) — Gemini CLI loads this file with dotenv at startup.",
+          "The profile credential is persisted as GEMINI_API_KEY in the same env file at apply time from SecretStorage; a profile switch without a saved secret removes only the managed key.",
+          "GOOGLE_VERTEX_BASE_URL (Vertex AI authentication) is guided-only: it requires GCP project/credential context the switchboard does not manage.",
+          "The selected gateway must expose the Gemini generateContent protocol (AIdome google.gemini.* front-door); restart Gemini CLI after applying so it reloads the env file."
         ]
       },
       "tlsVerification": {

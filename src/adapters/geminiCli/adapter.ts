@@ -49,6 +49,26 @@ function isValidGeminiBaseUrl(value: string): boolean {
 }
 
 /**
+ * The env file the adapter WRITES: Gemini CLI loads
+ * `$GEMINI_CLI_HOME/.gemini/.env` (or `~/.gemini/.env`) at startup. This is
+ * the primary location only — the CLI also falls back to an ordinary
+ * `~/.env`, which the switchboard never touches.
+ */
+export function resolveGeminiEnvFilePath(): string {
+  return path.join(resolveGeminiDir(), '.env');
+}
+
+/** The Gemini CLI configuration directory: `$GEMINI_CLI_HOME/.gemini` or `~/.gemini`. */
+export function resolveGeminiDir(): string {
+  const overrideHome = process.env['GEMINI_CLI_HOME']
+    ? path.resolve(process.env['GEMINI_CLI_HOME'])
+    : undefined;
+  return overrideHome
+    ? path.join(overrideHome, '.gemini')
+    : path.join(os.homedir(), '.gemini');
+}
+
+/**
  * GOOGLE_GEMINI_BASE_URL applies only under Gemini API-key authentication
  * and GOOGLE_VERTEX_BASE_URL only under Vertex authentication (upstream
  * configuration reference). Without evidence that the matching auth mode
@@ -106,9 +126,7 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
     ? path.resolve(process.env['GEMINI_CLI_HOME'])
     : undefined;
   const userHome = overrideHome ?? os.homedir();
-  const geminiDir = overrideHome
-    ? path.join(overrideHome, '.gemini')
-    : path.join(os.homedir(), '.gemini');
+  const geminiDir = resolveGeminiDir();
 
   // findEnvFile's user-level fallback: after $GEMINI_CLI_HOME/.gemini/.env
   // (or ~/.gemini/.env), the CLI also loads an ordinary ~/.env. Its lookup
@@ -264,28 +282,68 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     }
 
     const guidanceData = {
-      message: 'Gemini CLI supports gateway base URLs through environment variables',
+      message: 'Switchboard writes the gateway base URL to the Gemini CLI env file',
       steps: [
-        'Choose the environment variable that matches your Gemini CLI authentication mode:',
-        '  - Gemini API key authentication: GOOGLE_GEMINI_BASE_URL',
-        '  - Vertex AI authentication: GOOGLE_VERTEX_BASE_URL',
-        `Set the selected variable to: ${profile.baseUrl}`,
-        'For macOS/Linux: export VARIABLE_NAME="<your AIdome endpoint>"',
-        'For Windows PowerShell: $env:VARIABLE_NAME="<your AIdome endpoint>"',
-        'Persist the variable in your shell profile or a Gemini CLI .env file, then restart Gemini CLI',
-        'Keep the existing Gemini API key or Vertex AI authentication configuration unchanged'
+        `Switchboard writes GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} to the Gemini CLI env file (${resolveGeminiEnvFilePath()}).`,
+        'Switchboard also persists the profile credential as GEMINI_API_KEY in that same env file when the profile has a saved secret.',
+        'Restart Gemini CLI (or start a new one) after applying so it loads the env file.',
+        'Vertex AI authentication users: GOOGLE_VERTEX_BASE_URL must be set manually (see below) — the automatic write targets Gemini API-key authentication.'
       ],
       baseUrl: profile.baseUrl,
-      envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
-      limitation: 'environment-variable-configuration-required',
-      tier: DESCRIPTOR?.tier ?? 'C'
-
+      envVarName: 'GOOGLE_GEMINI_BASE_URL',
+      limitation: 'restart-required-after-apply',
+      tier: DESCRIPTOR?.tier ?? 'A',
+      optional: true
     } satisfies GuidedStepsData;
     plan = addStep(plan, {
       action: 'show-guided-steps',
-      description: 'Gemini CLI configuration guidance',
+      description: 'Gemini CLI post-apply guidance',
       assistantKey: 'gemini-cli',
       data: guidanceData,
+      reversible: false
+    });
+
+    const envFilePath = resolveGeminiEnvFilePath();
+    plan = addStep(plan, {
+      action: 'edit-config-file',
+      description: 'Write GOOGLE_GEMINI_BASE_URL to the Gemini CLI env file',
+      assistantKey: 'gemini-cli',
+      targetPath: envFilePath,
+      newValue: profile.baseUrl,
+      data: {
+        driver: 'dotenv-var',
+        envVarName: 'GOOGLE_GEMINI_BASE_URL',
+        baseUrl: profile.baseUrl
+      },
+      reversible: true
+    });
+
+    // Credential persistence: Gemini CLI loads the user-level env file
+    // (~/.gemini/.env, honoring $GEMINI_CLI_HOME) via dotenv at startup.
+    // The secret is resolved from SecretStorage at APPLY time and never
+    // serialized into the plan. A previous profile's credential must never
+    // survive a profile switch: remove ONLY the managed key when the newly
+    // applied profile has no saved secret (Codex precedent).
+    plan = addStep(plan, {
+      action: 'write-env-file',
+      description: 'Persist gateway credential to the Gemini CLI env file',
+      assistantKey: 'gemini-cli',
+      targetPath: envFilePath,
+      data: {
+        secretPolicy: 'target-persisted-at-apply',
+        missingSecretBehavior: 'remove-managed-key',
+        authRef: profile.authRef ?? profile.name,
+        profileName: profile.name,
+        envVarName: 'GEMINI_API_KEY'
+      },
+      reversible: true
+    });
+
+    plan = addStep(plan, {
+      action: 'verify-endpoint',
+      description: 'Verify Gemini CLI configuration',
+      assistantKey: 'gemini-cli',
+      data: { baseUrl: profile.baseUrl },
       reversible: false
     });
 

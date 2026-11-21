@@ -107,15 +107,76 @@ describe('GeminiCliAdapter', () => {
 
       const guidedSteps = plan.steps.filter(s => s.action === 'show-guided-steps');
       expect(guidedSteps.length).toBeGreaterThan(0);
-      
+
       const mainGuidance = guidedSteps[0];
       expect(mainGuidance.assistantKey).toBe('gemini-cli');
-      expect(mainGuidance.data.limitation).toBe('environment-variable-configuration-required');
-      expect(mainGuidance.data.tier).toBe('C');
+      expect(mainGuidance.data.limitation).toBe('restart-required-after-apply');
+      expect(mainGuidance.data.optional).toBe(true);
+      expect(mainGuidance.data.tier).toBe('A');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
       expect((mainGuidance.data.steps as string[]).join('\n')).toContain('GOOGLE_GEMINI_BASE_URL');
-      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('GOOGLE_VERTEX_BASE_URL');
+    });
+
+    it('writes GOOGLE_GEMINI_BASE_URL to the Gemini CLI env file automatically', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const configStep = plan.steps.find(s => s.action === 'edit-config-file');
+      expect(configStep).toBeDefined();
+      expect(configStep?.targetPath).toBe(nodePath.join(os.homedir(), '.gemini', '.env'));
+      expect(configStep?.newValue).toBe(mockProfile.baseUrl);
+      expect(configStep?.reversible).toBe(true);
+      expect(configStep?.data).toMatchObject({
+        driver: 'dotenv-var',
+        envVarName: 'GOOGLE_GEMINI_BASE_URL',
+        baseUrl: mockProfile.baseUrl
+      });
+    });
+
+    it('persists the profile credential as GEMINI_API_KEY via write-env-file', async () => {
+      const credentialProfile = { ...mockProfile, authRef: 'secret-ref' };
+      const plan = await adapter.buildPlan(credentialProfile);
+
+      const credentialStep = plan.steps.find(s => s.action === 'write-env-file');
+      expect(credentialStep).toBeDefined();
+      expect(credentialStep?.targetPath).toBe(nodePath.join(os.homedir(), '.gemini', '.env'));
+      expect(credentialStep?.reversible).toBe(true);
+      expect(credentialStep?.data).toMatchObject({
+        secretPolicy: 'target-persisted-at-apply',
+        missingSecretBehavior: 'remove-managed-key',
+        authRef: 'secret-ref',
+        envVarName: 'GEMINI_API_KEY'
+      });
+      expect(JSON.stringify(credentialStep?.data)).not.toContain('pat-');
+    });
+
+    it('falls back to profile.name as authRef when the profile has none', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const credentialStep = plan.steps.find(s => s.action === 'write-env-file');
+      expect(credentialStep?.data.authRef).toBe(mockProfile.name);
+    });
+
+    it('targets $GEMINI_CLI_HOME/.gemini/.env when the home override is set', async () => {
+      process.env['GEMINI_CLI_HOME'] = nodePath.join(os.tmpdir(), 'gemini-home-test');
+      try {
+        const plan = await adapter.buildPlan(mockProfile);
+
+        const configStep = plan.steps.find(s => s.action === 'edit-config-file');
+        expect(configStep?.targetPath).toBe(
+          nodePath.join(nodePath.resolve(process.env['GEMINI_CLI_HOME']), '.gemini', '.env')
+        );
+      } finally {
+        delete process.env['GEMINI_CLI_HOME'];
+      }
+    });
+
+    it('ends the plan with an endpoint verification step', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+
+      const verifyStep = plan.steps.find(s => s.action === 'verify-endpoint');
+      expect(verifyStep).toBeDefined();
+      expect(verifyStep?.data.baseUrl).toBe(mockProfile.baseUrl);
     });
 
     it('should include base URL in guidance', async () => {
@@ -225,7 +286,7 @@ describe('GeminiCliAdapter', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('installed');
-      expect(result.details?.tier).toBe('C');
+      expect(result.details?.tier).toBe('A');
       expect(result.details?.cli).toBe(true);
       expect(result.details?.configurationStatus).toBe('manual-configuration-required');
       expect(result.details?.supportedEnvironmentVariables).toEqual([
