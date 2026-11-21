@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GeminiCliAdapter } from '../../src/adapters/geminiCli/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
+import * as fsSafe from '../../src/util/fsSafe';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -49,6 +50,8 @@ describe('GeminiCliAdapter', () => {
     originalVertexBaseUrl = process.env['GOOGLE_VERTEX_BASE_URL'];
     delete process.env['GOOGLE_GEMINI_BASE_URL'];
     delete process.env['GOOGLE_VERTEX_BASE_URL'];
+    // Isolate verification's ~/.gemini file lookups: default to no files.
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -198,7 +201,53 @@ describe('GeminiCliAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('Error verifying');
     });
+
+  it('counts a base-URL variable persisted in the Gemini CLI .env file', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('.env')) {
+        return 'GOOGLE_GEMINI_BASE_URL=https://gateway.example.com\n';
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+    expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+    expect(JSON.stringify(result)).not.toContain('https://gateway.example.com');
   });
+
+  it('counts an env object persisted in the Gemini CLI settings.json', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('settings.json')) {
+        return JSON.stringify({ env: { GOOGLE_VERTEX_BASE_URL: 'https://gateway.example.com' } });
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+    expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_VERTEX_BASE_URL');
+    expect(JSON.stringify(result)).not.toContain('https://gateway.example.com');
+  });
+
+  it('ignores a malformed settings.json instead of failing verification', async () => {
+    vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+    vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('settings.json')) {
+        return '{ not json';
+      }
+      return undefined;
+    });
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+  });  });
 
   describe('getDisplayName', () => {
     it('should return correct display name', () => {
