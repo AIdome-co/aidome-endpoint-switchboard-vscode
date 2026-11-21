@@ -5,6 +5,7 @@
 
 import { AssistantAdapter } from './AssistantAdapter';
 import type { AdapterDependencies } from './adapterDependencies';
+import { EndpointProfile } from '../core/profiles/profileTypes';
 
 /**
  * Adapter registry mapping assistant keys to lazy loaders.
@@ -96,11 +97,15 @@ export function hasAdapter(assistantKey: string): boolean {
  * adapter.
  * @param assistantKeys Keys to evaluate (extension and CLI detections)
  * @param registryAssistants Registry entries used to resolve each key's tier
+ * @param profile Optional selected endpoint profile — passed through so
+ * adapters can make actionability profile-dialect-aware (e.g. Gemini CLI
+ * only accepts `google.gemini.generate_content`)
  * @returns Set of keys with actionable guided setup (a subset of Tier C keys)
  */
 export async function getGuidedSetupEligibleKeys(
   assistantKeys: readonly string[],
-  registryAssistants: ReadonlyArray<{ key: string; endpointSwitching: { tier: 'A' | 'B' | 'C' } }>
+  registryAssistants: ReadonlyArray<{ key: string; endpointSwitching: { tier: 'A' | 'B' | 'C' } }>,
+  profile?: EndpointProfile
 ): Promise<Set<string>> {
   const tierByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant.endpointSwitching.tier]));
   const eligible = new Set<string>();
@@ -109,7 +114,7 @@ export async function getGuidedSetupEligibleKeys(
       continue;
     }
     const adapter = await getAdapter(assistantKey);
-    if (adapter?.getGuidedSetupStatus?.() === 'actionable') {
+    if (adapter?.getGuidedSetupStatus?.(profile) === 'actionable') {
       eligible.add(assistantKey);
     }
   }

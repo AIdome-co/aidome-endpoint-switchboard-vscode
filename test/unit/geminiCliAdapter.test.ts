@@ -44,6 +44,8 @@ describe('GeminiCliAdapter', () => {
       id: 'test-profile',
       name: 'Test Profile',
       baseUrl: 'https://aidome.example.com/v1',
+      profileType: 'custom',
+      dialect: 'google.gemini.generate_content',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -154,6 +156,34 @@ describe('GeminiCliAdapter', () => {
         .rejects.toThrow(/invalid or uses an unsupported scheme/);
       await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'file:///etc/passwd' }))
         .rejects.toThrow(/invalid or uses an unsupported scheme/);
+    });
+
+    it('classifies incompatible-dialect profiles as unsupported', async () => {
+      const openaiProfile = { ...mockProfile, dialect: 'openai.chat_completions' } as EndpointProfile;
+
+      const plan = await adapter.buildPlan(openaiProfile);
+
+      const guidedStep = plan.steps[0];
+      expect(guidedStep.action).toBe('show-guided-steps');
+      expect(guidedStep.data.configurationStatus).toBe('unsupported');
+      expect(guidedStep.data.limitation).toBe('unsupported-gemini-cli-dialect');
+      expect(guidedStep.data.requestedDialect).toBe('openai.chat_completions');
+      expect(String(guidedStep.data.message)).toContain('openai.chat_completions');
+    });
+  });
+
+  describe('getGuidedSetupStatus', () => {
+    it('is actionable for the declared Gemini dialect and dialect-agnostic callers', () => {
+      expect(adapter.getGuidedSetupStatus()).toBe('actionable');
+      expect(adapter.getGuidedSetupStatus(mockProfile)).toBe('actionable');
+    });
+
+    it('is unsupported for profile dialects the descriptor does not declare', () => {
+      const openaiProfile = { ...mockProfile, dialect: 'openai.chat_completions' } as EndpointProfile;
+      const anthropicProfile = { ...mockProfile, dialect: 'anthropic.messages' } as EndpointProfile;
+
+      expect(adapter.getGuidedSetupStatus(openaiProfile)).toBe('unsupported');
+      expect(adapter.getGuidedSetupStatus(anthropicProfile)).toBe('unsupported');
     });
   });
 
