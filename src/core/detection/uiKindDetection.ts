@@ -68,6 +68,7 @@ function getExtensionDirectoryCandidates(): string[] {
     path.join(home, '.vscode-server', 'extensions'),
     path.join(home, '.vscode-server-insiders', 'extensions'),
     path.join(home, '.vscode-server-oss', 'extensions'),
+    path.join(home, '.vscode-remote', 'extensions'),
     path.join(home, '.vscode', 'extensions')
   ];
 }
