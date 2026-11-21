@@ -20,6 +20,8 @@ vi.mock('vscode', () => ({
 
 vi.mock('../../src/util/fsSafe');
 vi.mock('../../src/adapters/continue/paths');
+const modelDiscoveryMock = await import('../../src/core/providerConfig/modelDiscovery');
+
 vi.mock('../../src/core/providerConfig/modelDiscovery', async importOriginal => {
   const actual = await importOriginal<typeof import('../../src/core/providerConfig/modelDiscovery')>();
   return {
@@ -55,6 +57,11 @@ describe('ContinueAdapter', () => {
 
     vi.clearAllMocks();
     vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.json');
+    // Default discovery result for legacy buildPlan tests; the multi-model
+    // describe re-mocks as needed (after clearAllMocks).
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Legacy Model' }
+    ]);
   });
 
   describe('detect', () => {
@@ -409,16 +416,19 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     expect(discovery.discoverOpenAiModels).toHaveBeenCalledWith('https://aidome.example.com/v1', 'tok-from-storage');
   });
 
-  it('omits gatewayModels when discovery returns nothing', async () => {
+  it('fails closed with guidance when discovery returns nothing', async () => {
     const discovery = await import('../../src/core/providerConfig/modelDiscovery');
     vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);
 
     const adapter = new ContinueAdapter();
     const plan = await adapter.buildPlan(mockProfileLocal());
 
-    const editStep = plan.steps.find(step => step.action === 'edit-config-file');
-    expect(editStep).toBeDefined();
-    expect(editStep?.data.gatewayModels).toBeUndefined();
+    // A model-less entry is rejected by Continue, so the plan must NOT
+    // contain a configuration mutation for it (Codex 157 round 2).
+    expect(plan.steps.find(step => step.action === 'edit-config-file')).toBeUndefined();
+    const guided = plan.steps.find(step => step.action === 'show-guided-steps');
+    expect(guided).toBeDefined();
+    expect(String(guided?.data.message)).toContain('No models were discovered');
   });
 
   it('verification accepts per-model managed entries and requires apiBase + apiKey', async () => {

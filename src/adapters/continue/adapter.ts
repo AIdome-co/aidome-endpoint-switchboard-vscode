@@ -51,11 +51,37 @@ export class ContinueAdapter extends BaseExtensionAdapter {
 
     const targetId = configPath.endsWith('.yaml') ? 'continue-primary-yaml' : 'continue-legacy-json';
     const models = await this.discoverModels(profile);
-    const { plan } = buildProviderConfigPlan(DESCRIPTOR, {
+    let { plan } = buildProviderConfigPlan(DESCRIPTOR, {
       profile,
       resolvedTargetPaths: { [targetId]: configPath },
       discoveredModels: models.map(model => model.id)
     });
+
+    // Fail closed (Codex 157 round 2): a Continue models[] entry without a
+    // `model` field is rejected by the vendor, so when no gateway models
+    // could be discovered the plan must NOT write the legacy model-less
+    // entry and claim success. Replace it with guidance instead — the
+    // outcome then classifies as guided-required, not configured.
+    if (models.length === 0) {
+      plan.steps = plan.steps.filter(step => step.action !== 'edit-config-file');
+      plan = addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Continue.dev model discovery returned no models',
+        assistantKey: 'continue',
+        data: {
+          message: `No models were discovered at ${profile.baseUrl}. Continue cannot be configured without a valid model entry.`,
+          steps: [
+            'Save a credential for this profile — the gateway model list is token-scoped.',
+            'Verify the profile base URL exposes the OpenAI-compatible /v1/models endpoint.',
+            'Re-run the Switchboard wizard to apply the profile.'
+          ],
+          baseUrl: profile.baseUrl,
+          tier: 'A',
+          optional: false
+        },
+        reversible: false
+      });
+    }
     this.expectedBaseUrl = profile.baseUrl;
 
     return addStep(plan, {
