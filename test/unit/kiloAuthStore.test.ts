@@ -181,7 +181,7 @@ describe('kiloAuthStore', () => {
       await fs.symlink(realPath, authPath);
 
       try {
-        await writeKiloProviderAuth({
+        const result = await writeKiloProviderAuth({
           baseUrl: 'https://gw.example.com/v1',
           apiKey: 'aid_pat_dangle',
           dataDir
@@ -193,6 +193,11 @@ describe('kiloAuthStore', () => {
         // The absent target now materializes with the credential.
         const target = JSON.parse(await fs.readFile(realPath, 'utf-8'));
         expect(target[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_dangle' });
+        // Generic rollback metadata points at the MATERIALIZED target with a
+        // created-file marker, so a failure/user rollback removes the created
+        // file and the dangling link survives untouched.
+        expect(result.createdFile).toBe(true);
+        expect(result.target).toBe(realPath);
       } finally {
         await fs.rm(realDir, { recursive: true, force: true });
       }
@@ -508,6 +513,23 @@ describe('kiloAuthStore', () => {
     it('returns discovered-only entries for an unparsable or missing provider section', () => {
       expect(reconcileModelEntries('not json', ['x'])).toEqual({ x: { name: 'x' } });
       expect(reconcileModelEntries('{"other":1}', ['x'])).toEqual({ x: { name: 'x' } });
+    });
+
+    it('keeps Object.prototype-named gateway model IDs as OWN entries', () => {
+      const reconciled = reconcileModelEntries('{}', ['constructor', 'toString', '__proto__']);
+      // Object.create(null) records: no inherited-member collision, no
+      // prototype mutation through a '__proto__' key.
+      expect(Object.keys(reconciled).sort()).toEqual(['__proto__', 'constructor', 'toString']);
+      expect(reconciled['constructor']).toEqual({ name: 'constructor' });
+      expect(reconciled['toString']).toEqual({ name: 'toString' });
+      expect(reconciled['__proto__']).toEqual({ name: '__proto__' });
+      // JSON round-trip: object literals would turn a '__proto__' key into a
+      // prototype mutation, so build the expectation via JSON.parse.
+      expect(JSON.parse(JSON.stringify(reconciled))).toEqual(
+        JSON.parse(
+          '{"constructor":{"name":"constructor"},"toString":{"name":"toString"},"__proto__":{"name":"__proto__"}}'
+        )
+      );
     });
   });
 });
