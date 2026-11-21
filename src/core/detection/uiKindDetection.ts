@@ -61,6 +61,9 @@ const TARGET_SUFFIXES = [
 
 /**
  * Candidates for the remote extensions directory, in preference order.
+ * Desktop VS Code's ~/.vscode/extensions is deliberately NOT scanned: it
+ * belongs to a standalone desktop installation, not to the remote server
+ * hosting this window, and its extensions cannot be made to load here.
  */
 function getExtensionDirectoryCandidates(): string[] {
   const home = os.homedir();
@@ -68,8 +71,7 @@ function getExtensionDirectoryCandidates(): string[] {
     path.join(home, '.vscode-server', 'extensions'),
     path.join(home, '.vscode-server-insiders', 'extensions'),
     path.join(home, '.vscode-server-oss', 'extensions'),
-    path.join(home, '.vscode-remote', 'extensions'),
-    path.join(home, '.vscode', 'extensions')
+    path.join(home, '.vscode-remote', 'extensions')
   ];
 }
 
