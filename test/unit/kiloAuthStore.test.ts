@@ -168,6 +168,30 @@ describe('kiloAuthStore', () => {
       expect(stat.mode & 0o777).toBe(0o600);
     });
 
+    it('preserves a DANGLING symlinked auth.json and materializes its target', async () => {
+      const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kilo-dangle-'));
+      const realPath = path.join(realDir, 'auth.json'); // target deliberately absent
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.symlink(realPath, authPath);
+
+      try {
+        await writeKiloProviderAuth({
+          baseUrl: 'https://gw.example.com/v1',
+          apiKey: 'aid_pat_dangle',
+          dataDir
+        });
+
+        // The link itself survives (never replaced by a regular file).
+        const linkStat = await fs.lstat(authPath);
+        expect(linkStat.isSymbolicLink()).toBe(true);
+        // The absent target now materializes with the credential.
+        const target = JSON.parse(await fs.readFile(realPath, 'utf-8'));
+        expect(target[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_dangle' });
+      } finally {
+        await fs.rm(realDir, { recursive: true, force: true });
+      }
+    });
+
     it('preserves a symlinked auth.json and writes through to its target (dotfiles setups)', async () => {
       const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kilo-real-'));
       const realPath = path.join(realDir, 'auth.json');

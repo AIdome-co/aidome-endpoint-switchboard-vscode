@@ -94,10 +94,16 @@ async function writeAuthFileAtomically(
   try {
     const linkStat = await fs.lstat(authPath);
     if (linkStat.isSymbolicLink()) {
-      targetPath = await fs.realpath(authPath);
+      // readlink (not realpath): a DANGLING link (dotfiles target temporarily
+        // absent) must still resolve to its recorded target — realpath would
+      // throw and fall back to replacing the link itself (Codex 154 round 9).
+      const linkText = await fs.readlink(authPath);
+      targetPath = path.isAbsolute(linkText)
+        ? linkText
+        : path.resolve(path.dirname(authPath), linkText);
     }
   } catch {
-    // lstat failure on the target path is handled by the caller's write.
+    // lstat/readlink failure on the path is handled by the caller's write.
   }
   // Unique per invocation: two concurrent profile activations share the
   // global Kilo store — a fixed temp path would let one rename/remove the
@@ -142,10 +148,33 @@ export async function writeKiloProviderAuth(
   const apiKey = options.apiKey?.trim() || undefined;
   const normalized = { ...options, apiKey };
   const authPath = resolveKiloAuthPath(options.dataDir);
-  const authExisted = await fileExists(authPath);
+
+  // Symlink handling: a symlinked auth.json (dotfiles-managed) must keep
+  // pointing at its target after any write/rollback — including a DANGLING
+  // link whose target is temporarily absent (lstat succeeds, content reads
+  // fail). Rollback then restores the LINK ITSELF, not a regular file.
+  let danglingSymlinkText: string | undefined;
+  let authExisted = false;
+  try {
+    const linkStat = await fs.lstat(authPath);
+    authExisted = true; // any existing directory entry counts as existing
+    if (linkStat.isSymbolicLink()) {
+      const linkText = await fs.readlink(authPath);
+      const resolved = path.isAbsolute(linkText)
+        ? linkText
+        : path.resolve(path.dirname(authPath), linkText);
+      try {
+        await fs.stat(resolved); // target present → normal content flow
+      } catch {
+        danglingSymlinkText = linkText; // target absent → dangling link
+      }
+    }
+  } catch {
+    authExisted = false; // no entry at all
+  }
 
   let document: Record<string, unknown> = {};
-  if (authExisted) {
+  if (authExisted && danglingSymlinkText === undefined) {
     const raw = await readFileSafe(authPath);
     if (raw === undefined || raw.trim().length === 0) {
       throw new Error(
@@ -186,7 +215,12 @@ export async function writeKiloProviderAuth(
     };
   }
 
-  const authBackupPath = authExisted ? await createBackup(authPath) : undefined;
+  // A dangling symlink has no content to back up — the LINK TEXT itself is
+  // the recoverable state (restoreAuth recreates it).
+  const authBackupPath =
+    authExisted && danglingSymlinkText === undefined
+      ? await createBackup(authPath)
+      : undefined;
   if (authBackupPath) {
     // createBackup preserves the SOURCE mode (fs.copyFile): a legacy 0644
     // auth.json would leave a world-readable backup containing the old PAT
@@ -194,7 +228,7 @@ export async function writeKiloProviderAuth(
     // (Codex 154 round 6, finding a).
     await fs.chmod(authBackupPath, 0o600).catch(() => undefined);
   }
-  if (authExisted && !authBackupPath) {
+  if (authExisted && danglingSymlinkText === undefined && !authBackupPath) {
     throw new Error(
       `Could not create a backup of ${authPath}; refusing to mutate it without a recoverable copy`
     );
@@ -214,9 +248,13 @@ export async function writeKiloProviderAuth(
       delete doc[KILO_PROVIDER_SLUG];
     }
   };
-  const firstRaw = authExisted ? await readFileSafe(authPath) : undefined;
-  const freshRaw = await readFileSafe(authPath);
-  if (freshRaw === undefined && authExisted) {
+  const firstRaw = authExisted && danglingSymlinkText === undefined
+    ? await readFileSafe(authPath)
+    : undefined;
+  const freshRaw = danglingSymlinkText === undefined
+    ? await readFileSafe(authPath)
+    : undefined;
+  if (freshRaw === undefined && authExisted && danglingSymlinkText === undefined) {
     throw new Error(
       `${authPath} disappeared before the credential could be written; re-run the setup.`
     );
@@ -258,7 +296,11 @@ export async function writeKiloProviderAuth(
   // Restore failures PROPAGATE — the caller attaches manual-recovery
   // instructions instead of silently keeping the committed credential.
   const restoreAuth = async (): Promise<void> => {
-    if (authBackupPath) {
+    if (danglingSymlinkText !== undefined) {
+      // Restore the LINK ITSELF — the managed store stays symlink-managed.
+      await fs.rm(authPath, { force: true });
+      await fs.symlink(danglingSymlinkText, authPath);
+    } else if (authBackupPath) {
       await fs.copyFile(authBackupPath, authPath);
     } else if (!authExisted) {
       await fs.rm(authPath, { force: true });
