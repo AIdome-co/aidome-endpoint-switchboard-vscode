@@ -141,6 +141,9 @@ describe('kiloAuthStore', () => {
 
       expect(result.createdFile).toBe(false);
       expect(result.backupPath).toBeDefined();
+      // Credential backups are always 0600 — a legacy 0644 source must not
+      // leave a world-readable PAT copy behind (Codex 154 round 6).
+      expect((await fs.stat(result.backupPath!)).mode & 0o777).toBe(0o600);
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
       // Never COALESCE-preserve the previous credential (Area 7.3).
       expect(written[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'aid_pat_new' });
