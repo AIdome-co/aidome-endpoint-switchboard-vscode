@@ -98,18 +98,26 @@ function getActiveServerExtensionRoots(): string[] {
     }
     dir = path.dirname(dir);
   }
-  // Codespaces installs the application below /vscode/bin/... while user
-  // extensions live in ~/.vscode-remote/extensions (microsoft/vscode#196794
-  // logs show the two as separate roots), so no ancestor of appRoot contains
-  // the user extensions directory. Fall back to that specific root, but ONLY
-  // for a Codespaces remote: an SSH/WSL host with a retained legacy
-  // ~/.vscode-remote tree would otherwise surface inactive extensions as
-  // false gaps.
-  if (/^codespace/.test(vscode.env.remoteName ?? '')) {
-    const codespacesRoot = path.join(os.homedir(), '.vscode-remote', 'extensions');
+  // Separate-root remotes: the remoteName identifies the environment, and
+  // the fallback root is scoped to it so a legacy tree on another remote
+  // type cannot surface inactive extensions as false gaps.
+  // - Codespaces: appRoot under /vscode/bin/..., user extensions in
+  //   ~/.vscode-remote/extensions (microsoft/vscode#196794).
+  // - Dev Containers with a shared /vscode volume: server binaries under
+  //   /vscode/vscode-server/... while user extensions initialize under the
+  //   container's $HOME/.vscode-server/extensions
+  //   (microsoft/vscode-remote-release#11845, microsoft/vscode#318299).
+  //   The container-local HOME makes that root active-by-construction.
+  const remoteName = vscode.env.remoteName ?? '';
+  const fallbackRoot = /^codespace/.test(remoteName)
+    ? path.join(os.homedir(), '.vscode-remote', 'extensions')
+    : /^dev-container/.test(remoteName)
+      ? path.join(os.homedir(), '.vscode-server', 'extensions')
+      : undefined;
+  if (fallbackRoot) {
     try {
-      if (fs.statSync(codespacesRoot).isDirectory()) {
-        return [codespacesRoot];
+      if (fs.statSync(fallbackRoot).isDirectory()) {
+        return [fallbackRoot];
       }
     } catch {
       // fall through
