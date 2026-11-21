@@ -487,7 +487,8 @@
       "kind": "vscode-extension",
       "detection": {
         "vscodeExtensionIds": [
-          "TabNine.tabnine-vscode"
+          "TabNine.tabnine-vscode",
+          "TabNine.tabnine-vscode-self-hosted-updater"
         ]
       },
       "dialect": {
@@ -512,7 +513,10 @@
         "notes": "Tabnine has no extension-specific TLS toggle. Relies on VS Code's http.proxyStrictSSL and NODE_EXTRA_CA_CERTS for custom CA trust."
       },
       "sources": [
-        "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode"
+        "https://marketplace.visualstudio.com/items?itemName=TabNine.tabnine-vscode",
+        "https://docs.tabnine.com/main/getting-started/install/client-setup-private-installation/vs-code-private-installation",
+        "https://docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings/self-managed-models",
+        "https://docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings"
       ]
     }
   ]

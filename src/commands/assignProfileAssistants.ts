@@ -535,11 +535,23 @@ function buildAssistantSelectionItems(
   excludedKeys: ReadonlySet<string> = new Set<string>()
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
+  // Tier C assistants that still ship guided/manual setup steps (e.g. Tabnine's
+  // Admin Console Self-Managed Models wizard) are selectable so the guidance
+  // actually reaches the user; the plan applier classifies them as unsupported
+  // and reports the truth instead of persisting a mapping.
+  const offersGuidance = (entry?: AssistantEntry): boolean =>
+    Boolean(entry && (entry.endpointSwitching.configurationModes ?? []).includes('guided'));
   const detectedExtensionKeys = detected.assistants
-    .filter(assistant => assistant.tier !== 'C')
+    .filter(assistant =>
+      assistant.tier !== 'C' ||
+      offersGuidance(assistantsByKey.get(assistant.assistantKey)))
     .map(assistant => assistant.assistantKey);
   const detectedCliKeys = detected.clis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
+    .filter(cli => {
+      const assistant = assistantsByKey.get(cli.assistantKey);
+      // Registry entries default to switchable when unknown (pre-existing behavior).
+      return (assistant?.endpointSwitching.tier !== 'C') || offersGuidance(assistant);
+    })
     .map(cli => cli.assistantKey);
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
@@ -554,9 +566,10 @@ function buildAssistantSelectionItems(
 
   for (const assistantKey of candidateKeys) {
     const assistant = assistantsByKey.get(assistantKey);
-    if (!assistant || assistant.endpointSwitching.tier === 'C') {
+    if (!assistant || (assistant.endpointSwitching.tier === 'C' && !offersGuidance(assistant))) {
       continue;
     }
+    const isTierCGuided = assistant.endpointSwitching.tier === 'C' && offersGuidance(assistant);
 
     const assistantMappings = mappings.filter(item => item.assistantKey === assistantKey);
     const currentProfileMapping = assistantMappings.find(item => item.profileId === profile.id);
@@ -573,13 +586,15 @@ function buildAssistantSelectionItems(
           ? 'Detected as CLI'
           : 'Previously assigned';
 
-    const assignmentLabel = currentProfileMapping
-      ? otherProfileNames.length > 0
-        ? `${detectionLabel} · assigned to this profile and ${otherProfileNames.join(', ')}`
-        : `${detectionLabel} · currently assigned to this profile`
-      : otherProfileNames.length > 0
-        ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
-        : detectionLabel;
+    const assignmentLabel = isTierCGuided
+      ? `Manual guided setup (Tier C)${currentProfileMapping ? ' · assigned to this profile' : ''}`
+      : currentProfileMapping
+        ? otherProfileNames.length > 0
+          ? `${detectionLabel} · assigned to this profile and ${otherProfileNames.join(', ')}`
+          : `${detectionLabel} · currently assigned to this profile`
+        : otherProfileNames.length > 0
+          ? `${detectionLabel} · currently assigned to ${otherProfileNames.join(', ')}`
+          : detectionLabel;
 
     items.push({
       assistantKey,

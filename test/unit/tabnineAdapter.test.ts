@@ -95,8 +95,18 @@ describe('TabnineAdapter', () => {
       expect(mainGuidance.assistantKey).toBe('tabnine');
       expect(mainGuidance.data.limitation).toBe('proprietary-protocol');
       expect(mainGuidance.data.tier).toBe('C');
+      expect(mainGuidance.data.configurationStatus).toBe('unsupported');
       expect(Array.isArray(mainGuidance.data.steps)).toBe(true);
       expect((mainGuidance.data.steps as string[]).length).toBeGreaterThan(0);
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Set server URL');
+      expect((mainGuidance.data.steps as string[]).join('\n')).toContain('Self-Managed Models');
+    });
+
+    it('should reject an invalid or unsafe endpoint URL before producing a plan', async () => {
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'file:///etc/passwd' }))
+        .rejects.toThrow('Tabnine endpoint URL is invalid or uses an unsupported scheme');
     });
   });
 
@@ -119,8 +129,9 @@ describe('TabnineAdapter', () => {
 
       // Installed is NOT configured: endpoint switching is unsupported.
       expect(result.success).toBe(false);
-      expect(result.message).toContain('installed');
+      expect(result.message).toContain('manual verification');
       expect(result.details?.configurationStatus).toBe('unsupported');
+      expect(result.details?.verification).toBe('manual-verification-required');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.limitation).toContain('proprietary');
     });
