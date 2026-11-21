@@ -115,23 +115,23 @@ describe('RooCodeAdapter', () => {
       });
 
       const data = plan.steps[0].data;
-      expect(data.baseUrl).toBe('https://aidome.example.com/api');
+      // Roo Code's openai-native provider passes the Base URL straight to the
+      // OpenAI SDK, whose default base URL already includes /v1 — keep it.
+      expect(data.baseUrl).toBe('https://aidome.example.com/api/v1');
       expect(data.steps).toEqual(expect.arrayContaining([
         expect.stringContaining('Choose "OpenAI"'),
         expect.stringContaining('custom Base URL'),
-      ]));
-      expect(data.steps).not.toEqual(expect.arrayContaining([
         expect.stringContaining('/api/v1'),
       ]));
     });
 
-    it('removes a root /v1 suffix for the native Responses provider', async () => {
+    it('keeps the root /v1 suffix for the native Responses provider', async () => {
       const plan = await adapter.buildPlan({
         ...mockProfile,
         dialect: 'openai.responses',
       });
 
-      expect(plan.steps[0].data.baseUrl).toBe('https://aidome.example.com');
+      expect(plan.steps[0].data.baseUrl).toBe('https://aidome.example.com/v1');
     });
 
     it('returns an accurate guided fallback for unsupported dialects', async () => {

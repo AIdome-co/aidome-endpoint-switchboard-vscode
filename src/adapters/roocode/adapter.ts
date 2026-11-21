@@ -20,16 +20,17 @@ const OPENAI_RESPONSES_DIALECT = 'openai.responses';
  * that Roo Code does not read.
  */
 
-function getResponsesBaseUrl(baseUrl: string): string {
-  const parsed = new URL(baseUrl);
-  parsed.pathname = parsed.pathname.replace(/\/v1\/?$/, '') || '/';
-  return parsed.toString().replace(/\/$/, '');
-}
+/**
+ * Roo Code's openai-native provider passes the user-supplied Base URL straight
+ * to the OpenAI SDK (`new OpenAI({ baseURL: ... })`), which appends
+ * `/responses` for the Responses dialect. The SDK default base URL already
+ * includes `/v1`, so the profile base URL must be kept unchanged.
+ */
 
 function getGuidance(profile: EndpointProfile): GuidedStepsData {
   const isResponses = profile.dialect === OPENAI_RESPONSES_DIALECT;
   const providerLabel = isResponses ? 'OpenAI' : 'OpenAI Compatible';
-  const baseUrl = isResponses ? getResponsesBaseUrl(profile.baseUrl) : profile.baseUrl;
+  const baseUrl = profile.baseUrl;
   const baseUrlField = isResponses ? 'custom Base URL' : 'Base URL';
 
   return {
