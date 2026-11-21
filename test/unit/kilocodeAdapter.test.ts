@@ -215,6 +215,21 @@ describe('KiloCodeAdapter', () => {
       const editStep = plan.steps.find((s) => s.action === 'edit-config-file');
       expect(editStep?.data?.models).toBeUndefined();
     });
+
+    it('marks the models guidance OPTIONAL when a saved credential exists (the writer discovers models at apply)', async () => {
+      mockFileExists.mockResolvedValue(false);
+      mockDiscoverModels.mockResolvedValue([]);
+
+      const guidedProfile: EndpointProfile = { ...mockProfile, authRef: 'Profile 1' };
+      const plan = await adapter.buildPlan(guidedProfile);
+
+      const guidedStep = plan.steps.find((s) => s.action === 'show-guided-steps');
+      expect(guidedStep).toBeDefined();
+      // Optional guidance must not downgrade a fully automatic apply (whose
+      // storage writer populates models with the authenticated probe) to
+      // guided-required — GAP 10 only downgrades for REQUIRED guidance.
+      expect(guidedStep?.data?.optional).toBe(true);
+    });
   });
 
   describe('verify', () => {

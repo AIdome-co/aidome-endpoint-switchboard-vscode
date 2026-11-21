@@ -35,6 +35,14 @@ export interface AssistantStorageWriteResult {
    * classified with the missing-secret rules (GAP 9).
    */
   noOp?: boolean;
+  /**
+   * True when the assistant cannot function without a credential, so a
+   * missing secret must classify the outcome as guided-required (GAP 9).
+   * Writers whose vendor contract makes an unauthenticated configuration
+   * valid (CodeGPT's key-less local connection) leave this unset — a
+   * missing secret is then NOT an authentication gap.
+   */
+  authRequired?: boolean;
 }
 
 export type AssistantStorageWriter = (

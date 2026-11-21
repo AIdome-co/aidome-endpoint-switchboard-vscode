@@ -86,6 +86,7 @@ describe('PlanApplier write-assistant-storage metadata contract', () => {
   it('classifies a writer-reported no-op as a non-mutation (mutationApplied=false)', async () => {
     registerAssistantStorageWriter(TEST_KEY, async () => ({
       noOp: true,
+      authRequired: true,
       target: '/tmp/primary',
       createdFile: false
     }));
@@ -94,5 +95,21 @@ describe('PlanApplier write-assistant-storage metadata contract', () => {
 
     expect(applied.mutationApplied).toBe(false);
     expect(applied.secretResolved).toBe(false);
+    expect(applied.authRequired).toBe(true);
+  });
+
+  it('does NOT mark an authentication gap when the writer contract allows no credential', async () => {
+    registerAssistantStorageWriter(TEST_KEY, async () => ({
+      target: '/tmp/primary',
+      createdFile: false
+      // no authRequired — the vendor contract makes an unauthenticated
+      // configuration valid (CodeGPT-style key-less connection)
+    }));
+
+    const applied = await applier.applyStep(step({ baseUrl: 'http://host:8100' }) as any);
+
+    expect(applied.mutationApplied).toBe(true);
+    expect(applied.secretResolved).toBe(false);
+    expect(applied.authRequired).toBeUndefined();
   });
 });

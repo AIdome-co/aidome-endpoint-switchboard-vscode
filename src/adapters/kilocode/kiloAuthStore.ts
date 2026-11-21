@@ -53,6 +53,8 @@ export interface KiloAuthWriteResult {
   extraRollbacks?: Array<{ target: string; backupPath?: string; createdFile?: boolean }>;
   /** True when the writer confirmed there was nothing to write (no credential and no managed entry). */
   noOp?: boolean;
+  /** True — Kilo cannot authenticate without a credential (GAP 9 outcome gate). */
+  authRequired?: boolean;
 }
 
 export interface WriteKiloProviderAuthOptions {
@@ -109,18 +111,20 @@ export async function writeKiloProviderAuth(
     }
   }
 
+  // A credential-less profile with no managed entry present is a confirmed
+  // no-op — nothing to clear, nothing to write. Report it BEFORE creating a
+  // backup: a no-op must not accumulate stale credential copies on disk
+  // (Codex 154 round 2, finding L). The result still flags authRequired so
+  // the applier classifies the outcome as guided-required (GAP 9).
+  if (!options.apiKey && !(KILO_PROVIDER_SLUG in document)) {
+    return { noOp: true, authRequired: true, target: authPath, createdFile: false };
+  }
+
   const authBackupPath = authExisted ? await createBackup(authPath) : undefined;
   if (authExisted && !authBackupPath) {
     throw new Error(
       `Could not create a backup of ${authPath}; refusing to mutate it without a recoverable copy`
     );
-  }
-
-  // A credential-less profile with no managed entry present is a confirmed
-  // no-op — nothing to clear, nothing to write. Report it so the applier
-  // classifies the step truthfully (GAP 9: guided-required, not configured).
-  if (!options.apiKey && !(KILO_PROVIDER_SLUG in document)) {
-    return { noOp: true, target: authPath, createdFile: false };
   }
 
   if (options.apiKey) {
@@ -177,7 +181,10 @@ export async function writeKiloProviderAuth(
       backupPath: authBackupPath,
       target: authPath,
       createdFile: !authExisted,
-      extraRollbacks
+      extraRollbacks,
+      // Kilo's provider cannot authenticate without a key — a missing
+      // credential is an authentication gap (GAP 9), not a valid config.
+      authRequired: true
     };
   } catch (error) {
     await restoreAuth();
