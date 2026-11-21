@@ -277,7 +277,9 @@ describe('kiloAuthStore', () => {
       const siblings = (await fs.readdir(path.dirname(authPath))).filter((f) => f !== 'auth.json');
       expect(siblings).toEqual([]);
       const stat = await fs.stat(authPath);
-      expect(stat.mode & 0o777).toBe(0o644);
+      // Windows emulates POSIX modes — only assert the strict POSIX mode off
+      // Windows (the CONTENT is the portable guarantee here).
+      expect(process.platform === 'win32' || (stat.mode & 0o777) === 0o644).toBe(true);
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
       expect(written.kilo).toEqual({ type: 'oauth', refresh: 'r', access: 'a' });
       expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
