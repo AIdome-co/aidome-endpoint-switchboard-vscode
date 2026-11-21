@@ -706,6 +706,23 @@ describe('ContinueAdapter verification completeness', () => {
     expect(result.success).toBe(true);
   });
 
+  it('does not treat a prefix-shaped entry without a marker or apiBase as managed', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - my-custom-model',
+          provider: 'openai',
+          model: 'my-custom-model'
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('no AIdome Gateway model entry');
+  });
+
   it('does not fail verification when discovery is unavailable', async () => {
     vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockRejectedValue(new Error('gateway down'));
     await adapter.buildPlan(mockProfile);
