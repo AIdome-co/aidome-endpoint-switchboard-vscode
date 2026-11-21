@@ -34,6 +34,37 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
 
     let plan = createPlan(profile.id, ['gemini-cli']);
 
+    // Gemini CLI upstream refuses plain-HTTP base URLs unless they point at
+    // localhost (geminicli.com configuration docs). A profile the creation
+    // flow accepted with an http:// self-hosted gateway cannot be honored
+    // here, so surface guided steps instead of throwing mid-plan (which
+    // would leave assistants in mixed states) or guiding into a broken
+    // configuration.
+    const parsedEndpoint = new URL(profile.baseUrl);
+    if (parsedEndpoint.protocol === 'http:'
+      && !['localhost', '127.0.0.1', '[::1]'].includes(parsedEndpoint.hostname)) {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Gemini CLI requires an HTTPS gateway endpoint',
+        assistantKey: 'gemini-cli',
+        data: {
+          message: 'Gemini CLI only accepts HTTPS base URLs (or localhost); choose an HTTPS gateway profile or front the gateway with TLS',
+          steps: [
+            'Gemini CLI rejects GOOGLE_GEMINI_BASE_URL / GOOGLE_VERTEX_BASE_URL values that use plain http:// on non-localhost hosts.',
+            `The selected profile endpoint is: ${profile.baseUrl}`,
+            'Either select a profile whose endpoint is HTTPS, or terminate TLS in front of the gateway (reverse proxy / load balancer) and use that HTTPS URL.',
+            'localhost / 127.0.0.1 / [::1] endpoints are exempt from this upstream requirement.',
+            'Re-run the wizard with an HTTPS endpoint, then set the variable as described below.'
+          ],
+          baseUrl: profile.baseUrl,
+          envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
+          limitation: 'gemini-cli-requires-https-base-url',
+          tier: DESCRIPTOR?.tier ?? 'C'
+        } satisfies GuidedStepsData,
+        reversible: false
+      });
+    }
+
     const guidanceData = {
       message: 'Gemini CLI supports gateway base URLs through environment variables',
       steps: [

@@ -132,9 +132,23 @@ describe('GeminiCliAdapter', () => {
       }
     });
 
-    it('should reject a plain http endpoint that is not localhost', async () => {
+    it('guides instead of throwing for a plain http endpoint that is not localhost', async () => {
       const httpProfile = { ...mockProfile, baseUrl: 'http://gateway.example.com/v1' };
-      await expect(adapter.buildPlan(httpProfile)).rejects.toThrow(/invalid or uses an unsupported scheme/);
+      const plan = await adapter.buildPlan(httpProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].action).toBe('show-guided-steps');
+      expect(plan.steps[0].data).toMatchObject({
+        limitation: 'gemini-cli-requires-https-base-url',
+        baseUrl: 'http://gateway.example.com/v1'
+      });
+    });
+
+    it('still rejects unsafe schemes outright', async () => {
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'javascript:alert(1)' }))
+        .rejects.toThrow(/invalid or uses an unsupported scheme/);
+      await expect(adapter.buildPlan({ ...mockProfile, baseUrl: 'file:///etc/passwd' }))
+        .rejects.toThrow(/invalid or uses an unsupported scheme/);
     });
   });
 
