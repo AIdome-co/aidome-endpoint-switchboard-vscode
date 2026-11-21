@@ -162,8 +162,21 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     outputChannel.appendLine(summary);
     outputChannel.show();
 
-    const switchableAssistants = detected.assistants.filter(a => a.tier !== 'C');
-    const nonSwitchableAssistants = detected.assistants.filter(a => a.tier === 'C');
+    // Tier C assistants that still ship guided setup steps (e.g. Tabnine's
+    // Admin Console Self-Managed Models wizard) stay selectable so the
+    // guidance reaches the user; only unguided Tier C assistants trigger
+    // the "not switchable" early return.
+    const registryAssistantsByKey = new Map(registry.assistants.map(a => [a.key, a] as const));
+    const offersGuidance = (entry?: AssistantEntry): boolean =>
+      Boolean(entry && (entry.endpointSwitching.configurationModes ?? []).includes('guided'));
+    const guidedTierCKeys = new Set(
+      detected.assistants
+        .filter(a => a.tier === 'C' && offersGuidance(registryAssistantsByKey.get(a.assistantKey)))
+        .map(a => a.assistantKey)
+    );
+
+    const switchableAssistants = detected.assistants.filter(a => a.tier !== 'C' || guidedTierCKeys.has(a.assistantKey));
+    const nonSwitchableAssistants = detected.assistants.filter(a => a.tier === 'C' && !guidedTierCKeys.has(a.assistantKey));
 
     // Resolve guided eligibility once: unsupported Tier C assistants (e.g.
     // Tabnine) must never be promised a guided-setup step that will not run
@@ -422,15 +435,27 @@ function buildAssistantSelectionItems(
   guidedSetupEligible: ReadonlySet<string>
 ): SetupAssistantSelectionItem[] {
   const assistantsByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant]));
-  // Guided Tier C candidates stay selectable when their guided plan is
-  // actionable; they are labeled guided-only so users can distinguish them
-  // from automatically switchable assistants (Codex review PR 118).
+  // Tier C candidates stay selectable when their guided plan is adapter-declared
+  // actionable (guidedSetupEligible, Codex review PR 118) OR the registry entry
+  // still ships guided setup steps (e.g. Tabnine's Admin Console Self-Managed
+  // Models wizard, PR 126) so the guidance reaches the user; the applier
+  // classifies non-appliant guided plans as guided-required instead of
+  // persisting a mapping.
+  const offersGuidance = (entry?: AssistantEntry): boolean =>
+    Boolean(entry && (entry.endpointSwitching.configurationModes ?? []).includes('guided'));
   const guidedExtensionKeys = detectedAssistants
-    .filter(assistant => assistant.tier !== 'C' || guidedSetupEligible.has(assistant.assistantKey))
+    .filter(assistant => assistant.tier !== 'C'
+      || guidedSetupEligible.has(assistant.assistantKey)
+      || offersGuidance(assistantsByKey.get(assistant.assistantKey)))
     .map(assistant => assistant.assistantKey);
   const switchableCliKeys = detectedClis
-    .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C'
-      || guidedSetupEligible.has(cli.assistantKey))
+    .filter(cli => {
+      const entry = assistantsByKey.get(cli.assistantKey);
+      // Registry entries default to switchable when unknown (pre-existing behavior).
+      return entry?.endpointSwitching.tier !== 'C'
+        || guidedSetupEligible.has(cli.assistantKey)
+        || offersGuidance(entry);
+    })
     .map(cli => cli.assistantKey);
   const candidateKeys = [...new Set([...guidedExtensionKeys, ...switchableCliKeys])];
 
@@ -439,7 +464,11 @@ function buildAssistantSelectionItems(
     const detectedAssistant = detectedAssistants.find(item => item.assistantKey === assistantKey);
     const detectedViaExtension = detectedAssistants.some(item => item.assistantKey === assistantKey);
     const detectedViaCli = detectedClis.some(item => item.assistantKey === assistantKey);
-    const label = detectedViaExtension && detectedViaCli
+    const isTierCGuided = (registryAssistant?.endpointSwitching.tier ?? detectedAssistant?.tier) === 'C' &&
+      offersGuidance(registryAssistant) || guidedSetupEligible.has(assistantKey);
+    const label = isTierCGuided
+      ? `Manual guided setup (Tier C): ${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey}`
+      : detectedViaExtension && detectedViaCli
       ? `${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey} (Extension + CLI)`
       : registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey;
     const isGuidedOnly = (registryAssistant?.endpointSwitching.tier ?? detectedAssistant?.tier) === 'C';

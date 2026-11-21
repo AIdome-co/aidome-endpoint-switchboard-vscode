@@ -71,7 +71,7 @@ The **LLM Endpoint Switchboard** is a **configuration tool** that helps enterpri
 | Claude Code | CLI + Extension | A — Full | ✅ Yes | Anthropic Messages |
 | GitHub Copilot | VS Code Extension | B — Partial | ⚡ Partial | Proxy / OpenAI Chat |
 | Gemini CLI | CLI | C — Info | ℹ️ Info Only | Google Gemini |
-| Tabnine | VS Code Extension | C — Info | ℹ️ Manual (Enterprise server URL) | Proprietary |
+| Tabnine | VS Code Extension | C — Info | ℹ️ Manual (Admin Console → Self-Managed Models) | Proprietary |
 
 Roo Code is a special compatibility case: its final 3.54.0 release was archived on May 15, 2026. Roo stores provider profiles in its own SecretStorage rather than writable VS Code endpoint settings, so the Switchboard detects it and provides guided setup without claiming automatic endpoint switching or verification. The supported Roo paths are its OpenAI Compatible chat-completions provider and its separate OpenAI Responses provider.
 
