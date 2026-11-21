@@ -129,8 +129,9 @@ describe('TabnineAdapter', () => {
 
       // Installed is NOT configured: endpoint switching is unsupported.
       expect(result.success).toBe(false);
-      expect(result.message).toContain('installed');
+      expect(result.message).toContain('manual verification');
       expect(result.details?.configurationStatus).toBe('unsupported');
+      expect(result.details?.verification).toBe('manual-verification-required');
       expect(result.details?.tier).toBe('C');
       expect(result.details?.limitation).toContain('proprietary');
     });
