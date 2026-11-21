@@ -103,7 +103,9 @@ function getActiveServerExtensionRoots(): string[] {
   // type cannot surface inactive extensions as false gaps.
   // - Codespaces: appRoot under /vscode/bin/..., user extensions in
   //   ~/.vscode-remote/extensions (microsoft/vscode#196794).
-  // - Dev Containers with a shared /vscode volume: server binaries under
+  // - Dev Containers AND attach-to-running-container sessions (remoteName
+  //   dev-container / attached-container, classified together in
+  //   detectRemote.ts) with a shared /vscode volume: server binaries under
   //   /vscode/vscode-server/... while user extensions initialize under the
   //   container's $HOME/.vscode-server/extensions
   //   (microsoft/vscode-remote-release#11845, microsoft/vscode#318299).
@@ -117,7 +119,7 @@ function getActiveServerExtensionRoots(): string[] {
     : '.vscode-server';
   const fallbackRoot = /^codespace/.test(remoteName)
     ? path.join(os.homedir(), '.vscode-remote', 'extensions')
-    : /^dev-container/.test(remoteName)
+    : /^(dev-container|attached-container)/.test(remoteName)
       ? path.join(os.homedir(), serverDirName, 'extensions')
       : undefined;
   if (fallbackRoot) {
