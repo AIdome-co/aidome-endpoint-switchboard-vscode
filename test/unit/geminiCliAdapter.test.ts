@@ -147,8 +147,29 @@ describe('GeminiCliAdapter', () => {
       expect(plan.steps[0].action).toBe('show-guided-steps');
       expect(plan.steps[0].data).toMatchObject({
         limitation: 'gemini-cli-requires-https-base-url',
-        baseUrl: 'http://gateway.example.com/v1'
+        baseUrl: 'http://gateway.example.com/v1',
+        configurationStatus: 'unsupported'
       });
+    });
+
+    it('classifies non-loopback plain-http endpoints as unsupported in eligibility (Codex round 5, PR 118)', () => {
+      const httpProfile = { ...mockProfile, baseUrl: 'http://gateway.example.com/v1' } as EndpointProfile;
+      expect(adapter.getGuidedSetupStatus(httpProfile)).toBe('unsupported');
+    });
+
+    it('keeps loopback plain-http and HTTPS endpoints actionable in eligibility', () => {
+      const loopbackProfile = { ...mockProfile, baseUrl: 'http://127.0.0.1:8080/v1' } as EndpointProfile;
+      const localhostProfile = { ...mockProfile, baseUrl: 'http://localhost:8080/v1' } as EndpointProfile;
+      const httpsProfile = { ...mockProfile, baseUrl: 'https://gateway.example.com/v1' } as EndpointProfile;
+
+      expect(adapter.getGuidedSetupStatus(loopbackProfile)).toBe('actionable');
+      expect(adapter.getGuidedSetupStatus(localhostProfile)).toBe('actionable');
+      expect(adapter.getGuidedSetupStatus(httpsProfile)).toBe('actionable');
+    });
+
+    it('classifies unparseable base URLs as unsupported in eligibility (Codex round 5, PR 118)', () => {
+      const invalidProfile = { ...mockProfile, baseUrl: 'not a url' } as EndpointProfile;
+      expect(adapter.getGuidedSetupStatus(invalidProfile)).toBe('unsupported');
     });
 
     it('still rejects unsafe schemes outright', async () => {

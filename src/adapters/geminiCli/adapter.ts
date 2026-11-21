@@ -245,6 +245,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         description: 'Gemini CLI requires an HTTPS gateway endpoint',
         assistantKey: 'gemini-cli',
         data: {
+          configurationStatus: 'unsupported',
           message: 'Gemini CLI only accepts HTTPS base URLs (or localhost); choose an HTTPS gateway profile or front the gateway with TLS',
           steps: [
             'Gemini CLI rejects GOOGLE_GEMINI_BASE_URL / GOOGLE_VERTEX_BASE_URL values that use plain http:// on non-localhost hosts.',
@@ -344,11 +345,27 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
    * Gemini CLI's guided env setup is actionable only for the dialect its
    * descriptor declares — GOOGLE_GEMINI_BASE_URL is required for
    * `google.gemini.generate_content` and meaningless for OpenAI/Anthropic
-   * profiles (Codex round 4, PR 118).
+   * profiles (Codex round 4, PR 118). Plain-HTTP non-loopback endpoints are
+   * also unsupported: buildPlan rejects them (Gemini CLI upstream refuses
+   * http:// on non-localhost hosts) and would only show an
+   * explain-and-stop plan, so eligibility must not promise setup for them
+   * (Codex round 5, PR 118).
    */
   getGuidedSetupStatus(profile?: EndpointProfile): 'actionable' | 'unsupported' {
     if (profile && profile.dialect !== 'google.gemini.generate_content') {
       return 'unsupported';
+    }
+    if (profile) {
+      let parsedEndpoint: URL;
+      try {
+        parsedEndpoint = new URL(profile.baseUrl);
+      } catch {
+        return 'unsupported';
+      }
+      if (parsedEndpoint.protocol === 'http:'
+        && !['localhost', '127.0.0.1', '[::1]'].includes(parsedEndpoint.hostname)) {
+        return 'unsupported';
+      }
     }
     return 'actionable';
   }
