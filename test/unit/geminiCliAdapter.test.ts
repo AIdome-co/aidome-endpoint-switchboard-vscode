@@ -8,6 +8,7 @@ import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
 import * as os from 'node:os';
+import * as nodePath from 'node:path';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -336,8 +337,9 @@ describe('GeminiCliAdapter', () => {
       const original = process.env['GEMINI_CLI_HOME'];
       process.env['GEMINI_CLI_HOME'] = '/alt/gemini-home';
       try {
+        const expectedPath = nodePath.join('/alt/gemini-home', '.gemini', '.env');
         vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
-          if (filePath === '/alt/gemini-home/.gemini/.env') {
+          if (filePath === expectedPath) {
             return 'GOOGLE_VERTEX_BASE_URL="https://gateway.example.com"\n';
           }
           return undefined;
@@ -358,10 +360,12 @@ describe('GeminiCliAdapter', () => {
     it('falls back to the ordinary home .env when the Gemini-specific one is absent', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
       const realHome = os.homedir();
+      const geminiEnvPath = nodePath.join(realHome, '.gemini', '.env');
+      const homeEnvPath = nodePath.join(realHome, '.env');
       const readPaths: string[] = [];
       vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
         readPaths.push(filePath);
-        if (filePath === `${realHome}/.env`) {
+        if (filePath === homeEnvPath) {
           return 'GOOGLE_GEMINI_BASE_URL="https://gateway.example.com"\n';
         }
         return undefined;
@@ -373,8 +377,8 @@ describe('GeminiCliAdapter', () => {
       expect(result.details?.configuredEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
       // The Gemini-specific file must be consulted BEFORE the home .env.
       expect(readPaths.filter(p => p.endsWith('.env'))).toEqual([
-        `${realHome}/.gemini/.env`,
-        `${realHome}/.env`
+        geminiEnvPath,
+        homeEnvPath
       ]);
     });
 
@@ -416,7 +420,7 @@ describe('GeminiCliAdapter', () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
       vi.spyOn(fsSafe, 'fileExists').mockImplementation(async (filePath: string) => {
         // The Gemini-specific file exists on disk but the read failed.
-        return filePath === `${realHome}/.gemini/.env`;
+        return filePath === nodePath.join(realHome, '.gemini', '.env');
       });
 
       const result = await adapter.verify();
