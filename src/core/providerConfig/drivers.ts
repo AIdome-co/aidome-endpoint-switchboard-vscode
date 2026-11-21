@@ -332,10 +332,7 @@ function renderJsoncModelArray(
     // shift positions and make the edits hit user entries (Codex 157
     // round 6).
     const identity = data.identity ?? modelPath;
-    const managedIndexes = existingModels
-      .map((entry, index) => isManagedModelEntry(entry, identity) ? index : -1)
-      .filter(index => index >= 0);
-    output = deleteJsoncArrayElements(output, ['models'], managedIndexes);
+    output = deleteJsoncArrayElements(output, ['models'], entry => isManagedModelEntry(entry, identity));
     const apiKey = request.secret?.trim() || undefined;
     const managedEntries = buildManagedModelEntries(
       identity,
@@ -740,88 +737,89 @@ function getValueAtPath(root: unknown, path: string[]): unknown {
 }
 
 /**
- * Deletes array elements by their element index using precise text ranges
- * derived from the parse tree. jsonc-parser's `modify` with `undefined`
- * corrupts the document when deleting the LAST element (it eats the array's
- * closing bracket — Codex 157 round 7), so deletions splice the element
- * text plus one adjacent separator directly.
+ * Deletes managed array elements one at a time, each deletion guided by a
+ * FRESH parse tree and consuming exactly one adjacent separator comma:
+ *  - a non-last element takes the comma immediately after it (so a comment
+ *    describing the following entry is never touched — Codex 157 round 9);
+ *  - the last element takes the comma immediately before it;
+ *  - a sole element leaves no separator.
+ * Reparsing between deletions keeps every range exact on the current
+ * document, so no range bookkeeping can overlap or shift, and managed
+ * membership is re-evaluated from the live content each pass. All text
+ * outside the deleted [element + one comma] spans — user entries, their
+ * comments, string contents — is preserved byte-for-byte.
+ * jsonc-parser's `modify` with `undefined` is NOT used for deletions: it
+ * corrupts the document when deleting the last element (it eats the
+ * array's closing bracket — Codex 157 round 7).
  */
 function deleteJsoncArrayElements(
   content: string,
   arrayPath: string[],
-  elementIndexes: number[]
+  isManaged: (entry: unknown) => boolean
 ): string {
-  if (elementIndexes.length === 0) {
-    return content;
-  }
-  const tree = parseTree(content);
-  const node = tree
-    ? (tree.type === 'array' && arrayPath.length === 1
-        ? tree
-        : findNodeAtLocation(tree, arrayPath))
-    : undefined;
-  if (!node || node.type !== 'array' || !node.children
-    || node.offset === undefined || node.length === undefined) {
-    // No reliable parse tree: fall back to modify-based deletion.
-    let output = content;
-    for (let i = elementIndexes.length - 1; i >= 0; i--) {
-      output = applyJsoncEdit(output, [...arrayPath, elementIndexes[i]], undefined);
+  for (let pass = 0; pass < 1024; pass++) {
+    const tree = parseTree(content);
+    const node = tree
+      ? (tree.type === 'array' && arrayPath.length === 1
+          ? tree
+          : findNodeAtLocation(tree, arrayPath))
+      : undefined;
+    if (!node || node.type !== 'array' || !node.children
+      || node.offset === undefined || node.length === undefined) {
+      // No reliable parse tree: fail closed rather than risk corrupting a
+      // user file with text-level guesses.
+      throw new Error('JSONC model-array driver could not locate the models array for reconciliation');
     }
-    return output;
-  }
-  const children = node.children;
-  // Element-SPAN ranges only: extending a range to the next child (to eat
-  // its separator) both overlaps adjacent deletions and swallows comments
-  // that describe the following user entry (Codex 157 round 8). Dangling
-  // separators are fixed afterwards by the normalization pass.
-  const ranges: Array<[number, number]> = [];
-  for (const index of elementIndexes) {
-    const child = children[index];
-    if (!child || child.offset === undefined || child.length === undefined) {
+    const children = node.children.filter(child =>
+      child.offset !== undefined && child.length !== undefined
+    );
+    const managedIndex = children.findIndex(child => {
+      const entry = content.slice(child.offset, child.offset + child.length);
+      return isManaged(safeJsoncSliceParse(entry, content));
+    });
+    if (managedIndex < 0) {
+      return content;
+    }
+    const child = children[managedIndex];
+    const start = child.offset;
+    const end = child.offset + child.length;
+    if (managedIndex + 1 < children.length) {
+      // Non-last element: consume exactly the separator comma after it.
+      const gap = content.slice(end, children[managedIndex + 1].offset);
+      const commaRel = gap.indexOf(',');
+      content = commaRel >= 0
+        ? content.slice(0, start) + content.slice(end + commaRel + 1)
+        : content.slice(0, start) + content.slice(end); // malformed gap: element text only
       continue;
     }
-    ranges.push([child.offset, child.offset + child.length]);
-  }
-  ranges.sort((left, right) => right[0] - left[0]);
-  let output = content;
-  for (const [start, end] of ranges) {
-    output = output.slice(0, start) + output.slice(end);
-  }
-  // Removing elements can leave a dangling separator ("A, , C"); collapse
-  // each ", ," (within the array's own span only — a single trailing comma
-  // before ']' is valid JSONC and stays) until the array is clean.
-  for (let pass = 0; pass <= elementIndexes.length; pass++) {
-    const treeAfter = parseTree(output);
-    const nodeAfter = treeAfter
-      ? (treeAfter.type === 'array' && arrayPath.length === 1
-          ? treeAfter
-          : findNodeAtLocation(treeAfter, arrayPath))
-      : undefined;
-    if (!nodeAfter || nodeAfter.type !== 'array'
-      || nodeAfter.offset === undefined || nodeAfter.length === undefined) {
-      break;
+    if (managedIndex > 0) {
+      // Last element: consume the separator comma before it.
+      const prevEnd = children[managedIndex - 1].offset + children[managedIndex - 1].length;
+      const gap = content.slice(prevEnd, start);
+      const commaRel = gap.lastIndexOf(',');
+      if (commaRel >= 0) {
+        content = content.slice(0, prevEnd + commaRel) + content.slice(end);
+        continue;
+      }
     }
-    const start = nodeAfter.offset;
-    const end = nodeAfter.offset + nodeAfter.length;
-    const slice = output.slice(start, end);
-    // A leading comma after '[' (deleted first element) and a dangling
-    // ", ," (deleted middle element) are both invalid; a single trailing
-    // comma before ']' is valid JSONC and stays.
-    const fixed = slice.replace(/\[\s*,/, '[').replace(/,\s*,/, ',');
-    if (fixed === slice) {
-      break;
-    }
-    output = output.slice(0, start) + fixed + output.slice(end);
+    // Sole element: no separator remains.
+    content = content.slice(0, start) + content.slice(end);
   }
-  return output;
+  return content;
 }
 
-/**
- * Appends entries to a JSONC array by inserting serialized values directly
- * before the array's closing bracket. jsonc-parser's `modify` cannot append
- * past the array length, and replacing the whole array would rewrite (and
- * strip comments from) every element; this keeps user formatting intact.
- */
+/** Parses one array element's text; non-object elements yield undefined. */
+function safeJsoncSliceParse(entryText: string, fullContent: string): unknown {
+  try {
+    return parseJsonc<unknown>(entryText);
+  } catch {
+    // A slice can be unparsable in exotic hand-edited files; the full
+    // document already parsed, so treat the element as unmanaged.
+    void fullContent;
+    return undefined;
+  }
+}
+
 function appendJsoncArrayEntries(
   content: string,
   arrayPath: string[],
