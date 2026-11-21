@@ -200,12 +200,43 @@ export async function writeKiloProviderAuth(
     );
   }
 
-  if (apiKey) {
-    // Explicit set — never preserve a previous profile's token (Area 7.3).
-    document[KILO_PROVIDER_SLUG] = { type: 'api', key: apiKey } satisfies KiloAuthKeyEntry;
+  // Guarded commit: Kilo (or another extension host) may have updated
+  // auth.json between our read and the rename — the atomic replacement would
+  // silently discard that concurrent update, including credentials we
+  // promised to preserve. Re-read immediately before committing and re-apply
+  // OUR single-entry change onto the fresh document (Codex 154 round 8).
+  const applyChange = (doc: Record<string, unknown>): void => {
+    if (apiKey) {
+      // Explicit set — never preserve a previous profile's token (Area 7.3).
+      doc[KILO_PROVIDER_SLUG] = { type: 'api', key: apiKey } satisfies KiloAuthKeyEntry;
+    } else {
+      // A credential-less profile must CLEAR our entry, not replay the old key.
+      delete doc[KILO_PROVIDER_SLUG];
+    }
+  };
+  const firstRaw = authExisted ? await readFileSafe(authPath) : undefined;
+  const freshRaw = await readFileSafe(authPath);
+  if (freshRaw === undefined && authExisted) {
+    throw new Error(
+      `${authPath} disappeared before the credential could be written; re-run the setup.`
+    );
+  }
+  if (freshRaw !== undefined && freshRaw !== firstRaw) {
+    // The file changed under us — re-parse and re-apply onto the fresh doc.
+    try {
+      const parsed: unknown = JSON.parse(freshRaw);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('not a JSON object');
+      }
+      document = parsed as Record<string, unknown>;
+      applyChange(document);
+    } catch (error) {
+      throw new Error(
+        `${authPath} changed concurrently and is no longer valid JSON; refusing to overwrite it. Fix the file manually, then re-run the setup. (${error instanceof Error ? error.message : String(error)})`
+      );
+    }
   } else {
-    // A credential-less profile must CLEAR our entry, not replay the old key.
-    delete document[KILO_PROVIDER_SLUG];
+    applyChange(document);
   }
 
   try {
