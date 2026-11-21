@@ -26,7 +26,6 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from '../../util/log';
@@ -60,19 +59,46 @@ const TARGET_SUFFIXES = [
 ];
 
 /**
- * Candidates for the remote extensions directory, in preference order.
- * Desktop VS Code's ~/.vscode/extensions is deliberately NOT scanned: it
- * belongs to a standalone desktop installation, not to the remote server
- * hosting this window, and its extensions cannot be made to load here.
+ * Derives the ACTIVE server's extensions directory from the running
+ * extension host's install location (`vscode.env.appRoot`), ascending to the
+ * server data root (a directory that holds the server's extensions plus a
+ * cli/bin/data marker).
+ *
+ * Hard-coded product roots (unioning Stable + Insiders + OSS + legacy
+ * trees) would report extensions belonging to an INACTIVE installation as
+ * activation gaps the override could never fix, and would miss custom
+ * `remote.SSH.serverInstallPath` roots — deriving from appRoot solves both.
+ * Desktop VS Code's ~/.vscode/extensions is inherently never reached.
  */
-function getExtensionDirectoryCandidates(): string[] {
-  const home = os.homedir();
-  return [
-    path.join(home, '.vscode-server', 'extensions'),
-    path.join(home, '.vscode-server-insiders', 'extensions'),
-    path.join(home, '.vscode-server-oss', 'extensions'),
-    path.join(home, '.vscode-remote', 'extensions')
-  ];
+function getActiveServerExtensionRoots(): string[] {
+  const appRoot = vscode.env.appRoot;
+  if (!appRoot) {
+    return [];
+  }
+  let dir = path.dirname(appRoot);
+  const root = path.parse(dir).root;
+  for (let depth = 0; depth < 8 && dir !== root; depth++) {
+    const isServerDataRoot = ['cli', 'bin', 'data'].some(marker => {
+      try {
+        return fs.statSync(path.join(dir, marker)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    const hasExtensions = (() => {
+      try {
+        return fs.statSync(path.join(dir, 'extensions')).isDirectory();
+      } catch {
+        return false;
+      }
+    })();
+    if (isServerDataRoot && hasExtensions) {
+      return [path.join(dir, 'extensions')];
+    }
+    dir = path.dirname(dir);
+  }
+  // No derivable server root: report nothing rather than risk false gaps.
+  return [];
 }
 
 /**
@@ -152,7 +178,7 @@ function readObsoleteDirectories(root: string): Set<string> {
  */
 export function findClientSideExtension(
   extensionId: string,
-  directories: string[] = getExtensionDirectoryCandidates()
+  directories: string[] = getActiveServerExtensionRoots()
 ): ClientSideExtension | undefined {
   const normalizedId = extensionId.toLowerCase().trim();
   const idPrefix = `${normalizedId}-`;

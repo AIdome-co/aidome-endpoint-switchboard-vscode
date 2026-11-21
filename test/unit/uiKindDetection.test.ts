@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const vscodeState = {
+  appRoot: '/home/dev/.vscode-server/cli/servers/Stable-abc/server' as string | undefined,
   remoteName: 'ssh-remote' as string | undefined,
   clipboardWrites: [] as string[],
   messages: [] as unknown[],
@@ -17,6 +18,9 @@ const vscodeState = {
 vi.mock('vscode', () => {
   return {
     env: {
+      get appRoot() {
+        return vscodeState.appRoot;
+      },
       get remoteName() {
         return vscodeState.remoteName;
       },
@@ -159,6 +163,49 @@ describe('findClientSideExtension', () => {
 
   it('returns undefined when the directory does not exist', () => {
     expect(findClientSideExtension('a.b', [path.join(root, 'missing')])).toBeUndefined();
+  });
+});
+
+describe('active-server root derivation', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-server-'));
+    fs.mkdirSync(path.join(root, 'cli', 'servers', 'Stable-abc', 'server'), { recursive: true });
+    vscodeState.appRoot = path.join(root, 'cli', 'servers', 'Stable-abc', 'server');
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    vscodeState.appRoot = '/home/dev/.vscode-server/cli/servers/Stable-abc/server';
+  });
+
+  it('derives the extensions root from appRoot and finds the installed gap extension', () => {
+    const extRoot = path.join(root, 'extensions');
+    makeExtensionDir(extRoot, 'continue.continue-2.1.0', {
+      publisher: 'Continue',
+      name: 'continue',
+      version: '2.1.0',
+      extensionKind: ['ui', 'workspace'],
+    });
+    const found = findClientSideExtension('Continue.continue');
+    expect(found?.version).toBe('2.1.0');
+  });
+
+  it('ignores extensions under a different (inactive) server tree', () => {
+    const otherServer = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-server-insiders-'));
+    try {
+      const extRoot = path.join(otherServer, 'extensions');
+      makeExtensionDir(extRoot, 'continue.continue-2.1.0', {
+        publisher: 'Continue',
+        name: 'continue',
+        version: '2.1.0',
+        extensionKind: ['ui', 'workspace'],
+      });
+      expect(findClientSideExtension('Continue.continue')).toBeUndefined();
+    } finally {
+      fs.rmSync(otherServer, { recursive: true, force: true });
+    }
   });
 });
 
