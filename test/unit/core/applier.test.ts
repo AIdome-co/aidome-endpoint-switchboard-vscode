@@ -79,6 +79,17 @@ vi.mock('vscode', () => ({
 }));
 
 // ChangeLog mock — we spy on recordApply to verify it's called correctly
+const { mockGetProfileSecret } = vi.hoisted(() => ({
+  mockGetProfileSecret: vi.fn<(ref: string) => Promise<string | undefined>>(),
+}));
+
+vi.mock('../../../src/core/profiles/profileSecrets', () => ({
+  ProfileSecrets: class {
+    getSecret = mockGetProfileSecret;
+    constructor(_context: unknown) {}
+  },
+}));
+
 vi.mock('../../../src/core/orchestration/changeLog', () => ({
   ChangeLog: vi.fn(function (this: Record<string, unknown>) {
     this.recordApply = mockRecordApply;
@@ -301,6 +312,61 @@ describe('PlanApplier — applyPlan graceful degradation', () => {
     expect(result.success).toBe(true);
     expect(result.failedSteps).toHaveLength(0);
     expect(mockRecordApply).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifies a Continue-style edit-config-file with a missing secret as guided-required (Codex 155 round 2)', async () => {
+    mockGetProfileSecret.mockResolvedValue(undefined);
+    const applier = new PlanApplier(fakeContext);
+    const steps = [
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'continue',
+        targetPath: '/home/user/.continue/config.yaml',
+        newValue: 'https://gateway.example.com/v1',
+        data: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          baseUrl: 'https://gateway.example.com/v1',
+          identity: 'AIdome Gateway',
+          provider: 'openai',
+          authRef: 'Test Profile',
+          secretPolicy: 'target-persisted-at-apply',
+          clearAuthWhenMissing: true,
+        },
+      }),
+    ];
+
+    const result = await applier.applyPlan(makePlan(steps), 'profile');
+
+    expect(result.success).toBe(true); // config applied; auth incomplete
+    expect(result.assistantResults.get('continue')?.status).toBe('guided-required');
+  });
+
+  it('classifies a Continue-style edit-config-file with a resolved secret as configured', async () => {
+    mockGetProfileSecret.mockResolvedValue('aid_pat_ok');
+    const applier = new PlanApplier(fakeContext);
+    const steps = [
+      makeStep({
+        action: 'edit-config-file',
+        assistantKey: 'continue',
+        targetPath: '/home/user/.continue/config.yaml',
+        newValue: 'https://gateway.example.com/v1',
+        data: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          baseUrl: 'https://gateway.example.com/v1',
+          identity: 'AIdome Gateway',
+          provider: 'openai',
+          authRef: 'Test Profile',
+          secretPolicy: 'target-persisted-at-apply',
+          clearAuthWhenMissing: true,
+        },
+      }),
+    ];
+
+    const result = await applier.applyPlan(makePlan(steps), 'profile');
+
+    expect(result.assistantResults.get('continue')?.status).toBe('configured');
   });
 
   it('applies a Claude Code-style plan when verify-endpoint follows writes', async () => {
