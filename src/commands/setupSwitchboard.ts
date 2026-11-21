@@ -167,16 +167,17 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     if (switchableAssistants.length === 0 && nonSwitchableAssistants.length > 0) {
       const names = nonSwitchableAssistants.map(a => a.displayName).join(', ');
       const tierANames = getAssistantsByTier(registry, 'A').map(a => a.displayName).join(', ');
-      logger.warning(`Only non-switchable (Tier C) assistants detected: ${names}`);
+      logger.warning(`Only guided-setup (Tier C) assistants detected: ${names}`);
+      // Tier C assistants are still routed below — their guided `show-guided-steps`
+      // plans are the only reachable surface for manual setup (Codex review PR 118).
       await showWarning(
-        `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support endpoint switching. ` +
-        `Install a Tier A assistant (${tierANames}) for automatic configuration.`
+        `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support automatic endpoint switching. ` +
+        `Guided manual setup will be offered next; install a Tier A assistant (${tierANames}) for automatic configuration.`
       );
-      return;
     }
 
     const assistantSelectionItems = buildAssistantSelectionItems(
-      switchableAssistants,
+      detected.assistants,
       detected.clis,
       registry.assistants
     );
@@ -372,13 +373,15 @@ function buildAssistantSelectionItems(
   registryAssistants: AssistantEntry[]
 ): SetupAssistantSelectionItem[] {
   const assistantsByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant]));
-  const switchableExtensionKeys = detectedAssistants
-    .filter(assistant => assistant.tier !== 'C')
+  // Guided Tier C extensions stay selectable: their show-guided-steps plans are
+  // the only setup surface they support, and they are labeled guided-only so
+  // users can distinguish them from automatically switchable assistants.
+  const guidedExtensionKeys = detectedAssistants
     .map(assistant => assistant.assistantKey);
   const switchableCliKeys = detectedClis
     .filter(cli => assistantsByKey.get(cli.assistantKey)?.endpointSwitching.tier !== 'C')
     .map(cli => cli.assistantKey);
-  const candidateKeys = [...new Set([...switchableExtensionKeys, ...switchableCliKeys])];
+  const candidateKeys = [...new Set([...guidedExtensionKeys, ...switchableCliKeys])];
 
   return candidateKeys.map(assistantKey => {
     const registryAssistant = assistantsByKey.get(assistantKey);
@@ -388,11 +391,15 @@ function buildAssistantSelectionItems(
     const label = detectedViaExtension && detectedViaCli
       ? `${registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey} (Extension + CLI)`
       : registryAssistant?.displayName || detectedAssistant?.displayName || assistantKey;
-    const detail = detectedViaExtension && detectedViaCli
+    const isGuidedOnly = (registryAssistant?.endpointSwitching.tier ?? detectedAssistant?.tier) === 'C';
+    const baseDetail = detectedViaExtension && detectedViaCli
       ? 'Detected as VS Code extension and CLI'
       : detectedViaExtension
         ? 'Detected as VS Code extension'
         : 'Detected as CLI';
+    const detail = isGuidedOnly
+      ? `${baseDetail} · guided setup only — endpoint routing is configured manually in the extension`
+      : baseDetail;
 
     return {
       assistantKey,

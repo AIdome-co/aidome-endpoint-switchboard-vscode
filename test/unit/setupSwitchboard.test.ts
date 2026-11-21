@@ -190,7 +190,7 @@ describe('setupSwitchboard', () => {
     mockShowSuccess.mockResolvedValue(undefined);
   });
 
-  it('shows a warning and returns early when only Tier C assistants are detected', async () => {
+  it('shows a warning but keeps guided Tier C assistants reachable when only they are detected', async () => {
     mockDetectAll.mockResolvedValue({
       assistants: [makeAssistant('github.copilot', 'C', 'GitHub Copilot')],
       clis: [],
@@ -204,7 +204,12 @@ describe('setupSwitchboard', () => {
     expect(mockShowWarning).toHaveBeenCalledWith(
       expect.stringContaining('Tier A assistant')
     );
-    expect(mockShowQuickPick).not.toHaveBeenCalled();
+    // Guided Tier C assistants stay reachable via show-guided-steps plans.
+    expect(mockShowQuickPick).toHaveBeenCalled();
+    const [items] = mockShowQuickPick.mock.calls[0] as [QuickPickItem[], unknown];
+    const guidedItem = items.find(i => i.assistantKey === 'github.copilot');
+    expect(guidedItem).toBeDefined();
+    expect(guidedItem?.detail).toContain('guided setup only');
   });
 
   it('logs only non-switchable names when only Tier C are detected', async () => {
@@ -226,7 +231,7 @@ describe('setupSwitchboard', () => {
     );
   });
 
-  it('offers only switchable (non-Tier-C) assistants in the QuickPick', async () => {
+  it('offers Tier C assistants as guided-setup-only entries alongside switchable ones', async () => {
     mockDetectAll.mockResolvedValue({
       assistants: [
         makeAssistant('github.copilot', 'C', 'GitHub Copilot'),
@@ -243,7 +248,10 @@ describe('setupSwitchboard', () => {
     const assistantKeys = items.map(i => i.assistantKey);
     expect(labels).toContain('Kilo Code');
     expect(assistantKeys).toContain('kilocode');
-    expect(assistantKeys).not.toContain('github.copilot');
+    // Tier C assistants are now included as guided-setup-only entries.
+    expect(assistantKeys).toContain('github.copilot');
+    const copilotItem = items.find(i => i.assistantKey === 'github.copilot');
+    expect(copilotItem?.detail).toContain('guided setup only');
   });
 
   it('logs "user dismissed" when user closes the assistant QuickPick', async () => {
