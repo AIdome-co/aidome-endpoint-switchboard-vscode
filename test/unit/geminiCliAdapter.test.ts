@@ -392,6 +392,38 @@ describe('GeminiCliAdapter', () => {
       expect(result.success).toBe(false);
       expect(result.details?.configurationStatus).toBe('manual-configuration-required');
     });
+
+    it('honors the last duplicate assignment of the same key in a .env file', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('.env')) {
+          return 'GOOGLE_GEMINI_BASE_URL=https://first.example.com\nGOOGLE_GEMINI_BASE_URL=http://second.example.com\n';
+        }
+        return undefined;
+      });
+
+      const result = await adapter.verify();
+
+      // dotenv.parse assigns on every match, so the LAST value is effective.
+      expect(result.success).toBe(false);
+      expect(result.details?.invalidEnvironmentVariables).toContain('GOOGLE_GEMINI_BASE_URL');
+      expect(JSON.stringify(result)).not.toContain('first.example.com');
+    });
+
+    it('does not fall back to the home .env when the Gemini .env exists but is unreadable', async () => {
+      vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
+      const realHome = os.homedir();
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(async (filePath: string) => {
+        // The Gemini-specific file exists on disk but the read failed.
+        return filePath === `${realHome}/.gemini/.env`;
+      });
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.details?.configurationStatus).toBe('manual-configuration-required');
+    });
   });
 
   describe('getDisplayName', () => {

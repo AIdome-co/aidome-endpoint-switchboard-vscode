@@ -9,7 +9,7 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import { validateUrl } from '../../core/profiles/profileValidator';
-import { readFileSafe } from '../../util/fsSafe';
+import { fileExists, readFileSafe } from '../../util/fsSafe';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -111,13 +111,23 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
     : path.join(os.homedir(), '.gemini');
 
   // findEnvFile's user-level fallback: after $GEMINI_CLI_HOME/.gemini/.env
-  // (or ~/.gemini/.env), the CLI also loads an ordinary ~/.env. The first
-  // match wins, so only consult it when the Gemini-specific file is absent.
-  let envFileContent = await readFileSafe(path.join(geminiDir, '.env'));
+  // (or ~/.gemini/.env), the CLI also loads an ordinary ~/.env. Its lookup
+  // selects the first file that EXISTS (existsSync); a file that exists but
+  // fails to read aborts the load without falling back, so mirror that:
+  // consult the home .env only when the Gemini-specific file is truly
+  // absent, never when it merely failed to read.
+  const geminiEnvFile = path.join(geminiDir, '.env');
+  let envFileContent = await readFileSafe(geminiEnvFile);
   if (envFileContent === undefined) {
-    envFileContent = await readFileSafe(path.join(userHome, '.env'));
+    const geminiEnvExists = await fileExists(geminiEnvFile);
+    if (!geminiEnvExists) {
+      envFileContent = await readFileSafe(path.join(userHome, '.env'));
+    }
   }
-  if (envFileContent) {
+  if (envFileContent !== undefined) {
+    // dotenv.parse assigns obj[key] = value for every match, so the LAST
+    // assignment of a duplicate key is the effective one.
+    const fileValues = new Map<string, string>();
     for (const rawLine of envFileContent.split(/\r?\n/)) {
       const line = rawLine.trim();
       if (line.startsWith('#') || line.length === 0) {
@@ -128,11 +138,9 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
         continue;
       }
       const key = line.slice(0, equals).trim().replace(/^export /, '');
-      if (!(SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)
-        || considered.has(key)) {
+      if (!(SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)) {
         continue;
       }
-      considered.add(key);
       // dotenv.parse semantics (Gemini loads this file with dotenv): strip
       // unquoted inline comments, then matching single OR double quotes
       // around the value.
@@ -150,6 +158,15 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
           rawValue = rawValue.slice(0, hash).trim();
         }
       }
+      fileValues.set(key, rawValue);
+    }
+
+    for (const [key, rawValue] of fileValues) {
+      // An inherited variable (even explicitly empty) blocks the file value.
+      if (considered.has(key)) {
+        continue;
+      }
+      considered.add(key);
       if (isValidGeminiBaseUrl(rawValue)) {
         // The user-level .env is a FALLBACK: a project `.gemini/.env` or
         // `.env` closer to the CLI's launch directory wins, so this is
