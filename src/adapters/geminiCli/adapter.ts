@@ -9,8 +9,72 @@ import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import { validateUrl } from '../../core/profiles/profileValidator';
+import { readFileSafe } from '../../util/fsSafe';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const DESCRIPTOR = getProviderConfigDescriptor('gemini-cli');
+
+const SUPPORTED_BASE_URL_VARIABLES = ['GOOGLE_GEMINI_BASE_URL', 'GOOGLE_VERTEX_BASE_URL'] as const;
+
+/**
+ * Gemini CLI reads environment variables from more places than the parent
+ * process: it auto-loads `~/.gemini/.env` (documented user-level env file —
+ * variables from it are never excluded) and honors an `env` object inside
+ * `~/.gemini/settings.json` (observed Gemini CLI settings format). A user
+ * who persisted the override there would be falsely reported "not
+ * configured" if verification only inspected process.env, so check all
+ * three surfaces. Never report variable VALUES — only names/sources.
+ */
+async function discoverConfiguredBaseUrlVariables(): Promise<string[]> {
+  const configured = new Set<string>();
+  for (const name of SUPPORTED_BASE_URL_VARIABLES) {
+    if (process.env[name]) {
+      configured.add(name);
+    }
+  }
+
+  const geminiHome = process.env['GEMINI_CLI_HOME']
+    ? path.resolve(process.env['GEMINI_CLI_HOME'])
+    : path.join(os.homedir(), '.gemini');
+
+  const envFileContent = await readFileSafe(path.join(geminiHome, '.env'));
+  if (envFileContent) {
+    for (const rawLine of envFileContent.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (line.startsWith('#') || line.length === 0) {
+        continue;
+      }
+      const equals = line.indexOf('=');
+      if (equals <= 0) {
+        continue;
+      }
+      const key = line.slice(0, equals).trim();
+      if ((SUPPORTED_BASE_URL_VARIABLES as readonly string[]).includes(key)) {
+        configured.add(key);
+      }
+    }
+  }
+
+  const settingsContent = await readFileSafe(path.join(geminiHome, 'settings.json'));
+  if (settingsContent) {
+    try {
+      const parsed = JSON.parse(settingsContent) as { env?: Record<string, unknown> };
+      if (parsed.env && typeof parsed.env === 'object') {
+        for (const name of SUPPORTED_BASE_URL_VARIABLES) {
+          if (typeof parsed.env[name] === 'string' && parsed.env[name]) {
+            configured.add(name);
+          }
+        }
+      }
+    } catch {
+      // Malformed settings.json must not break verification — the CLI
+      // itself would report its own configuration problem.
+    }
+  }
+
+  return [...configured];
+}
 
 /**
  * Gemini CLI adapter.
@@ -105,10 +169,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       };
     }
 
-    const configuredEnvironmentVariables = [
-      ...(process.env['GOOGLE_GEMINI_BASE_URL'] ? ['GOOGLE_GEMINI_BASE_URL'] : []),
-      ...(process.env['GOOGLE_VERTEX_BASE_URL'] ? ['GOOGLE_VERTEX_BASE_URL'] : [])
-    ];
+    const configuredEnvironmentVariables = await discoverConfiguredBaseUrlVariables();
     const configured = configuredEnvironmentVariables.length > 0;
 
     return {
@@ -121,12 +182,8 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         tier: DESCRIPTOR?.tier ?? 'C',
         configurationStatus: configured ? 'environment-variable-configured' : 'manual-configuration-required',
         limitation: 'Base URL overrides require GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
-        supportedEnvironmentVariables: [
-          'GOOGLE_GEMINI_BASE_URL',
-          'GOOGLE_VERTEX_BASE_URL'
-        ],
+        supportedEnvironmentVariables: [...SUPPORTED_BASE_URL_VARIABLES],
         configuredEnvironmentVariables
-
       }
     };
   }
