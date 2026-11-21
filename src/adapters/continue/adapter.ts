@@ -190,13 +190,18 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     };
   }
 
-  /** Managed-entry predicate: identity name or per-model "identity - <id>" name. */
-  private isManagedEntry(model: { name?: string; title?: string; [key: string]: unknown }): boolean {
+  /** Managed-entry predicate: exact identity name (legacy) or a per-model
+   * "identity - <id>" name carrying the ownership marker — the same strict
+   * rule the driver uses, so a user entry that merely collides with the
+   * prefix is never pulled into verification checks. */
+  private isManagedEntry(model: { name?: string; title?: string; aidomeManaged?: unknown; [key: string]: unknown }): boolean {
     const withSeparator = `${AIDOME_MODEL_IDENTITY} - `;
-    return model.name === AIDOME_MODEL_IDENTITY
-      || model.title === AIDOME_MODEL_IDENTITY
-      || (typeof model.name === 'string' && model.name.startsWith(withSeparator))
+    if (model.name === AIDOME_MODEL_IDENTITY || model.title === AIDOME_MODEL_IDENTITY) {
+      return true;
+    }
+    const prefixMatch = (typeof model.name === 'string' && model.name.startsWith(withSeparator))
       || (typeof model.title === 'string' && model.title.startsWith(withSeparator));
+    return prefixMatch && model.aidomeManaged === true;
   }
 
   private async discoverModels(profile: EndpointProfile) {

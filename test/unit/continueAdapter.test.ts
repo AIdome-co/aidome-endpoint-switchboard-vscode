@@ -441,8 +441,8 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     // parseContinueModels handles jsonc — use a JSON body instead for the .json path.
     vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
       models: [
-        { name: 'AIdome Gateway - anthropic/claude-sonnet-4-6', title: 'anthropic/claude-sonnet-4-6', model: 'anthropic/claude-sonnet-4-6', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test' },
-        { name: 'AIdome Gateway - z-ai/glm-5.3', title: 'z-ai/glm-5.3', model: 'z-ai/glm-5.3', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test' }
+        { name: 'AIdome Gateway - anthropic/claude-sonnet-4-6', title: 'anthropic/claude-sonnet-4-6', model: 'anthropic/claude-sonnet-4-6', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test', aidomeManaged: true },
+        { name: 'AIdome Gateway - z-ai/glm-5.3', title: 'z-ai/glm-5.3', model: 'z-ai/glm-5.3', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test', aidomeManaged: true }
       ]
     }));
 
@@ -481,6 +481,36 @@ describe('ContinueAdapter verification requires the model field', () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain('no model id configured');
+  });
+});
+
+describe('ContinueAdapter verification ignores unmarked prefix collisions', () => {
+  it('does not treat a user entry colliding with the prefix as managed', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        // User's own entry: colliding name, foreign endpoint — NOT ours.
+        { name: 'AIdome Gateway - my-custom-model', title: 'my-custom-model', model: 'my-custom-model', provider: 'openai', apiBase: 'https://api.openai.com/v1', apiKey: 'user-key' },
+        // The one entry Switchboard actually wrote: valid.
+        { name: 'AIdome Gateway - m/a', title: 'm/a', model: 'm/a', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test', aidomeManaged: true }
+      ]
+    }));
+
+    const adapter = new ContinueAdapter();
+    await adapter.buildPlan({
+      id: 'test-profile',
+      name: 'Test Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const result = await (adapter as unknown as {
+      verifyConfiguration(): Promise<{ success: boolean; details?: Record<string, unknown> }>;
+    }).verifyConfiguration();
+
+    expect(result.success).toBe(true);
+    expect(result.details?.managedEntries).toBe(1);
   });
 });
 
