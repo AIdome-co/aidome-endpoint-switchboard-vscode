@@ -98,27 +98,33 @@ export async function assignProfileAssistants(
     return;
   }
 
-  const selected = await vscode.window.showQuickPick(items, {
-    title: `Assign Assistants to ${profile.name}`,
-    placeHolder: 'Select the assistants that should use this profile',
-    canPickMany: true,
-    ignoreFocusOut: true
-  });
+  // Skip the picker when there is nothing selectable but a detach choice is
+  // pending (single-mapping UI-kind gap case, Codex 156 round 5/9): showing
+  // an empty picker would let a dismissal silently discard the detach.
+  let selectedAssistantKeys: string[] = [];
+  if (items.length > 0) {
+    const selected = await vscode.window.showQuickPick(items, {
+      title: `Assign Assistants to ${profile.name}`,
+      placeHolder: 'Select the assistants that should use this profile',
+      canPickMany: true,
+      ignoreFocusOut: true
+    });
 
-  if (selected === undefined) {
-    logger.info(`Assistant assignment cancelled for profile ${profile.name}`);
-    return;
+    if (selected === undefined) {
+      logger.info(`Assistant assignment cancelled for profile ${profile.name}`);
+      return;
+    }
+
+    selectedAssistantKeys = selected.map(item => item.assistantKey);
+    const visibleAssistantKeys = new Set(items.map(item => item.assistantKey));
+    const currentlyAssignedAssistantKeys = mappings
+      .filter(mapping => mapping.profileId === profile.id)
+      .map(mapping => mapping.assistantKey);
+    deselectedAssistantKeys.push(
+      ...currentlyAssignedAssistantKeys
+        .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey))
+    );
   }
-
-  const selectedAssistantKeys = selected.map(item => item.assistantKey);
-  const visibleAssistantKeys = new Set(items.map(item => item.assistantKey));
-  const currentlyAssignedAssistantKeys = mappings
-    .filter(mapping => mapping.profileId === profile.id)
-    .map(mapping => mapping.assistantKey);
-  deselectedAssistantKeys.push(
-    ...currentlyAssignedAssistantKeys
-      .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey))
-  );
 
   if (selectedAssistantKeys.length === 0 && deselectedAssistantKeys.length === 0) {
     await showWarning('No assistants selected. Nothing changed.');
