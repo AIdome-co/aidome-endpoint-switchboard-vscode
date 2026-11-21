@@ -13,8 +13,5 @@
   "search.exclude": {
     "out": true,
     "node_modules": true
-  },
-  "remote.extensionKind": {
-    "Continue.continue": ["workspace"]
   }
 }
