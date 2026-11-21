@@ -118,7 +118,7 @@ describe('ProviderConfigEngine.buildProviderConfigPlan', () => {
     expect(settingStep?.newValue).toBe('https://gateway.example.com');
   });
 
-  it('emits guidance for unsupported providers without mutating anything', () => {
+  it('emits guidance for non-automatic providers without mutating anything', () => {
     const descriptor = getProviderConfigDescriptors().find(d => d.providerKey === 'roo-code')!;
     const { plan, automaticTargetIds, guidedTargetIds } = buildProviderConfigPlan(descriptor, {
       profile: makeProfile(),

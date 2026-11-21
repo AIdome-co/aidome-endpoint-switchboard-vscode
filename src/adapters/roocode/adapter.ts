@@ -13,7 +13,7 @@ const OPENAI_RESPONSES_DIALECT = 'openai.responses';
  * Adapter for the final Roo Code extension release.
  *
  * Roo Code 3.54.0 (RooCodeInc/Roo-Code v3.54.0, commit
- * 4a4cbb279bbeb2b9e98cb1808b9ce882384cf3) stores provider profiles in its
+ * 4a4cbb279bbeb2b9e98cb1808b9ce882384cf3e2) stores provider profiles in its
  * own SecretStorage and exposes no VS Code configuration key for endpoint
  * routing. The repository was archived on May 15, 2026. Keep this adapter
  * detection- and guidance-only so it never claims to have changed a setting

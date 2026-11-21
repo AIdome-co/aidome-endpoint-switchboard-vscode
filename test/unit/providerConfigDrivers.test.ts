@@ -29,7 +29,7 @@ describe('provider configuration descriptors', () => {
       'anythingllm',
       'tabnine'
     ]);
-    expect(descriptors.find(item => item.providerKey === 'roo-code')?.support).toBe('unsupported');
+    expect(descriptors.find(item => item.providerKey === 'roo-code')?.support).toBe('guided');
     expect(descriptors.find(item => item.providerKey === 'gemini-cli')?.support).toBe('guided');
     expect(descriptors.find(item => item.providerKey === 'codegpt')?.driver).toBe('guided-ui');
   });

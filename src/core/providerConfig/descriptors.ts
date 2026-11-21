@@ -159,18 +159,21 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
   {
     providerKey: 'roo-code',
     displayName: 'Roo Code',
-    dialects: [{ dialect: 'openai.chat_completions', preferred: true }],
+    dialects: [{ dialect: 'openai.chat_completions', preferred: true }, { dialect: 'openai.responses' }],
     targets: [{ id: 'roo-retired', format: 'ui', driver: 'guided-ui', priority: 1, requiresGuidance: true }],
-    fields: [{ field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions'], secret: false, support: 'unsupported' }],
+    fields: [
+      { field: 'baseUrl', path: 'provider-profile.openAiBaseUrl', valueKind: 'ui-only', requiredFor: ['openai.chat_completions', 'openai.responses'], secret: false, support: 'guided' },
+      { field: 'apiKey', path: 'Roo Code SecretStorage', valueKind: 'ui-only', requiredFor: ['openai.chat_completions', 'openai.responses'], secret: true, support: 'external' }
+    ],
     driver: 'guided-ui',
-    support: 'unsupported',
+    support: 'guided',
     tier: 'C',
     secretPolicy: 'external-auth-store',
     reload: 'unknown',
-    discovery: { extensionIds: ['RooVeterinaryInc.roo-cline'], notes: ['Archived/defunct upstream; do not mutate guessed VS Code settings.'] },
-    verification: { requiredFields: [], exactUrlMatch: false, selectedProviderRequired: false, protocolRequired: false, notes: ['Only detect and explain the retired target.'] },
+    discovery: { extensionIds: ['RooVeterinaryInc.roo-cline'], notes: ['Archived upstream; provider profiles live in the extension SecretStorage — do not mutate guessed VS Code settings.'] },
+    verification: { requiredFields: [], exactUrlMatch: false, selectedProviderRequired: false, protocolRequired: false, notes: ['Detect and guide manual configuration of the final Roo Code release.'] },
     drift: { sourceSymbols: ['ProviderSettingsManager', 'retiredProviderNames'], failClosedOnMissingEvidence: true, notes: ['A supported fork needs a new descriptor and evidence.'] },
-    versionEvidence: evidence('https://github.com/RooCodeInc/Roo-Code.git', 'b867ec9145750d0ae1ff7f02d35406e9bf2a0b16', 'high', ['src/package.json', 'src/core/config/ProviderSettingsManager.ts', 'src/api/index.ts']),
+    versionEvidence: evidence('https://github.com/RooCodeInc/Roo-Code.git', '4a4cbb279bbeb2b9e98cb1808b9ce882384cf3e2', 'high', ['src/package.json', 'src/core/config/ProviderSettingsManager.ts', 'src/api/index.ts']),
     limitations: ['Roo Code is archived and its provider profiles use SecretStorage.']
   },
   {

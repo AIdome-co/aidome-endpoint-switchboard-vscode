@@ -222,6 +222,13 @@ describe('RooCodeAdapter', () => {
       // at apply time, but the guided-setup surface itself is reachable
       // because the supported OpenAI dialect plans are followable.
       expect(adapter.getGuidedSetupStatus()).toBe('actionable');
+      expect(adapter.getGuidedSetupStatus(mockProfile)).toBe('actionable');
+      expect(adapter.getGuidedSetupStatus({ ...mockProfile, dialect: 'openai.responses' })).toBe('actionable');
+    });
+
+    it('declares guided setup unsupported for profile dialects Roo Code cannot honor', () => {
+      expect(adapter.getGuidedSetupStatus({ ...mockProfile, dialect: 'anthropic.messages' })).toBe('unsupported');
+      expect(adapter.getGuidedSetupStatus({ ...mockProfile, dialect: 'google.gemini.generate_content' })).toBe('unsupported');
     });
   });
 });

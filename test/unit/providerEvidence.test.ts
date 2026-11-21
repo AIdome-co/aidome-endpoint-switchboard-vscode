@@ -96,11 +96,13 @@ describe('upstream evidence / drift validation', () => {
     expect(manifestEntry.status).toBe('active');
   });
 
-  it('declares the archived-repo status for retired references', () => {
+  it('keeps retired references pinned to the archived manifest entry', () => {
     const roo = descriptors.find(descriptor => descriptor.providerKey === 'roo-code')!;
     const manifestEntry = manifestByKey.get('roo-code')!;
     expect(manifestEntry.status).not.toBe('active');
-    expect(roo.support).toBe('unsupported');
+    // The repo is archived, but the descriptor still guides manual
+    // configuration of the final release (matching the adapter contract).
+    expect(roo.support).toBe('guided');
   });
 });
 
