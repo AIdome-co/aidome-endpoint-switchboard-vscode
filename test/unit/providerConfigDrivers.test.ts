@@ -584,6 +584,39 @@ describe('configuration drivers', () => {
       expect(output).not.toContain(',,');
     });
 
+    it('jsonc: removes multiple adjacent managed entries without corrupting separators and keeps the following comment', () => {
+      // Round 8: adjacent managed entries (the normal multi-model output)
+      // plus a comment attached to the following user entry.
+      const existing = '{ "models": [' +
+        '{ "name": "AIdome Gateway - m/a", "title": "m/a", "model": "m/a", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '{ "name": "AIdome Gateway - m/b", "title": "m/b", "model": "m/b", "provider": "openai", "apiBase": "https://stale.example.com/v1", "apiKey": "old", "aidomeManaged": true },' +
+        '// my models below\n' +
+        '{ "name": "UserOwnOpenAI", "provider": "openai", "model": "gpt-4o", "apiBase": "https://api.openai.com/v1" }' +
+        '] }';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/c']
+        }
+      });
+
+      // Must parse cleanly (no dangling/overlapping ranges).
+      const parsed = parseJsonc<Record<string, unknown>>(output);
+      const models = parsed.models as Array<Record<string, unknown>>;
+      expect(models).toHaveLength(2);
+      // The user entry AND its preceding comment survive.
+      expect(models[0]).toMatchObject({ name: 'UserOwnOpenAI', apiBase: 'https://api.openai.com/v1' });
+      expect(output).toContain('// my models below');
+      // One fresh managed entry appended.
+      expect(models[1]).toMatchObject({ model: 'm/c', apiBase: BASE_URL, aidomeManaged: true });
+    });
+
     it('jsonc: writes one managed entry per gateway model with the model field', () => {
       const output = renderConfigFileContent({
         baseUrl: BASE_URL,

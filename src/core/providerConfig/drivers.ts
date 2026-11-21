@@ -770,33 +770,48 @@ function deleteJsoncArrayElements(
     return output;
   }
   const children = node.children;
+  // Element-SPAN ranges only: extending a range to the next child (to eat
+  // its separator) both overlaps adjacent deletions and swallows comments
+  // that describe the following user entry (Codex 157 round 8). Dangling
+  // separators are fixed afterwards by the normalization pass.
   const ranges: Array<[number, number]> = [];
   for (const index of elementIndexes) {
     const child = children[index];
     if (!child || child.offset === undefined || child.length === undefined) {
       continue;
     }
-    let start = child.offset;
-    const end = child.offset + child.length;
-    if (index + 1 < children.length && children[index + 1].offset !== undefined) {
-      // Consume the separator between this element and the next one.
-      start = start; // keep element start
-      ranges.push([start, children[index + 1].offset]);
-    } else if (index > 0 && children[index - 1].offset !== undefined) {
-      // Last element: consume the preceding separator instead.
-      const prevEnd = children[index - 1].offset + children[index - 1].length;
-      const between = content.slice(prevEnd, start);
-      const commaRel = between.lastIndexOf(',');
-      ranges.push([commaRel >= 0 ? prevEnd + commaRel : start, end]);
-    } else {
-      ranges.push([start, end]);
-    }
+    ranges.push([child.offset, child.offset + child.length]);
   }
-  // Delete high-to-low so earlier ranges stay valid.
   ranges.sort((left, right) => right[0] - left[0]);
   let output = content;
   for (const [start, end] of ranges) {
     output = output.slice(0, start) + output.slice(end);
+  }
+  // Removing elements can leave a dangling separator ("A, , C"); collapse
+  // each ", ," (within the array's own span only — a single trailing comma
+  // before ']' is valid JSONC and stays) until the array is clean.
+  for (let pass = 0; pass <= elementIndexes.length; pass++) {
+    const treeAfter = parseTree(output);
+    const nodeAfter = treeAfter
+      ? (treeAfter.type === 'array' && arrayPath.length === 1
+          ? treeAfter
+          : findNodeAtLocation(treeAfter, arrayPath))
+      : undefined;
+    if (!nodeAfter || nodeAfter.type !== 'array'
+      || nodeAfter.offset === undefined || nodeAfter.length === undefined) {
+      break;
+    }
+    const start = nodeAfter.offset;
+    const end = nodeAfter.offset + nodeAfter.length;
+    const slice = output.slice(start, end);
+    // A leading comma after '[' (deleted first element) and a dangling
+    // ", ," (deleted middle element) are both invalid; a single trailing
+    // comma before ']' is valid JSONC and stays.
+    const fixed = slice.replace(/\[\s*,/, '[').replace(/,\s*,/, ',');
+    if (fixed === slice) {
+      break;
+    }
+    output = output.slice(0, start) + fixed + output.slice(end);
   }
   return output;
 }
