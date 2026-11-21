@@ -104,7 +104,7 @@ describe('patchEnvFile credential-file permissions', () => {
     return ((await fs.stat(filePath)).mode & 0o777).toString(8);
   }
 
-  it('preserves an existing 0600 file through an update (no widening by atomic rename)', async () => {
+  it.skipIf(process.platform === 'win32')('preserves an existing 0600 file through an update (no widening by atomic rename)', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-env-'));
     try {
       const envPath = await createWithMode('.env', 'export GEMINI_API_KEY=old\nOTHER=keep\n', 0o600);
@@ -124,7 +124,7 @@ describe('patchEnvFile credential-file permissions', () => {
     }
   });
 
-  it('does not narrow an existing non-0600 file (unrelated writer semantics unchanged)', async () => {
+  it.skipIf(process.platform === 'win32')('does not narrow an existing non-0600 file (unrelated writer semantics unchanged)', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-env-'));
     try {
       const envPath = await createWithMode('.env', 'KEEP=1\n', 0o644);
@@ -137,7 +137,7 @@ describe('patchEnvFile credential-file permissions', () => {
     }
   });
 
-  it('creates a missing credential file with 0600', async () => {
+  it.skipIf(process.platform === 'win32')('creates a missing credential file with 0600', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-env-'));
     try {
       const envPath = path.join(tempDir, 'new.env');
