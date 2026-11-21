@@ -439,6 +439,29 @@ describe('configuration drivers', () => {
       expect(managed.every(m => m.apiBase === BASE_URL && m.apiKey === 'tok-2')).toBe(true);
     });
 
+    it('removes stale per-model managed entries on a profile switch without discovery results', () => {
+      const existing = 'models:\n' +
+        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n';
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: existing,
+        format: 'yaml',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway'
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // The stale per-model entry (old URL + old key) is gone; only the
+      // legacy identity entry remains.
+      expect(models).toHaveLength(1);
+      expect(models[0]).toMatchObject({ name: 'AIdome Gateway', apiBase: BASE_URL });
+    });
+
     it('keeps the single-entry legacy behavior when no gateway models are provided', () => {
       const output = renderConfigFileContent({
         baseUrl: BASE_URL,

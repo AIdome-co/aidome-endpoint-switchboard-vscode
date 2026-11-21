@@ -247,7 +247,10 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
 
   const parsed = request.existingContent ? parseJsonObject(request.existingContent, 'jsonc') : {};
   const output = isRecord(parsed) ? parsed : {};
-  const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+  const models = withoutStaleManagedEntries(
+    Array.isArray(output.models) ? output.models.filter(isRecord) : [],
+    data.identity ?? modelPath
+  );
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
     const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
@@ -313,7 +316,10 @@ function renderJsoncModelArray(
 ): string {
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
-  const existingModels = Array.isArray(root.models) ? root.models : [];
+  const existingModels = withoutStaleManagedEntries(
+    Array.isArray(root.models) ? root.models : [],
+    data.identity ?? modelPath
+  );
   let output = request.existingContent ?? '{}';
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
@@ -417,6 +423,26 @@ function isManagedModelEntry(entry: Record<string, unknown>, identity: string): 
     || (title !== undefined && title.startsWith(withSeparator));
 }
 
+/**
+ * Removes stale per-model managed entries ("identity - <model>") from the
+ * single-entry legacy path: after one multi-model apply, a profile switch
+ * WITHOUT discovery results would otherwise leave those entries — with the
+ * previous profile's URL and credential — in place while appending the
+ * model-less legacy entry that Continue drops (Codex 157 round 1). Per-model
+ * prefixed entries are authored by this extension, so removing them is safe;
+ * user-authored entries are never matched.
+ */
+function withoutStaleManagedEntries(
+  models: Record<string, unknown>[],
+  identity: string
+): Record<string, unknown>[] {
+  return models.filter(entry =>
+    !(isManagedModelEntry(entry, identity)
+      && entry.name !== identity
+      && entry.title !== identity)
+  );
+}
+
 function renderYamlModelArray(
   request: ConfigDriverRequest,
   modelPath: string,
@@ -440,7 +466,10 @@ function renderYamlModelArray(
 
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
-  const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
+  const models = withoutStaleManagedEntries(
+    Array.isArray(output.models) ? output.models.filter(isRecord) : [],
+    identity ?? modelPath
+  );
 
   if (gatewayModels && gatewayModels.length > 0) {
     // Multi-model reconcile: drop exactly the entries this extension managed
