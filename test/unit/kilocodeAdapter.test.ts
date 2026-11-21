@@ -3,6 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KiloCodeAdapter } from '../../src/adapters/kilocode/adapter';
+import { getAssistantStorageWriter } from '../../src/core/orchestration/assistantStorageWriters';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 
 const {
@@ -13,7 +14,8 @@ const {
   mockLoggerInfo,
   mockLoggerWarning,
   mockDiscoverModels,
-  mockBuildModelEntries
+  mockBuildModelEntries,
+  mockWriteKiloProviderAuth
 } = vi.hoisted(() => ({
   mockGetExtension: vi.fn(),
   mockFileExists: vi.fn(),
@@ -22,7 +24,8 @@ const {
   mockLoggerInfo: vi.fn(),
   mockLoggerWarning: vi.fn(),
   mockDiscoverModels: vi.fn(),
-  mockBuildModelEntries: vi.fn(() => ({}))
+  mockBuildModelEntries: vi.fn(() => ({})),
+  mockWriteKiloProviderAuth: vi.fn()
 }));
 
 vi.mock('vscode', () => ({
@@ -57,6 +60,11 @@ vi.mock('../../src/util/fsSafe', () => ({
   readFileSafe: mockReadFileSafe
 }));
 
+vi.mock('../../src/adapters/kilocode/kiloAuthStore', () => ({
+  KILO_PROVIDER_SLUG: 'aidome-gateway',
+  writeKiloProviderAuth: mockWriteKiloProviderAuth
+}));
+
 describe('KiloCodeAdapter', () => {
   let adapter: KiloCodeAdapter;
   let mockProfile: EndpointProfile;
@@ -81,6 +89,11 @@ describe('KiloCodeAdapter', () => {
     mockLoggerWarning.mockReset();
     mockDiscoverModels.mockReset();
     mockDiscoverModels.mockResolvedValue([]);
+    mockWriteKiloProviderAuth.mockReset();
+    mockWriteKiloProviderAuth.mockResolvedValue({
+      target: '/home/user/.local/share/kilo/auth.json',
+      createdFile: false
+    });
     mockBuildModelEntries.mockReset();
     mockBuildModelEntries.mockReturnValue({});
   });
@@ -400,5 +413,160 @@ describe('KiloCodeAdapter with an ambiguous configuration source', () => {
     const result = await localAdapter.verify();
     expect(result.success).toBe(false);
     expect(result.details?.configurationStatus).toBe('guided-required');
+  });
+});
+
+describe('KiloCodeAdapter credential write (write-assistant-storage)', () => {
+  let adapter: KiloCodeAdapter;
+  let mockProfile: EndpointProfile;
+
+  beforeEach(() => {
+    adapter = new KiloCodeAdapter();
+    mockProfile = {
+      id: 'profile-1',
+      name: 'Profile 1',
+      profileType: 'custom',
+      baseUrl: 'https://gateway.example.com/v1',
+      dialect: 'openai.chat_completions',
+      authRef: 'Profile 1',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    mockWriteKiloProviderAuth.mockReset();
+    mockWriteKiloProviderAuth.mockResolvedValue({
+      target: '/home/user/.local/share/kilo/auth.json',
+      createdFile: false
+    });
+    mockFileExists.mockReset();
+    mockFileExists.mockResolvedValue(true);
+    mockDiscoverModels.mockReset();
+    mockDiscoverModels.mockResolvedValue([]);
+
+    // The ambiguous-source describe above leaves resolveKiloConfigTarget on
+    // the guided branch; restore the file-based target for these tests.
+  });
+
+  beforeEach(async () => {
+    const { resolveKiloConfigTarget } = await import('../../src/adapters/kilocode/kiloConfigPatcher');
+    vi.mocked(resolveKiloConfigTarget).mockReturnValue({
+      kind: 'file',
+      path: '/home/user/.config/kilo/kilo.jsonc',
+      source: 'default'
+    });
+  });
+
+  it('adds a write-assistant-storage step carrying the authRef and config path', async () => {
+    const plan = await adapter.buildPlan(mockProfile);
+
+    const storageStep = plan.steps.find((s) => s.action === 'write-assistant-storage');
+    expect(storageStep).toBeDefined();
+    expect(storageStep?.assistantKey).toBe('kilo-code');
+    expect(storageStep?.data?.baseUrl).toBe(mockProfile.baseUrl);
+    expect(storageStep?.data?.authRef).toBe('Profile 1');
+    expect(typeof storageStep?.data?.configPath).toBe('string');
+    expect(storageStep?.reversible).toBe(true);
+  });
+
+  it('declares the Kilo extension for reload after apply', () => {
+    expect(adapter.getReloadExtensionIds()).toEqual(['kilocode.kilo-code']);
+  });
+
+  it('dispatches the writer with the resolved data (all fields present)', async () => {
+    const writer = getAssistantStorageWriter('kilo-code');
+    expect(writer).toBeDefined();
+
+    await writer!(
+      {
+        id: 'test-step-1',
+        action: 'write-assistant-storage',
+        description: 'test',
+        assistantKey: 'kilo-code',
+        targetPath: '/cfg/kilo.jsonc',
+        data: {
+          baseUrl: 'https://gateway.example.com/v1',
+          dataDir: '/custom/data',
+          configPath: '/cfg/kilo.jsonc'
+        },
+        reversible: true
+      },
+      'aid_pat_secret'
+    );
+
+    expect(mockWriteKiloProviderAuth).toHaveBeenCalledWith({
+      baseUrl: 'https://gateway.example.com/v1',
+      apiKey: 'aid_pat_secret',
+      dataDir: '/custom/data',
+      configPath: '/cfg/kilo.jsonc'
+    });
+  });
+
+  it('dispatches the writer with optional fields absent (undefined seams)', async () => {
+    const writer = getAssistantStorageWriter('kilo-code');
+    expect(writer).toBeDefined();
+
+    await writer!(
+      {
+        id: 'test-step-1',
+        action: 'write-assistant-storage',
+        description: 'test',
+        assistantKey: 'kilo-code',
+        targetPath: '/cfg/kilo.jsonc',
+        data: { baseUrl: 'https://gateway.example.com/v1' },
+        reversible: true
+      },
+      undefined
+    );
+
+    expect(mockWriteKiloProviderAuth).toHaveBeenCalledWith({
+      baseUrl: 'https://gateway.example.com/v1',
+      apiKey: undefined,
+      dataDir: undefined,
+      configPath: undefined
+    });
+  });
+
+  it('fails the writer when the step data has no baseUrl', async () => {
+    const writer = getAssistantStorageWriter('kilo-code');
+    expect(writer).toBeDefined();
+
+    await expect(
+      writer!(
+        {
+          id: 'test-step-1',
+          action: 'write-assistant-storage',
+          description: 'test',
+          assistantKey: 'kilo-code',
+          targetPath: '/cfg/kilo.jsonc',
+          data: {},
+          reversible: true
+        },
+        'aid_pat_secret'
+      )
+    ).rejects.toThrow('write-assistant-storage requires a baseUrl in step data');
+
+    expect(mockWriteKiloProviderAuth).not.toHaveBeenCalled();
+  });
+
+  it('tolerates a step without any data payload', async () => {
+    const writer = getAssistantStorageWriter('kilo-code');
+    expect(writer).toBeDefined();
+
+    await expect(
+      writer!(
+        {
+          id: 'test-step-1',
+          action: 'write-assistant-storage',
+          description: 'test',
+          assistantKey: 'kilo-code',
+          targetPath: '/cfg/kilo.jsonc',
+          data: undefined as unknown as Record<string, unknown>,
+          reversible: true
+        },
+        'aid_pat_secret'
+      )
+    ).rejects.toThrow('write-assistant-storage requires a baseUrl in step data');
+
+    expect(mockWriteKiloProviderAuth).not.toHaveBeenCalled();
   });
 });

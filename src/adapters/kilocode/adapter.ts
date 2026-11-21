@@ -15,9 +15,30 @@ import { Plan, createPlan, addStep } from '../../core/orchestration/planBuilder'
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { resolveKiloConfigTarget, getKiloConfigPath, discoverModels, buildModelEntries } from './kiloConfigPatcher';
+import { writeKiloProviderAuth } from './kiloAuthStore';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import { parseJsonc } from '../../util/jsonc';
 import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import { registerAssistantStorageWriter } from '../../core/orchestration/assistantStorageWriters';
+
+// Register the storage writer so the generic `write-assistant-storage`
+// applier action can dispatch to Kilo without importing provider modules
+// from core (dependency-direction rule).
+//
+// Write strategy: merge-write the AIdome PAT into Kilo's own credential file
+// (`<data>/kilo/auth.json`, reconciled by Kilo on every backend startup) and
+// refresh the provider entry's models from an AUTHENTICATED discovery probe.
+// The writer owns its backups and reports every mutated target for rollback.
+registerAssistantStorageWriter('kilo-code', async (step, apiKey) => {
+  const data = (step.data ?? {}) as Record<string, unknown>;
+  const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl : undefined;
+  if (!baseUrl) {
+    throw new Error('write-assistant-storage requires a baseUrl in step data');
+  }
+  const dataDir = typeof data.dataDir === 'string' ? data.dataDir : undefined;
+  const configPath = typeof data.configPath === 'string' ? data.configPath : undefined;
+  return writeKiloProviderAuth({ baseUrl, apiKey, dataDir, configPath });
+});
 
 /**
  * Kilo Code assistant adapter.
@@ -89,6 +110,22 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
         baseUrl,
         format: 'jsonc',
         models
+      },
+      reversible: true
+    });
+
+    // The credential + authenticated model discovery run at apply time (the
+    // PAT lives in SecretStorage and is only resolvable by the applier).
+    plan = addStep(plan, {
+      action: 'write-assistant-storage',
+      description: 'Write the AIdome PAT to the Kilo credential store (auth.json)',
+      assistantKey: 'kilo-code',
+      targetPath: configPath,
+      newValue: baseUrl,
+      data: {
+        baseUrl,
+        authRef: profile.authRef,
+        configPath
       },
       reversible: true
     });
@@ -203,6 +240,16 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       message: 'Kilo Code configuration verified',
       details: { configPath, exactUrlMatchVerified: true }
     };
+  }
+
+  /**
+   * Kilo's backend imports credentials from auth.json and reads its config
+   * only at process startup (no filesystem watcher covers the data dir —
+   * verified in pub-refs kilocode). A window reload restarts the backend and
+   * re-imports, so the reload requirement rides the result to the top level.
+   */
+  getReloadExtensionIds(): string[] {
+    return ['kilocode.kilo-code'];
   }
 
   getDisplayName(): string {
