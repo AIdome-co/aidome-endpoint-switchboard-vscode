@@ -155,6 +155,10 @@ export class PlanApplier {
           // credential available also leaves auth incomplete: guided-required.
           const credentialGap = appliedChangeSteps.find(step =>
             (step.type === 'write-env-file'
+              // Codex 155 round 2: file-config targets that persist the
+              // credential themselves (secretPolicy target-persisted-at-apply,
+              // e.g. Continue models[].apiKey) report the gap the same way.
+              || step.type === 'edit-config-file'
               || (step.type === 'write-assistant-storage'
                 && (step as { authRequired?: boolean }).authRequired === true))
             && (step as { secretResolved?: boolean }).secretResolved === false);
@@ -401,7 +405,7 @@ export class PlanApplier {
     }
 
     // Write new content
-    const content = await this.resolveConfigFileContent(step, fileExists);
+    const content = await this.resolveConfigFileContent(step, fileExists, appliedStep);
 
     const success = await safeWriteFile(step.targetPath, content);
     if (!success) {
@@ -412,7 +416,11 @@ export class PlanApplier {
     this.logger.info(`Updated config file ${step.targetPath}`);
   }
 
-  private async resolveConfigFileContent(step: PlanStep, fileExists: boolean): Promise<string> {
+  private async resolveConfigFileContent(
+    step: PlanStep,
+    fileExists: boolean,
+    appliedStep?: AppliedStep
+  ): Promise<string> {
     const existingContent = fileExists
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
@@ -452,6 +460,13 @@ export class PlanApplier {
     const secret = secretPolicy === 'target-persisted-at-apply' && authRef
       ? (await this.profileSecrets.getSecret(authRef))?.trim() || undefined
       : undefined;
+    // Truthful credential-gap metadata (Codex 155 round 2): when a
+    // target-persisted target wanted a credential and none was resolved, the
+    // applied step carries secretResolved=false so the outcome classifier
+    // reports guided-required instead of a false "configured".
+    if (appliedStep && secretPolicy === 'target-persisted-at-apply') {
+      appliedStep.secretResolved = secret !== undefined;
+    }
 
     if (secretPolicy === 'target-persisted-at-apply' && !secret && step.data.clearAuthWhenMissing === true) {
       const warningMessage = typeof step.data.missingSecretMessage === 'string' && step.data.missingSecretMessage.trim().length > 0
