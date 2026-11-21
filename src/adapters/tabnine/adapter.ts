@@ -29,10 +29,10 @@ export class TabnineAdapter extends BaseExtensionAdapter {
         'Admin: in the Tabnine Admin Console, open Models → Self-Managed Models and start the Add model wizard',
         'Step 1 (Provider): choose the OpenAI-compatible endpoint provider and set its base URL to the AIdome gateway endpoint',
         'Step 2 (Credentials): paste the AIdome gateway personal access token as the API key',
-        'Step 3 (Model Details): pick the technical model name (Tabnine auto-populates the list from the gateway model-listing API), set token limits, and add optional custom headers if routing requires them',
-        'Step 4: set per-team availability, use Run Test to verify the endpoint, then Save — routing becomes org-wide for every Tabnine seat with no per-user action',
-        'Restart VS Code and choose Set server URL when Tabnine prompts for the Enterprise Server to point the extension at your organization\'s own Tabnine Enterprise instance (never at the AIdome gateway directly)',
-        'If your organization does not operate a Tabnine Enterprise Server, use Cline, Continue, or another assistant with custom endpoint support'
+        'Step 3 (Model Details): select the technical model name from the auto-populated list (Tabnine queries the gateway model-listing API), or type the gateway\'s exact model identifier manually if the list is empty; set token limits and optional custom headers',
+        'Step 4: set per-team availability, use Run Test to verify the endpoint, then Save — this routes Tabnine Chat/Agent models through the endpoint for the selected teams (or org-wide by default); code completions keep using Tabnine\'s own universal model',
+        'Restart VS Code and choose Set server URL when Tabnine prompts for the Enterprise Server: point the extension at your organization\'s own Tabnine Enterprise instance, or at https://console.tabnine.com if your organization uses Tabnine Enterprise SaaS — never at the AIdome gateway directly',
+        'If your organization has neither a self-hosted Tabnine Enterprise Server nor an Enterprise SaaS subscription, use Cline, Continue, or another assistant with custom endpoint support'
       ],
       baseUrl: profile.baseUrl,
       limitation: 'proprietary-protocol',
@@ -62,18 +62,19 @@ export class TabnineAdapter extends BaseExtensionAdapter {
       };
     }
 
-    // Installed != configured: Tabnine cannot be configured for AIdome at
-    // all, so verification must NOT report success merely because the
-    // extension is present.
+    // Installed != configured AND not verifiable from this extension: the
+    // endpoint/model routing is admin-console (server-side) configuration,
+    // which this extension can neither read nor verify.
     return {
       success: false,
       // Installed is NOT configurable from this extension: Tier C.
-      message: 'Tabnine is installed, but it does not support custom endpoint configuration for AIdome (Tier C).',
+      message: 'Tabnine is installed, but endpoint configuration cannot be verified from this extension (Tier C): a Tabnine administrator routes Chat/Agent models to the endpoint via the Admin Console (Models → Self-Managed Models), which is server-side and invisible to the extension — request manual verification from your Tabnine administrator.',
       details: { 
         extension: true,
         tier: 'C',
         configurationStatus: 'unsupported',
-        limitation: 'Tabnine uses proprietary protocol and does not support OpenAI-compatible base URL switching'
+        verification: 'manual-verification-required',
+        limitation: 'Tabnine uses proprietary protocol and does not support OpenAI-compatible base URL switching from the extension'
       }
     };
   }
