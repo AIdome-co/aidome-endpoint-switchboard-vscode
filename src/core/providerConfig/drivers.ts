@@ -235,13 +235,20 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   const parsed = request.existingContent ? parseJsonObject(request.existingContent, 'jsonc') : {};
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
-  const matching = findManagedModel(models, request.baseUrl, data.identity, modelPath);
+  const match = findManagedModelMatch(models, request.baseUrl, data.identity, modelPath);
   // Credential semantics (target-persisted-at-apply): the managed entry gets
   // the profile's key when one is saved, and a credential-less profile switch
   // CLEARS the managed key — a previous profile's token must never survive
-  // (Codex 154 clear-not-replay precedent). Only the MANAGED entry is ever
-  // touched; unrelated user models keep their own credentials.
+  // (Codex 154 clear-not-replay precedent). Credential edits apply ONLY to
+  // identity-matched entries: a URL-fallback match may be the USER's own
+  // model pointing at the same gateway, and its credential stays untouched.
   const apiKey = request.secret?.trim() || undefined;
+  // Only an IDENTITY match is updated in place (credentials included). A
+  // URL-fallback match is the USER's own entry: it is left completely
+  // untouched and a distinct managed entry is appended instead — otherwise
+  // the fallback edit would replace the user's key with the active profile
+  // token or delete it (Codex 155 round 1).
+  const matching = match.model && match.byIdentity ? match.model : undefined;
 
   if (matching) {
     matching.provider = provider;
@@ -283,15 +290,21 @@ function renderJsoncModelArray(
   const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
   const existingModels = Array.isArray(root.models) ? root.models : [];
-  const matchingIndex = findManagedModelIndex(existingModels, request.baseUrl, data.identity, modelPath);
+  const match = findManagedModelMatch(existingModels, request.baseUrl, data.identity, modelPath);
   let output = request.existingContent ?? '{}';
 
   // Credential semantics: set the key when a profile secret was resolved at
   // apply time; CLEAR it otherwise so a previous profile's token never
   // survives a switch. jsonc-parser's modify DELETES the property when the
-  // value is undefined. Unrelated user entries are never touched.
+  // value is undefined. Credential edits apply ONLY to identity-matched
+  // entries — a URL-fallback match may be the USER's own model.
   const apiKey = request.secret?.trim() || undefined;
-  if (matchingIndex >= 0) {
+  // Only an IDENTITY match is updated in place; a URL-fallback match is the
+  // USER's own entry and stays untouched — a distinct managed entry is
+  // appended instead (Codex 155 round 1).
+  const inPlace = match.model && match.byIdentity ? match.model : undefined;
+  if (inPlace) {
+    const matchingIndex = existingModels.indexOf(inPlace);
     output = applyJsoncEdit(output, ['models', matchingIndex, 'provider'], provider);
     output = applyJsoncEdit(output, ['models', matchingIndex, 'apiBase'], request.baseUrl);
     output = applyJsoncEdit(output, ['models', matchingIndex, 'apiKey'], apiKey);
@@ -343,21 +356,26 @@ function renderYamlModelArray(
   const parsed = document.toJSON();
   const output = isRecord(parsed) ? parsed : {};
   const models = Array.isArray(output.models) ? output.models.filter(isRecord) : [];
-  const index = findManagedModelIndex(models, request.baseUrl, identity, modelPath);
+  const match = findManagedModelMatch(models, request.baseUrl, identity, modelPath);
 
-  // Credential semantics: same clear-not-replay contract as the JSONC path.
+  // Credential semantics: same clear-not-replay contract as the JSONC path,
+  // and credential edits apply ONLY to identity-matched entries.
   const apiKey = request.secret?.trim() || undefined;
+  // Only an IDENTITY match is updated in place; a URL-fallback match is the
+  // USER's own entry and stays untouched — a distinct managed entry is
+  // appended instead (Codex 155 round 1).
+  const current = match.model && match.byIdentity ? match.model : undefined;
+  const index = current ? models.indexOf(current) : -1;
   if (index >= 0) {
-    const current = models[index];
-    current.provider = provider;
-    current.apiBase = request.baseUrl;
+    current!.provider = provider;
+    current!.apiBase = request.baseUrl;
     if (apiKey) {
-      current.apiKey = apiKey;
+      current!.apiKey = apiKey;
     } else {
-      delete current.apiKey;
+      delete current!.apiKey;
     }
     if (useResponsesApi !== undefined) {
-      current.useResponsesApi = useResponsesApi;
+      current!.useResponsesApi = useResponsesApi;
     }
   } else {
     const nextModel: Record<string, unknown> = {
@@ -422,19 +440,51 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
 }
 
 /**
+ * A managed-entry match plus HOW it matched. Credential edits (apiKey
+ * set/clear) may only be applied to IDENTITY matches: an entry matched by
+ * URL fallback can be a USER's own model that merely points at the same
+ * gateway URL, and rewriting or clearing ITS credential would destroy the
+ * user's key (Codex 155 round 1).
+ */
+interface ManagedModelMatch {
+  model: Record<string, unknown> | undefined;
+  byIdentity: boolean;
+}
+
+/**
  * Finds the Switchboard-managed model entry: identity-field match first
  * (name/title), then the entry whose apiBase equals the gateway URL (an
  * entry previously written by Switchboard). NEVER matches by provider name —
  * an unrelated user OpenAI model must not be rewritten.
  */
+function findManagedModelMatch(
+  models: unknown[],
+  baseUrl: string,
+  identity: string | undefined,
+  modelPath: string
+): ManagedModelMatch {
+  const identityValue = identity ?? modelPath;
+  if (identityValue.length > 0) {
+    const byIdentity = models.findIndex(model =>
+      isRecord(model) && (model.name === identityValue || model.title === identityValue)
+    );
+    if (byIdentity >= 0 && isRecord(models[byIdentity])) {
+      return { model: models[byIdentity] as Record<string, unknown>, byIdentity: true };
+    }
+  }
+  const byUrl = models.findIndex(model => isRecord(model) && model.apiBase === baseUrl);
+  return byUrl >= 0 && isRecord(models[byUrl])
+    ? { model: models[byUrl] as Record<string, unknown>, byIdentity: false }
+    : { model: undefined, byIdentity: false };
+}
+
 function findManagedModel(
   models: Record<string, unknown>[],
   baseUrl: string,
   identity: string | undefined,
   modelPath: string
 ): Record<string, unknown> | undefined {
-  const index = findManagedModelIndex(models, baseUrl, identity, modelPath);
-  return index >= 0 ? models[index] : undefined;
+  return findManagedModelMatch(models as unknown[], baseUrl, identity, modelPath).model;
 }
 
 function findManagedModelIndex(
@@ -443,6 +493,7 @@ function findManagedModelIndex(
   identity: string | undefined,
   modelPath: string
 ): number {
+  // Kept for non-credential callers (provider/apiBase upserts).
   const identityValue = identity ?? modelPath;
   if (identityValue.length > 0) {
     const byIdentity = models.findIndex(model =>
