@@ -224,7 +224,12 @@ async function refreshKiloModels(
     return [];
   }
 
-  const merged = mergeModelEntries(existingContent, slugs);
+  // Reconcile semantics (Activate Profile = authoritative sync): the
+  // discovered list IS the gateway's current model set. Entries still served
+  // keep their full existing metadata; models the gateway no longer serves
+  // are REMOVED, so profile re-activation picks up removals too. An empty
+  // discovery result never rewrites the config (an outage must not wipe it).
+  const merged = reconcileModelEntries(existingContent, slugs);
   const models =
     Object.keys(merged).length > 0
       ? (merged as Record<string, { name: string }>)
@@ -257,13 +262,15 @@ async function refreshKiloModels(
 }
 
 /**
- * Merges discovered model slugs under the provider's existing `models` map.
- * Existing entries are kept WHOLE (their full metadata object — limits,
- * costs, modalities, variants, user-curated names — survives; only missing
- * IDs are added with a name-only fallback), so authenticated discovery can
- * never discard per-model user configuration.
+ * Reconciles the provider's `models` map to the discovered gateway list:
+ * the discovery result is authoritative. Entries for models still served
+ * keep their WHOLE existing metadata object (limits, costs, modalities,
+ * variants, user-curated names); models the gateway no longer serves are
+ * dropped; newly served models get a name-only fallback entry. Callers must
+ * NOT invoke this with an empty `slugs` result — an empty probe is treated
+ * as a discovery failure, not an empty catalog.
  */
-export function mergeModelEntries(
+export function reconcileModelEntries(
   existingContent: string,
   slugs: string[]
 ): Record<string, unknown> {
@@ -286,11 +293,11 @@ export function mergeModelEntries(
     existing = {};
   }
 
-  const merged: Record<string, unknown> = { ...existing };
+  const reconciled: Record<string, unknown> = {};
   for (const slug of slugs) {
-    if (!(slug in merged)) {
-      merged[slug] = { name: slug };
-    }
+    // Surviving entries keep their whole existing metadata; new ids fall
+    // back to a name-only entry.
+    reconciled[slug] = existing[slug] ?? { name: slug };
   }
-  return merged;
+  return reconciled;
 }

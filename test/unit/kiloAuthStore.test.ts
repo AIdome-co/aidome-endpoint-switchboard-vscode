@@ -52,7 +52,7 @@ vi.mock('../../src/adapters/kilocode/kiloConfigPatcher', async (importOriginal) 
 
 import {
   KILO_PROVIDER_SLUG,
-  mergeModelEntries,
+  reconcileModelEntries,
   resolveKiloAuthPath,
   writeKiloProviderAuth
 } from '../../src/adapters/kilocode/kiloAuthStore';
@@ -365,22 +365,23 @@ describe('kiloAuthStore', () => {
     });
   });
 
-  describe('mergeModelEntries', () => {
-    it('parses JSONC with comments, keeps existing entries WHOLE, and adds missing ids', () => {
-      const merged = mergeModelEntries(
-        `{\n // comment\n "provider": { "aidome-gateway": { "models": { "a": { "name": "A", "limit": { "context": 128000 } }, "b": {} } } } }`,
-        ['b', 'c']
+  describe('reconcileModelEntries', () => {
+    it('reconciles to the discovered list: surviving entries stay WHOLE, stale ones are removed', () => {
+      const reconciled = reconcileModelEntries(
+        `{\n // comment\n "provider": { "aidome-gateway": { "models": { "a": { "name": "A", "limit": { "context": 128000 } }, "stale": { "name": "gone" } } } } }`,
+        ['a', 'c']
       );
-      // Existing entries survive whole — user metadata is never discarded.
-      expect(merged['a']).toEqual({ name: 'A', limit: { context: 128000 } });
-      expect(merged['b']).toEqual({});
-      // Missing discovered ids get a name-only fallback.
-      expect(merged['c']).toEqual({ name: 'c' });
+      // Still served: whole existing metadata survives.
+      expect(reconciled['a']).toEqual({ name: 'A', limit: { context: 128000 } });
+      // No longer served: removed (Activate Profile picks up removals).
+      expect(reconciled['stale']).toBeUndefined();
+      // Newly served: name-only fallback.
+      expect(reconciled['c']).toEqual({ name: 'c' });
     });
 
     it('returns discovered-only entries for an unparsable or missing provider section', () => {
-      expect(mergeModelEntries('not json', ['x'])).toEqual({ x: { name: 'x' } });
-      expect(mergeModelEntries('{"other":1}', ['x'])).toEqual({ x: { name: 'x' } });
+      expect(reconcileModelEntries('not json', ['x'])).toEqual({ x: { name: 'x' } });
+      expect(reconcileModelEntries('{"other":1}', ['x'])).toEqual({ x: { name: 'x' } });
     });
   });
 });
