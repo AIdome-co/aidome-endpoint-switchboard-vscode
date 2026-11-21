@@ -130,4 +130,14 @@ export class RooCodeAdapter extends BaseExtensionAdapter {
   getTier(): 'A' | 'B' | 'C' {
     return 'C';
   }
+
+  /**
+   * Roo Code's guided plan configures real OpenAI-compatible providers
+   * manually in its settings UI — actionable for openai.chat_completions
+   * and openai.responses dialects (unsupported dialects get their own
+   * explain-and-stop plan at apply time).
+   */
+  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+    return 'actionable';
+  }
 }

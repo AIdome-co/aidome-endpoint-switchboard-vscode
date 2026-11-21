@@ -77,4 +77,9 @@ export class TabnineAdapter extends BaseExtensionAdapter {
   getTier(): 'A' | 'B' | 'C' {
     return 'C';
   }
+
+  /** Tabnine has no OpenAI-compatible endpoint at all — guidance is informational. */
+  getGuidedSetupStatus(): 'actionable' | 'unsupported' {
+    return 'unsupported';
+  }
 }

@@ -85,3 +85,33 @@ export function getAllAdapterKeys(): string[] {
 export function hasAdapter(assistantKey: string): boolean {
   return assistantKey in ADAPTER_REGISTRY;
 }
+
+/**
+ * Resolves which of the given assistants offer ACTIONABLE guided setup
+ * (`show-guided-steps` plans the user can actually follow to route traffic).
+ *
+ * Tier C adapters declare their actionability via
+ * `AssistantAdapter.getGuidedSetupStatus()`; adapters without the capability
+ * are never eligible. Non-Tier-C keys are skipped without instantiating an
+ * adapter.
+ * @param assistantKeys Keys to evaluate (extension and CLI detections)
+ * @param registryAssistants Registry entries used to resolve each key's tier
+ * @returns Set of keys with actionable guided setup (a subset of Tier C keys)
+ */
+export async function getGuidedSetupEligibleKeys(
+  assistantKeys: readonly string[],
+  registryAssistants: ReadonlyArray<{ key: string; endpointSwitching: { tier: 'A' | 'B' | 'C' } }>
+): Promise<Set<string>> {
+  const tierByKey = new Map(registryAssistants.map(assistant => [assistant.key, assistant.endpointSwitching.tier]));
+  const eligible = new Set<string>();
+  for (const assistantKey of assistantKeys) {
+    if (tierByKey.get(assistantKey) !== 'C') {
+      continue;
+    }
+    const adapter = await getAdapter(assistantKey);
+    if (adapter?.getGuidedSetupStatus?.() === 'actionable') {
+      eligible.add(assistantKey);
+    }
+  }
+  return eligible;
+}
