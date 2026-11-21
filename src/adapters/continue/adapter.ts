@@ -247,17 +247,12 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     // aidomeManaged marker when it rewrites the file, so mirror the
     // driver's rule — the exact "<identity> - <model>" name shape (only
     // this extension writes it) at THIS profile's gateway URL is ours.
-    if (prefixMatch && this.expectedBaseUrl !== undefined
+    return prefixMatch && this.expectedBaseUrl !== undefined
       && typeof model.apiBase === 'string'
-      && model.apiBase === normalizeOpenAiBaseUrl(this.expectedBaseUrl)) {
-      const modelId = typeof model.model === 'string' ? model.model : undefined;
-      if (modelId !== undefined && modelId.trim().length > 0
-        && (model.name === `${AIDOME_MODEL_IDENTITY} - ${modelId}`
-          || model.title === `${AIDOME_MODEL_IDENTITY} - ${modelId}`)) {
-        return true;
-      }
-    }
-    return false;
+      && model.apiBase === normalizeOpenAiBaseUrl(this.expectedBaseUrl)
+      && typeof model.model === 'string' && model.model.trim().length > 0
+      && (model.name === `${AIDOME_MODEL_IDENTITY} - ${model.model}`
+        || model.title === `${AIDOME_MODEL_IDENTITY} - ${model.model}`);
   }
 
   /**

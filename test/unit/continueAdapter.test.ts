@@ -692,7 +692,7 @@ describe('ContinueAdapter verification completeness', () => {
     vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
       models: [
         {
-          title: 'AIdome Gateway - legacy/model-1',
+          name: 'AIdome Gateway - legacy/model-1',
           provider: 'openai',
           model: 'legacy/model-1',
           apiBase: mockProfile.baseUrl,
