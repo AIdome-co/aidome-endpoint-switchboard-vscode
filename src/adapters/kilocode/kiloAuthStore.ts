@@ -100,13 +100,15 @@ async function writeAuthFileAtomically(
   }
   const tmpPath = `${targetPath}.aidome-tmp`;
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
   try {
+    await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
     await fs.chmod(tmpPath, 0o600);
     await fs.rename(tmpPath, targetPath);
-  } catch (error) {
+  } finally {
+    // A mid-write failure (ENOSPC, permissions) can leave a stale credential
+    // fragment in the temp file beside the resolved target — always clean up
+    // the LOCALLY computed tmp path (Codex 154 round 6, finding b).
     await fs.rm(tmpPath, { force: true }).catch(() => undefined);
-    throw error;
   }
 }
 
@@ -176,6 +178,13 @@ export async function writeKiloProviderAuth(
   }
 
   const authBackupPath = authExisted ? await createBackup(authPath) : undefined;
+  if (authBackupPath) {
+    // createBackup preserves the SOURCE mode (fs.copyFile): a legacy 0644
+    // auth.json would leave a world-readable backup containing the old PAT
+    // and every other Kilo credential. Credential backups are always 0600
+    // (Codex 154 round 6, finding a).
+    await fs.chmod(authBackupPath, 0o600).catch(() => undefined);
+  }
   if (authExisted && !authBackupPath) {
     throw new Error(
       `Could not create a backup of ${authPath}; refusing to mutate it without a recoverable copy`
@@ -197,8 +206,8 @@ export async function writeKiloProviderAuth(
     // truncated or partially replaced auth.json behind, so no restore of the
     // pre-write content is needed — the original file (or its absence) is
     // intact (Codex 154 round 3, finding X: atomic 0600 replacement also
-    // enforces 0600 on files that existed with permissive modes).
-    await fs.rm(`${authPath}.aidome-tmp`, { force: true }).catch(() => undefined);
+    // enforces 0600 on files that existed with permissive modes). Temp-file
+    // cleanup is guaranteed inside writeAuthFileAtomically.
     throw new Error(
       `Failed to write ${authPath}: ${error instanceof Error ? error.message : String(error)}`
     );
