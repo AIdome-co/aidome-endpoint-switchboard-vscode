@@ -55,6 +55,10 @@ export interface KiloAuthWriteResult {
   noOp?: boolean;
   /** True — Kilo cannot authenticate without a credential (GAP 9 outcome gate). */
   authRequired?: boolean;
+  /** True when the provider's model map was successfully populated/refreshed. */
+  modelsApplied?: boolean;
+  /** True — Kilo requires at least one model for the provider to be usable. */
+  modelsRequired?: boolean;
 }
 
 export interface WriteKiloProviderAuthOptions {
@@ -65,6 +69,29 @@ export interface WriteKiloProviderAuthOptions {
   dataDir?: string;
   /** Test seam: overrides the kilo.jsonc path. */
   configPath?: string;
+}
+
+/**
+ * Atomically replaces auth.json: writes a 0600 temp file in the same
+ * directory and renames it over the target. Rename is atomic per-filesystem,
+ * so a failure can never leave a truncated credential file, and replacing a
+ * pre-existing permissive-mode file enforces 0600 (writeFile's mode is only
+ * applied on CREATE — chmod via the fresh temp file is what guarantees it).
+ */
+async function writeAuthFileAtomically(
+  authPath: string,
+  document: Record<string, unknown>
+): Promise<void> {
+  const tmpPath = `${authPath}.aidome-tmp`;
+  await fs.mkdir(path.dirname(authPath), { recursive: true });
+  await fs.writeFile(tmpPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
+  try {
+    await fs.chmod(tmpPath, 0o600);
+    await fs.rename(tmpPath, authPath);
+  } catch (error) {
+    await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 /** Resolves Kilo's global data dir the same way Kilo's xdg-basedir Path.data does. */
@@ -136,23 +163,14 @@ export async function writeKiloProviderAuth(
   }
 
   try {
-    await fs.mkdir(path.dirname(authPath), { recursive: true });
-    await fs.writeFile(authPath, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
+    await writeAuthFileAtomically(authPath, document);
   } catch (error) {
-    // A failed write may already have truncated or partially replaced an
-    // EXISTING file (disk full, ENOSPC mid-write) — restore the pre-write
-    // backup before propagating (Codex 154 round 1, finding a).
-    try {
-      if (authExisted && authBackupPath) {
-        await fs.copyFile(authBackupPath, authPath);
-      } else if (!authExisted) {
-        await fs.rm(authPath, { force: true });
-      }
-    } catch (restoreError) {
-      Logger.getInstance().warning(
-        `Failed to restore ${authPath} after a failed write: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
-      );
-    }
+    // The write is ATOMIC (temp file + rename): a failure can never leave a
+    // truncated or partially replaced auth.json behind, so no restore of the
+    // pre-write content is needed — the original file (or its absence) is
+    // intact (Codex 154 round 3, finding X: atomic 0600 replacement also
+    // enforces 0600 on files that existed with permissive modes).
+    await fs.rm(`${authPath}.aidome-tmp`, { force: true }).catch(() => undefined);
     throw new Error(
       `Failed to write ${authPath}: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -160,23 +178,18 @@ export async function writeKiloProviderAuth(
 
   // Auth write committed. A later failure must self-restore it before
   // propagating (a rejected step never enters the applier's rollback list).
+  // Restore failures PROPAGATE — the caller attaches manual-recovery
+  // instructions instead of silently keeping the committed credential.
   const restoreAuth = async (): Promise<void> => {
-    try {
-      if (authBackupPath) {
-        await fs.copyFile(authBackupPath, authPath);
-      } else if (!authExisted) {
-        await fs.rm(authPath, { force: true });
-      }
-      // Restore the pre-write entry shape in memory for nothing else — done.
-    } catch (restoreError) {
-      Logger.getInstance().warning(
-        `Failed to restore ${authPath} after a failed Kilo credential step: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
-      );
+    if (authBackupPath) {
+      await fs.copyFile(authBackupPath, authPath);
+    } else if (!authExisted) {
+      await fs.rm(authPath, { force: true });
     }
   };
 
   try {
-    const extraRollbacks = await refreshKiloModels(options);
+    const { extraRollbacks, modelsApplied } = await refreshKiloModels(options);
     return {
       backupPath: authBackupPath,
       target: authPath,
@@ -184,11 +197,31 @@ export async function writeKiloProviderAuth(
       extraRollbacks,
       // Kilo's provider cannot authenticate without a key — a missing
       // credential is an authentication gap (GAP 9), not a valid config.
-      authRequired: true
+      authRequired: true,
+      // Kilo requires at least one model per provider (upstream schema:
+      // "At least one model is required") — an unpopulated model list is
+      // an incomplete configuration, not a valid one.
+      modelsApplied,
+      modelsRequired: true
     };
   } catch (error) {
-    await restoreAuth();
-    throw error instanceof Error ? error : new Error(String(error));
+    let restoreNote = '';
+    try {
+      await restoreAuth();
+    } catch (restoreError) {
+      // NEVER swallow a failed restore: without actionable recovery
+      // instructions the committed PAT would remain active after a reported
+      // failure (Codex 154 round 3, finding b).
+      restoreNote = authBackupPath
+        ? ` MANUAL RECOVERY REQUIRED: restoring ${authPath} from the backup also failed — copy it back manually: cp "${authBackupPath}" "${authPath}"`
+        : ` MANUAL RECOVERY REQUIRED: cleaning up the newly created ${authPath} also failed — remove it manually.`;
+      Logger.getInstance().warning(
+        `Failed to restore ${authPath} after a failed Kilo model refresh: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
+      );
+    }
+    throw new Error(
+      `Kilo model refresh failed; the committed credential write was rolled back.${restoreNote} (${error instanceof Error ? error.message : String(error)})`
+    );
   }
 }
 
@@ -201,34 +234,35 @@ export async function writeKiloProviderAuth(
  */
 async function refreshKiloModels(
   options: WriteKiloProviderAuthOptions
-): Promise<KiloAuthWriteResult['extraRollbacks']> {
+): Promise<{ extraRollbacks: KiloAuthWriteResult['extraRollbacks']; modelsApplied: boolean }> {
   if (!options.apiKey) {
-    return [];
+    return { extraRollbacks: [], modelsApplied: false };
   }
   const configPath = options.configPath ?? getKiloConfigPath();
   if (!configPath) {
-    return [];
+    return { extraRollbacks: [], modelsApplied: false };
   }
   const configExisted = await fileExists(configPath);
   if (!configExisted) {
-    return [];
+    return { extraRollbacks: [], modelsApplied: false };
   }
 
   const slugs = await discoverModels(options.baseUrl, options.apiKey);
   if (slugs.length === 0) {
-    return [];
+    // Empty probe = discovery failure, not an empty catalog: leave the
+    // config untouched and report the models as NOT applied.
+    return { extraRollbacks: [], modelsApplied: false };
   }
 
   const existingContent = await readFileSafe(configPath);
   if (existingContent === undefined) {
-    return [];
+    return { extraRollbacks: [], modelsApplied: false };
   }
 
   // Reconcile semantics (Activate Profile = authoritative sync): the
   // discovered list IS the gateway's current model set. Entries still served
   // keep their full existing metadata; models the gateway no longer serves
-  // are REMOVED, so profile re-activation picks up removals too. An empty
-  // discovery result never rewrites the config (an outage must not wipe it).
+  // are REMOVED, so profile re-activation picks up removals too.
   const merged = reconcileModelEntries(existingContent, slugs);
   const models =
     Object.keys(merged).length > 0
@@ -258,7 +292,10 @@ async function refreshKiloModels(
     );
   }
 
-  return [{ target: configPath, backupPath: configBackupPath, createdFile: !configExisted }];
+  return {
+    extraRollbacks: [{ target: configPath, backupPath: configBackupPath, createdFile: !configExisted }],
+    modelsApplied: true
+  };
 }
 
 /**

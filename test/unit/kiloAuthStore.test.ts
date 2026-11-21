@@ -149,6 +149,22 @@ describe('kiloAuthStore', () => {
       expect(backup[KILO_PROVIDER_SLUG]).toEqual({ type: 'api', key: 'OLD_PAT' });
     });
 
+    it('enforces 0600 on an existing permissive auth.json (Codex 154 round 3)', async () => {
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.writeFile(authPath, '{}', { mode: 0o644 });
+
+      await writeKiloProviderAuth({
+        baseUrl: 'https://gw.example.com/v1',
+        apiKey: 'aid_pat_test',
+        dataDir
+      });
+
+      // writeFile's mode only applies on CREATE — the atomic temp+rename
+      // replacement is what narrows a legacy 0644 file back to 0600.
+      const stat = await fs.stat(authPath);
+      expect(stat.mode & 0o777).toBe(0o600);
+    });
+
     it('clears our entry for a credential-less profile while keeping others', async () => {
       await fs.mkdir(path.dirname(authPath), { recursive: true });
       await fs.writeFile(
@@ -243,6 +259,9 @@ describe('kiloAuthStore', () => {
       expect(result.extraRollbacks).toHaveLength(1);
       expect(result.extraRollbacks![0].target).toBe(configPath);
       expect(result.extraRollbacks![0].createdFile).toBe(false);
+      expect(result.modelsApplied).toBe(true);
+      expect(result.modelsRequired).toBe(true);
+      expect(result.authRequired).toBe(true);
 
       const config = await fs.readFile(configPath, 'utf-8');
       expect(config).toContain('user comment must survive');
@@ -274,6 +293,10 @@ describe('kiloAuthStore', () => {
       });
 
       expect(result.extraRollbacks).toHaveLength(0);
+      // An empty probe is a discovery failure, NOT an empty catalog: models
+      // are reported unapplied and the config is untouched.
+      expect(result.modelsApplied).toBe(false);
+      expect(result.modelsRequired).toBe(true);
       expect(await fs.readFile(configPath, 'utf-8')).toBe('{"provider":{}}');
     });
 

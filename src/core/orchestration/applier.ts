@@ -158,12 +158,26 @@ export class PlanApplier {
               || (step.type === 'write-assistant-storage'
                 && (step as { authRequired?: boolean }).authRequired === true))
             && (step as { secretResolved?: boolean }).secretResolved === false);
+          // GAP 10 (round 3): an assistant that REQUIRES a model list is not
+          // usable until the models were actually populated — authenticated
+          // discovery can fail (401/timeout/empty) even when the credential
+          // write succeeded, so feed the writer's result into the outcome.
+          const modelsGap = appliedChangeSteps.find(step =>
+            step.type === 'write-assistant-storage'
+            && (step as { modelsRequired?: boolean }).modelsRequired === true
+            && (step as { modelsApplied?: boolean }).modelsApplied !== true);
           if (credentialGap) {
             assistantResults.set(assistantKey, assistantResult(
               'guided-required',
               'No saved profile credential was found — the configuration was applied but authentication remains incomplete'
             ));
             this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: the required credential is missing`);
+          } else if (modelsGap) {
+            assistantResults.set(assistantKey, assistantResult(
+              'guided-required',
+              'The provider requires at least one model but the model list could not be populated — verify the gateway is reachable, or add the models manually in the assistant'
+            ));
+            this.logger.warning(`[Applier] Assistant "${assistantKey}" is guided-required: the required model list was not populated`);
           } else {
             assistantResults.set(assistantKey, assistantResult('configured'));
             this.logger.info(`[Applier] Assistant "${assistantKey}" configured successfully`);
@@ -697,6 +711,8 @@ export class PlanApplier {
     // decision (its vendor contract decides): Kilo requires a key, CodeGPT's
     // key-less local connection does not (Codex 154 round 2, finding K).
     appliedStep.authRequired = result.authRequired;
+    appliedStep.modelsApplied = result.modelsApplied;
+    appliedStep.modelsRequired = result.modelsRequired;
     this.logger.info(
       `Wrote assistant storage for ${assistantKey} (baseUrl=${redactUrl(baseUrl)}, backup=${result.backupPath ?? 'none'}, noOp=${result.noOp === true})`
     );
