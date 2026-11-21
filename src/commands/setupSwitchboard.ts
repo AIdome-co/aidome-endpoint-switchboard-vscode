@@ -165,15 +165,28 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
     const switchableAssistants = detected.assistants.filter(a => a.tier !== 'C');
     const nonSwitchableAssistants = detected.assistants.filter(a => a.tier === 'C');
 
+    // Resolve guided eligibility once: unsupported Tier C assistants (e.g.
+    // Tabnine) must never be promised a guided-setup step that will not run
+    // (Codex round 3, PR 118).
+    const guidedEligibleKeys = await getGuidedSetupEligibleKeys(
+      [...detected.assistants.map(a => a.assistantKey), ...detected.clis.map(c => c.assistantKey)],
+      registry.assistants
+    );
+    const guidedEligibleAssistants = nonSwitchableAssistants.filter(a => guidedEligibleKeys.has(a.assistantKey));
+
     if (switchableAssistants.length === 0 && nonSwitchableAssistants.length > 0) {
       const names = nonSwitchableAssistants.map(a => a.displayName).join(', ');
       const tierANames = getAssistantsByTier(registry, 'A').map(a => a.displayName).join(', ');
       logger.warning(`Only guided-setup (Tier C) assistants detected: ${names}`);
       // Tier C assistants are still routed below — their guided `show-guided-steps`
       // plans are the only reachable surface for manual setup (Codex review PR 118).
+      const guidedOffer =
+        guidedEligibleAssistants.length === 0
+          ? `None of them offer guided setup.`
+          : `Guided manual setup will be offered next`;
       await showWarning(
         `Detected ${names}, but ${nonSwitchableAssistants.length === 1 ? 'it does' : 'they do'} not support automatic endpoint switching. ` +
-        `Guided manual setup will be offered next; install a Tier A assistant (${tierANames}) for automatic configuration.`
+        `${guidedOffer}; install a Tier A assistant (${tierANames}) for automatic configuration.`
       );
     }
 
@@ -184,10 +197,7 @@ export async function setupSwitchboard(context: vscode.ExtensionContext): Promis
       // Only Tier C assistants with ACTIONABLE guided setup stay reachable
       // (Codex round 2, PR 118): unsupported informational guidance such as
       // Tabnine must not be offered as "guided setup".
-      await getGuidedSetupEligibleKeys(
-        [...detected.assistants.map(a => a.assistantKey), ...detected.clis.map(c => c.assistantKey)],
-        registry.assistants
-      )
+      guidedEligibleKeys
     );
 
     // Step 2/5 — Assistant selection
