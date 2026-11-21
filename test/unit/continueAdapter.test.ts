@@ -267,7 +267,7 @@ describe('ContinueAdapter', () => {
       vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
       await adapter.buildPlan(mockProfile);
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
-        'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n    apiKey: aid_pat_verify\n'
+        'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n    model: legacy/model-1\n    apiKey: aid_pat_verify\n'
       );
 
       const result = await adapter.verify();
@@ -455,3 +455,32 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     expect(result.details?.managedEntries).toBe(2);
   });
 });
+
+describe('ContinueAdapter verification requires the model field', () => {
+  it('fails when a managed entry has apiBase and apiKey but no model id', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        { name: 'AIdome Gateway - m/a', title: 'm/a', model: 'm/a', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test', aidomeManaged: true },
+        { name: 'AIdome Gateway - m/b', title: 'm/b', model: '', provider: 'openai', apiBase: 'https://aidome.example.com/v1', apiKey: 'sk-test', aidomeManaged: true }
+      ]
+    }));
+
+    const adapter = new ContinueAdapter();
+    await adapter.buildPlan({
+      id: 'test-profile',
+      name: 'Test Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const result = await (adapter as unknown as {
+      verifyConfiguration(): Promise<{ success: boolean; message: string; details?: Record<string, unknown> }>;
+    }).verifyConfiguration();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('no model id configured');
+  });
+});
+

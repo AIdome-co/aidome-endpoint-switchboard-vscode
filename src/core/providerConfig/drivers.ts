@@ -253,7 +253,7 @@ function renderModelArray(request: ConfigDriverRequest, data: ModelArrayDriverDa
   );
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
-    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
+    const kept = models.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath, request.baseUrl));
     const apiKey = request.secret?.trim() || undefined;
     output.models = [
       ...kept,
@@ -324,7 +324,7 @@ function renderJsoncModelArray(
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
     // Multi-model reconcile (see renderYamlModelArray).
-    const kept = existingModels.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath));
+    const kept = existingModels.filter(entry => !isManagedModelEntry(entry, data.identity ?? modelPath, request.baseUrl));
     const apiKey = request.secret?.trim() || undefined;
     const managedEntries = buildManagedModelEntries(
       data.identity ?? modelPath,
@@ -381,11 +381,18 @@ function renderJsoncModelArray(
 }
 
 /**
+ * Unambiguous ownership marker written on every managed model entry. A name
+ * prefix alone is NOT ownership evidence — a user may legitimately name
+ * their own entry "AIdome Gateway - <something>" (Codex 157 round 3) — so
+ * reconciliation only touches prefixed entries that carry this marker (or
+ * whose apiBase equals the gateway URL currently being written).
+ */
+const AIDOME_MANAGED_MARKER = 'aidomeManaged';
+
+/**
  * Builds the Switchboard-managed model entries for a Continue-style model
  * array when gateway model ids are known: ONE entry per model, each carrying
- * the vendor-required `model` field. The entry name embeds the managed
- * identity so later applies can find, update, and reconcile exactly the
- * entries this extension owns without touching user-authored entries.
+ * the vendor-required `model` field and the ownership marker.
  */
 function buildManagedModelEntries(
   identity: string,
@@ -401,7 +408,8 @@ function buildManagedModelEntries(
       title: modelId,
       model: modelId,
       provider,
-      apiBase: baseUrl
+      apiBase: baseUrl,
+      [AIDOME_MANAGED_MARKER]: true
     };
     if (apiKey) {
       entry.apiKey = apiKey;
@@ -413,14 +421,31 @@ function buildManagedModelEntries(
   });
 }
 
-/** True when an entry was authored by this extension's managed identity. */
-function isManagedModelEntry(entry: Record<string, unknown>, identity: string): boolean {
+/**
+ * True when an entry was authored by this extension's managed identity.
+ * The exact identity name is the legacy single-entry shape (always ours);
+ * a per-model prefix is ours only with the marker or when the entry points
+ * at the gateway URL currently being written. Continue's config schema
+ * strips unknown fields, so the marker never breaks the vendor parser.
+ */
+function isManagedModelEntry(
+  entry: Record<string, unknown>,
+  identity: string,
+  baseUrl?: string
+): boolean {
   const name = typeof entry.name === 'string' ? entry.name : undefined;
   const title = typeof entry.title === 'string' ? entry.title : undefined;
+  if (name === identity || title === identity) {
+    return true;
+  }
   const withSeparator = `${identity} - `;
-  return name === identity || title === identity
-    || (name !== undefined && name.startsWith(withSeparator))
+  const prefixMatch = (name !== undefined && name.startsWith(withSeparator))
     || (title !== undefined && title.startsWith(withSeparator));
+  if (!prefixMatch) {
+    return false;
+  }
+  return entry[AIDOME_MANAGED_MARKER] === true
+    || (baseUrl !== undefined && entry.apiBase === baseUrl);
 }
 
 /**
@@ -474,7 +499,7 @@ function renderYamlModelArray(
   if (gatewayModels && gatewayModels.length > 0) {
     // Multi-model reconcile: drop exactly the entries this extension managed
     // (identity-named) and write one entry per discovered gateway model.
-    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath));
+    const kept = models.filter(entry => !isManagedModelEntry(entry, identity ?? modelPath, request.baseUrl));
     const apiKey = request.secret?.trim() || undefined;
     output.models = [
       ...kept,

@@ -414,7 +414,7 @@ describe('configuration drivers', () => {
     it('migrates the legacy single managed entry and reconciles removed models', () => {
       const existing = 'models:\n' +
         '  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n' +
-        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n' +
+        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n    aidomeManaged: true\n' +
         '  - name: KeepMe\n    title: KeepMe\n    model: k\n    provider: openai\n    apiBase: https://elsewhere.example.com/v1\n';
       const output = renderConfigFileContent({
         baseUrl: BASE_URL,
@@ -441,7 +441,7 @@ describe('configuration drivers', () => {
 
     it('removes stale per-model managed entries on a profile switch without discovery results', () => {
       const existing = 'models:\n' +
-        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n';
+        '  - name: AIdome Gateway - m/a\n    title: m/a\n    model: m/a\n    provider: openai\n    apiBase: https://stale.example.com/v1\n    apiKey: old\n    aidomeManaged: true\n';
       const output = renderConfigFileContent({
         baseUrl: BASE_URL,
         existingContent: existing,
@@ -473,6 +473,32 @@ describe('configuration drivers', () => {
       const models = parsed.models as Array<Record<string, unknown>>;
       expect(models).toHaveLength(1);
       expect(models[0].name).toBe('AIdome Gateway');
+    });
+
+    it('stamps the ownership marker on managed entries and preserves a user entry that collides with the prefix', () => {
+      const output = renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: 'models:\n' +
+          '  - name: AIdome Gateway - my-custom-model\n    title: my-custom-model\n    model: my-custom-model\n    provider: openai\n    apiBase: https://api.openai.com/v1\n    apiKey: user-key\n',
+        format: 'yaml',
+        secret: 'tok-3',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'yaml',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      });
+
+      const parsed = parseDocument(output).toJSON() as Record<string, unknown>;
+      const models = parsed.models as Array<Record<string, unknown>>;
+      // The user's colliding entry is NOT ours (no marker, foreign apiBase)
+      // and must survive untouched.
+      expect(models.some(m => m.name === 'AIdome Gateway - my-custom-model' && m.apiKey === 'user-key')).toBe(true);
+      const managed = models.filter(m => m.aidomeManaged === true);
+      expect(managed).toHaveLength(1);
+      expect(managed[0]).toMatchObject({ model: 'm/a', apiBase: BASE_URL, apiKey: 'tok-3' });
     });
 
     it('jsonc: writes one managed entry per gateway model with the model field', () => {

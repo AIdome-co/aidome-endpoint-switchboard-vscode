@@ -164,6 +164,20 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // `model` is the field this integration exists to guarantee (Continue's
+    // schema requires it and rejects entries without it), so verification
+    // fails when any managed entry is missing or has a blank model value.
+    const missingModel = managed.filter(model =>
+      typeof model.model !== 'string' || model.model.trim().length === 0
+    );
+    if (missingModel.length > 0) {
+      return {
+        success: false,
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entries have no model id configured — re-apply the profile so Switchboard rewrites them with one entry per gateway model`,
+        details: { configPath, format, modelCount: models.length }
+      };
+    }
+
     return {
       success: true,
       message: 'Continue.dev configuration verified',
