@@ -55,7 +55,7 @@ export class TabnineAdapter extends BaseExtensionAdapter {
       steps: [
         'Install the Tabnine for Enterprise VS Code extension if your organization provides one',
         'Admin: in the Tabnine Admin Console, open Models → Self-Managed Models and start the Add model wizard',
-        'Step 1 (Provider): choose the OpenAI-compatible endpoint provider and set its base URL to the AIdome gateway endpoint',
+        `Step 1 (Provider): choose the OpenAI-compatible endpoint provider and set its base URL to this profile's endpoint: ${profile.baseUrl}`,
         'Step 2 (Credentials): paste the AIdome gateway personal access token as the API key',
         'Step 3 (Model Details): select the technical model name from the auto-populated list (Tabnine queries the gateway model-listing API), or type the gateway\'s exact model identifier manually if the list is empty; set token limits and optional custom headers',
         'Step 4: set per-team availability, use Run Test to verify the endpoint, then Save — this routes Tabnine Chat/Agent models through the endpoint for the selected teams (or org-wide by default); code completions keep using Tabnine\'s own universal model',
