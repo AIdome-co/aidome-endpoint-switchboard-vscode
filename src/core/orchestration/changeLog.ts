@@ -25,6 +25,12 @@ export interface AppliedStep {
   managedValueRemoved?: boolean;
   /** For write-assistant-storage: additional mutated targets restored after the primary on rollback. */
   extraRollbacks?: import('./assistantStorageWriters').AssistantStorageRollbackTarget[];
+  /**
+   * For write-assistant-storage: the writer declared the assistant cannot
+   * function without a credential, so `secretResolved === false` is an
+   * authentication gap (guided-required), not a valid unauthenticated setup.
+   */
+  authRequired?: boolean;
 }
 
 /**

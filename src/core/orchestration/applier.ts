@@ -154,7 +154,9 @@ export class PlanApplier {
           // (no-op) or left stale state in place. A confirmed no-op with no
           // credential available also leaves auth incomplete: guided-required.
           const credentialGap = appliedChangeSteps.find(step =>
-            (step.type === 'write-env-file' || step.type === 'write-assistant-storage')
+            (step.type === 'write-env-file'
+              || (step.type === 'write-assistant-storage'
+                && (step as { authRequired?: boolean }).authRequired === true))
             && (step as { secretResolved?: boolean }).secretResolved === false);
           if (credentialGap) {
             assistantResults.set(assistantKey, assistantResult(
@@ -186,7 +188,9 @@ export class PlanApplier {
             // (the user must supply a credential), NOT deferred, even
             // though no file was touched.
             const noOpCredentialGap = appliedChangeSteps.find(step =>
-              (step.type === 'write-env-file' || step.type === 'write-assistant-storage')
+              (step.type === 'write-env-file'
+                || (step.type === 'write-assistant-storage'
+                  && (step as { authRequired?: boolean }).authRequired === true))
               && step.mutationApplied === false
               && (step as { secretResolved?: boolean }).secretResolved === false);
             // P1: no break/continue here — classify THIS assistant and let
@@ -689,6 +693,10 @@ export class PlanApplier {
     // deletes targets the apply created (Codex 154 round 1, finding n).
     appliedStep.createdFile = result.createdFile;
     appliedStep.extraRollbacks = result.extraRollbacks;
+    // Whether a missing secret is an authentication gap is the WRITER's
+    // decision (its vendor contract decides): Kilo requires a key, CodeGPT's
+    // key-less local connection does not (Codex 154 round 2, finding K).
+    appliedStep.authRequired = result.authRequired;
     this.logger.info(
       `Wrote assistant storage for ${assistantKey} (baseUrl=${redactUrl(baseUrl)}, backup=${result.backupPath ?? 'none'}, noOp=${result.noOp === true})`
     );

@@ -130,7 +130,14 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
       reversible: true
     });
 
-    // If auto-discovery failed and no existing config, guide the user
+    // If auto-discovery failed and no existing config, guide the user.
+    // GAP 10/round-2: when a saved credential exists, the storage writer
+    // performs AUTHENTICATED discovery at apply time and populates the model
+    // map — the planning probe could not (it is unauthenticated), so the
+    // guidance here must be OPTIONAL. A required step would misclassify a
+    // fully automatic setup as guided-required and skip the mapping. Without
+    // a credential the guidance is genuinely required (nothing can discover
+    // models or authenticate).
     if (!models && !configExists) {
       plan = addStep(plan, {
         action: 'show-guided-steps',
@@ -144,7 +151,8 @@ export class KiloCodeAdapter extends BaseExtensionAdapter {
             `Add model(s) under "Models" (e.g. "gpt-4" or any model your gateway serves)`,
             `Save the provider configuration`
           ],
-          baseUrl
+          baseUrl,
+          ...(profile.authRef ? { optional: true } : {})
         },
         reversible: false
       });

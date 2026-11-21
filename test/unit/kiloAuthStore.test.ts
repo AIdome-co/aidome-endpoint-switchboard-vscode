@@ -292,6 +292,7 @@ describe('kiloAuthStore', () => {
       // No credential AND no managed entry present: a confirmed no-op — the
       // applier classifies this as guided-required (GAP 9), not configured.
       expect(result.noOp).toBe(true);
+      expect(result.authRequired).toBe(true);
       expect(result.extraRollbacks).toBeUndefined();
       expect(mockDiscoverModels).not.toHaveBeenCalled();
       const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
