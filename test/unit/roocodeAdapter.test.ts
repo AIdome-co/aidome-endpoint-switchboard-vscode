@@ -216,5 +216,12 @@ describe('RooCodeAdapter', () => {
       expect(adapter.getDisplayName()).toBe('Roo Code');
       expect(adapter.getTier()).toBe('C');
     });
+
+    it('declares its guided setup actionable for supported OpenAI dialects', () => {
+      // Unsupported-dialect plans carry configurationStatus: 'unsupported'
+      // at apply time, but the guided-setup surface itself is reachable
+      // because the supported OpenAI dialect plans are followable.
+      expect(adapter.getGuidedSetupStatus()).toBe('actionable');
+    });
   });
 });
