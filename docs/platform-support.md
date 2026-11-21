@@ -119,6 +119,22 @@ A visual reference of which assistants are available on which platforms — inde
 
 ## ⚠️ Known Assistant Limitations
 
+### Continue — not detected over Remote SSH (UI-kind extension)
+
+When you connect to a remote environment (SSH, WSL, dev container, Codespace), **Continue.dev may be installed on the remote machine but invisible to the Switchboard's assistant detection**. This is not a Switchboard or Continue bug: Continue declares `"extensionKind": ["ui", "workspace"]` in its manifest, so over a remote connection VS Code prefers to run it in the **local (client) extension host** on your laptop. The Switchboard runs in the remote extension host, so Continue does not appear in the detection list — and its configuration file (`~/.continue`) also lives on your laptop, not on the remote machine, which means profile switching cannot reach it until it runs remotely.
+
+**One-time fix (recommended):** force Continue to run in the remote workspace by adding it to `remote.extensionKind` in your **local VS Code user settings** (on your laptop — NOT the remote window's settings, and NOT a workspace `.vscode/settings.json`: VS Code decides extension placement from user settings only, so workspace-level entries are ignored):
+
+```json
+"remote.extensionKind": {
+  "Continue.continue": ["workspace"]
+}
+```
+
+Then reload the remote window. Continue now runs in the remote extension host, reads/writes `~/.continue` on the remote machine, and the Switchboard detects and configures it like every other assistant.
+
+**What the Switchboard does for you:** the setup and attach wizards detect this situation automatically (on-disk scan of the active server's extensions directory), explain the gap, copy the ready-to-paste snippet to your clipboard, and exclude Continue from the selectable list until the override is applied — so you cannot "activate" a profile into a config file Continue would never read.
+
 ### CodeGPT — chat model selection resets after a window reload (upstream, CodeGPT 3.24.x)
 
 After the Switchboard activates a CodeGPT profile, the configured model appears in the CodeGPT **Manage models → Local** list and remains selectable in the chat model picker. However, **after a full window reload, CodeGPT's chat model picker resets the selected model back to a default** once its default (cloud) model catalog finishes loading — the model itself stays available in the **"Custom"** group; only the active selection is reset.
