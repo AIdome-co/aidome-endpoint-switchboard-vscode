@@ -155,7 +155,7 @@ describe('ContinueAdapter', () => {
           {
             title: 'AIdome Gateway',
             provider: 'openai',
-            model: 'gpt-4o-mini',
+            model: 'legacy/model-1',
             apiBase: 'https://aidome.example.com/v1',
             apiKey: 'aid_pat_verify'
           }
@@ -538,3 +538,117 @@ describe('ContinueAdapter verification ignores unmarked prefix collisions', () =
   });
 });
 
+describe('ContinueAdapter verification completeness', () => {
+  let adapter: ContinueAdapter;
+  let mockProfile: EndpointProfile;
+
+  beforeEach(() => {
+    adapter = new ContinueAdapter();
+    mockProfile = {
+      id: 'test-profile',
+      name: 'Test Profile',
+      profileType: 'custom',
+      baseUrl: 'https://aidome.example.com/v1',
+      dialect: 'openai.chat_completions',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.json');
+  });
+
+  it('fails verification when a discovered gateway model has no managed entry', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' },
+      { id: 'legacy/model-2', name: 'Model 2' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - legacy/model-1',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl,
+          apiKey: 'pat-token',
+          aidomeManaged: true
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('missing 1 AIdome Gateway model entry');
+    expect((result.details as Record<string, unknown>).missingModels).toEqual(['legacy/model-2']);
+  });
+
+  it('passes verification when every discovered model has a managed entry', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' },
+      { id: 'legacy/model-2', name: 'Model 2' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    const entry = (model: string) => ({
+      title: `AIdome Gateway - ${model}`,
+      provider: 'openai',
+      model,
+      apiBase: mockProfile.baseUrl,
+      apiKey: 'pat-token',
+      aidomeManaged: true
+    });
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [entry('legacy/model-1'), entry('legacy/model-2')]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+  });
+
+  it('does not fail verification when verify-time discovery fails after a successful plan', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockResolvedValue([
+      { id: 'legacy/model-1', name: 'Model 1' },
+      { id: 'legacy/model-2', name: 'Model 2' }
+    ] as never);
+    await adapter.buildPlan(mockProfile);
+    // The gateway was reachable at plan time but is down at verify time:
+    // the completeness check must not flag a healthy configuration.
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockRejectedValue(new Error('gateway down'));
+    const entry = (model: string) => ({
+      title: `AIdome Gateway - ${model}`,
+      provider: 'openai',
+      model,
+      apiBase: mockProfile.baseUrl,
+      apiKey: 'pat-token',
+      aidomeManaged: true
+    });
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [entry('legacy/model-1'), entry('legacy/model-2')]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+  });
+
+  it('does not fail verification when discovery is unavailable', async () => {
+    vi.mocked(modelDiscoveryMock.discoverOpenAiModels).mockRejectedValue(new Error('gateway down'));
+    await adapter.buildPlan(mockProfile);
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+      models: [
+        {
+          title: 'AIdome Gateway - legacy/model-1',
+          provider: 'openai',
+          model: 'legacy/model-1',
+          apiBase: mockProfile.baseUrl,
+          apiKey: 'pat-token',
+          aidomeManaged: true
+        }
+      ]
+    }));
+
+    const result = await adapter.verify();
+
+    expect(result.success).toBe(true);
+  });
+});

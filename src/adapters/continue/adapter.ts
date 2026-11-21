@@ -39,6 +39,9 @@ export class ContinueAdapter extends BaseExtensionAdapter {
   /** Profile URL expected by the most recent buildPlan, for exact verification. */
   private expectedBaseUrl: string | undefined;
 
+  /** Profile of the most recent buildPlan, for verify-time model discovery. */
+  private lastPlannedProfile: EndpointProfile | undefined;
+
   constructor(private readonly dependencies: AdapterDependencies = {}) {
     super();
   }
@@ -83,6 +86,7 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       });
     }
     this.expectedBaseUrl = profile.baseUrl;
+    this.lastPlannedProfile = profile;
 
     return addStep(plan, {
       action: 'verify-endpoint',
@@ -178,6 +182,35 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // Completeness check (user-reported regression): verification must not
+    // pass while some discovered gateway models have no managed entry —
+    // deleting one per-model entry otherwise goes unnoticed and the
+    // profile "activation" becomes a no-op. Discover the current gateway
+    // model list (network-first, cache fallback, same as buildPlan) and
+    // require every discovered id to be present. Discovery failure does
+    // NOT fail verification — a transient gateway outage must not flag a
+    // healthy configuration; the per-entry checks above still hold.
+    if (this.lastPlannedProfile !== undefined) {
+      const discovered = await this.discoverModels(this.lastPlannedProfile).catch(() => []);
+      if (discovered.length > 0) {
+        const managedModelIds = new Set(
+          managed
+            .map(model => model.model)
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        );
+        const missing = discovered
+          .map(model => model.id)
+          .filter(id => !managedModelIds.has(id));
+        if (missing.length > 0) {
+          return {
+            success: false,
+            message: `Continue.dev is missing ${missing.length} AIdome Gateway model ${missing.length === 1 ? 'entry' : 'entries'} (e.g. ${missing[0]}) — re-apply the profile so Switchboard rewrites them`,
+            details: { configPath, format, modelCount: models.length, missingModels: missing }
+          };
+        }
+      }
+    }
+
     return {
       success: true,
       message: 'Continue.dev configuration verified',
@@ -219,7 +252,9 @@ export class ContinueAdapter extends BaseExtensionAdapter {
     const token = authRef && this.dependencies.profileSecrets
       ? await this.dependencies.profileSecrets.getSecret(authRef)
       : undefined;
-    const live = await discoverOpenAiModels(profile.baseUrl, token);
+    // A gateway outage must not blow up plan building — fall through to
+    // the cache and then the fail-closed guided outcome instead.
+    const live = await discoverOpenAiModels(profile.baseUrl, token).catch(() => []);
     if (live.length > 0) {
       return live;
     }
