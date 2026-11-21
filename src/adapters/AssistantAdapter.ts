@@ -67,4 +67,16 @@ export interface AssistantAdapter {
    * @returns Extension IDs needing a reload after apply
    */
   getReloadExtensionIds?(): string[];
+
+  /**
+   * Optional Tier C capability: whether this adapter's `show-guided-steps`
+   * plan is ACTIONABLE manual setup (e.g. Roo Code, Gemini CLI — the user
+   * can actually configure the endpoint through its guidance) or an
+   * UNSUPPORTED informational plan (e.g. Tabnine — no OpenAI-compatible
+   * endpoint exists at all). Selection flows only offer guided Tier C
+   * candidates whose status is 'actionable'; unsupported ones stay hidden
+   * instead of promising setup that does not exist.
+   * @returns Guided-setup actionability status
+   */
+  getGuidedSetupStatus?(): 'actionable' | 'unsupported';
 }
