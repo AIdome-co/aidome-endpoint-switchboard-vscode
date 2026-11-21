@@ -338,10 +338,11 @@ describe('ContinueAdapter with missing descriptor', () => {
 });
 
 describe('ContinueAdapter multi-model gateway entries', () => {
-  let mockProfileLocal: EndpointProfile;
+  let mockProfileLocal: () => EndpointProfile;
 
   beforeEach(() => {
-    mockProfileLocal = {
+    vi.clearAllMocks();
+    mockProfileLocal = () => ({
       id: 'test-profile',
       name: 'Test Profile',
       profileType: 'custom',
@@ -349,7 +350,7 @@ describe('ContinueAdapter multi-model gateway entries', () => {
       dialect: 'openai.chat_completions',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    };
+    });
   });
 
   it('passes discovered gateway models into the plan step data', async () => {
@@ -360,7 +361,7 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     ]);
 
     const adapter = new ContinueAdapter();
-    const plan = await adapter.buildPlan(mockProfileLocal);
+    const plan = await adapter.buildPlan(mockProfileLocal());
 
     const editStep = plan.steps.find(step => step.action === 'edit-config-file');
     expect(editStep).toBeDefined();
@@ -370,12 +371,50 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     ]);
   });
 
+  it('uses cached capabilities models before network discovery', async () => {
+    const discovery = await import('../../src/core/providerConfig/modelDiscovery');
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);
+    const profile = {
+      ...mockProfileLocal(),
+      capabilitiesCache: {
+        version: '1',
+        supportedDialects: [],
+        supportedModels: ['cached/model-1', 'cached/model-2'],
+        features: [],
+        endpoints: {}
+      }
+    };
+    const adapter = new ContinueAdapter();
+    const plan = await adapter.buildPlan(profile);
+    const editStep = plan.steps.find(step => step.action === 'edit-config-file');
+    expect(editStep?.data.gatewayModels).toEqual(['cached/model-1', 'cached/model-2']);
+    expect(discovery.discoverOpenAiModels).not.toHaveBeenCalled();
+  });
+
+  it('resolves the profile token through profileSecrets for network discovery', async () => {
+    const discovery = await import('../../src/core/providerConfig/modelDiscovery');
+    vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([
+      { id: 'm/a', name: 'A' }
+    ]);
+    const getSecret = vi.fn(async () => 'tok-from-storage');
+    const adapter = new ContinueAdapter({
+      profileSecrets: { getSecret }
+    });
+    const profile = {
+      ...mockProfileLocal(),
+      authRef: 'Test Profile'
+    };
+    await adapter.buildPlan(profile);
+    expect(getSecret).toHaveBeenCalledWith('Test Profile');
+    expect(discovery.discoverOpenAiModels).toHaveBeenCalledWith('https://aidome.example.com/v1', 'tok-from-storage');
+  });
+
   it('omits gatewayModels when discovery returns nothing', async () => {
     const discovery = await import('../../src/core/providerConfig/modelDiscovery');
     vi.mocked(discovery.discoverOpenAiModels).mockResolvedValue([]);
 
     const adapter = new ContinueAdapter();
-    const plan = await adapter.buildPlan(mockProfileLocal);
+    const plan = await adapter.buildPlan(mockProfileLocal());
 
     const editStep = plan.steps.find(step => step.action === 'edit-config-file');
     expect(editStep).toBeDefined();
@@ -398,7 +437,7 @@ describe('ContinueAdapter multi-model gateway entries', () => {
     }));
 
     const adapter = new ContinueAdapter();
-    await adapter.buildPlan(mockProfileLocal);
+    await adapter.buildPlan(mockProfileLocal());
     // verify is protected; exercise via the public verify path if exposed, else via verifyConfiguration through plan apply is out of scope here.
     const verify = (adapter as unknown as { verifyConfiguration(): Promise<{ success: boolean; details?: Record<string, unknown> }> }).verifyConfiguration();
     const result = await verify;
