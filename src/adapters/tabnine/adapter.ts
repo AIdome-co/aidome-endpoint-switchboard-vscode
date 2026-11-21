@@ -26,10 +26,12 @@ export class TabnineAdapter extends BaseExtensionAdapter {
       message: 'Tabnine endpoint configuration is available only through Tabnine Enterprise',
       steps: [
         'Install the Tabnine for Enterprise VS Code extension if your organization provides one',
-        'Restart VS Code and choose Set server URL when Tabnine prompts for the Enterprise Server',
-        `Enter the Tabnine Enterprise Server URL that fronts or integrates with AIdome; do not paste an OpenAI API URL directly into standard Tabnine`,
-        'If the prompt does not appear, open VS Code Settings and use the Tabnine server configuration action',
-        'Reload VS Code and sign in to the configured enterprise instance',
+        'Admin: in the Tabnine Admin Console, open Models → Self-Managed Models and start the Add model wizard',
+        'Step 1 (Provider): choose the OpenAI-compatible endpoint provider and set its base URL to the AIdome gateway endpoint',
+        'Step 2 (Credentials): paste the AIdome gateway personal access token as the API key',
+        'Step 3 (Model Details): pick the technical model name (Tabnine auto-populates the list from the gateway model-listing API), set token limits, and add optional custom headers if routing requires them',
+        'Step 4: set per-team availability, use Run Test to verify the endpoint, then Save — routing becomes org-wide for every Tabnine seat with no per-user action',
+        'Restart VS Code and choose Set server URL when Tabnine prompts for the Enterprise Server to point the extension at your organization\'s own Tabnine Enterprise instance (never at the AIdome gateway directly)',
         'If your organization does not operate a Tabnine Enterprise Server, use Cline, Continue, or another assistant with custom endpoint support'
       ],
       baseUrl: profile.baseUrl,
