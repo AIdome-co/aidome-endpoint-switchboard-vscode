@@ -335,9 +335,11 @@ describe('GeminiCliAdapter', () => {
     it('resolves the .env file under GEMINI_CLI_HOME/.gemini', async () => {
       vi.spyOn(detectCLIs, 'detectCli').mockResolvedValue(true);
       const original = process.env['GEMINI_CLI_HOME'];
+      // Mirror the adapter: it resolves GEMINI_CLI_HOME before joining.
+      const overrideHome = nodePath.resolve('/alt/gemini-home');
       process.env['GEMINI_CLI_HOME'] = '/alt/gemini-home';
       try {
-        const expectedPath = nodePath.join('/alt/gemini-home', '.gemini', '.env');
+        const expectedPath = nodePath.join(overrideHome, '.gemini', '.env');
         vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
           if (filePath === expectedPath) {
             return 'GOOGLE_VERTEX_BASE_URL="https://gateway.example.com"\n';
