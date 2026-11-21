@@ -14,17 +14,33 @@ const expectPosix0600 = (stat: { mode: number }) => {
   expect(process.platform === 'win32' || (stat.mode & 0o777) === 0o600).toBe(true);
 };
 
-const { mockLoggerWarning, mockDiscoverModels, mockGetKiloConfigPath, failNextAuthWrite } = vi.hoisted(() => ({
+const {
+  mockLoggerWarning,
+  mockDiscoverModels,
+  mockGetKiloConfigPath,
+  failNextAuthWrite,
+  failNextAuthChmod,
+  configReadQueue
+} = vi.hoisted(() => ({
   mockLoggerWarning: vi.fn(),
   mockDiscoverModels: vi.fn(),
   mockGetKiloConfigPath: vi.fn((): string | undefined => undefined),
-  failNextAuthWrite: { value: false }
+  failNextAuthWrite: { value: false },
+  failNextAuthChmod: { value: false },
+  configReadQueue: { values: [] as string[] }
 }));
 
 // ESM namespaces cannot be spied on — wrap fs/promises with a test seam that
 // fails the next writeFile call when requested.
 vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>();
+  const readThrough = async (...args: Parameters<typeof actual.readFile>) => {
+    const p = String(args[0]);
+    if (configReadQueue.values.length > 0 && p.endsWith('kilo.jsonc')) {
+      return configReadQueue.values.shift() as string;
+    }
+    return actual.readFile(...args);
+  };
   return {
     ...actual,
     writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
@@ -33,6 +49,14 @@ vi.mock('fs/promises', async (importOriginal) => {
         throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
       }
       return actual.writeFile(...args);
+    },
+    readFile: readThrough,
+    chmod: async (...args: Parameters<typeof actual.chmod>) => {
+      if (failNextAuthChmod.value) {
+        failNextAuthChmod.value = false;
+        throw Object.assign(new Error('EOPNOTSUPP'), { code: 'EOPNOTSUPP' });
+      }
+      return actual.chmod(...args);
     },
     default: actual
   };
@@ -78,6 +102,8 @@ describe('kiloAuthStore', () => {
     configPath = path.join(configDir, 'kilo.jsonc');
     delete process.env.XDG_DATA_HOME;
     mockLoggerWarning.mockReset();
+    failNextAuthChmod.value = false;
+    configReadQueue.values.length = 0;
     mockDiscoverModels.mockReset();
     mockGetKiloConfigPath.mockReset();
     mockGetKiloConfigPath.mockReturnValue(undefined);
@@ -201,6 +227,92 @@ describe('kiloAuthStore', () => {
       } finally {
         await fs.rm(realDir, { recursive: true, force: true });
       }
+    });
+
+    it('removes the materialized target when the model refresh fails (dangling link, Codex 154 round 11)', async () => {
+      const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kilo-dangle2-'));
+      const realPath = path.join(realDir, 'auth.json');
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.symlink(realPath, authPath);
+      await fs.writeFile(configPath, '{"provider":{}}');
+      mockGetKiloConfigPath.mockReturnValue(configPath);
+      mockDiscoverModels.mockRejectedValueOnce(new Error('gateway unreachable'));
+
+      try {
+        await expect(
+          writeKiloProviderAuth({
+            baseUrl: 'https://gw.example.com/v1',
+            apiKey: 'aid_pat_rollback',
+            dataDir,
+            configPath
+          })
+        ).rejects.toThrow('gateway unreachable');
+
+        // Back to the ORIGINAL dangling state: link present, target absent,
+        // no PAT left behind anywhere.
+        const linkStat = await fs.lstat(authPath);
+        expect(linkStat.isSymbolicLink()).toBe(true);
+        await expect(fs.stat(realPath)).rejects.toThrow();
+      } finally {
+        await fs.rm(realDir, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed and deletes the backup when its mode cannot be tightened (Codex 154 round 11)', async () => {
+      await fs.mkdir(path.dirname(authPath), { recursive: true });
+      await fs.writeFile(authPath, JSON.stringify({ kilo: { type: 'oauth', refresh: 'r', access: 'a' } }), {
+        mode: 0o644
+      });
+      failNextAuthChmod.value = true;
+
+      await expect(
+        writeKiloProviderAuth({
+          baseUrl: 'https://gw.example.com/v1',
+          apiKey: 'aid_pat_chmod',
+          dataDir
+        })
+      ).rejects.toThrow('Could not restrict the credential backup');
+
+      // The insecure backup was REMOVED and the credential file is untouched.
+      const siblings = (await fs.readdir(path.dirname(authPath))).filter((f) => f !== 'auth.json');
+      expect(siblings).toEqual([]);
+      const stat = await fs.stat(authPath);
+      expect(stat.mode & 0o777).toBe(0o644);
+      const written = JSON.parse(await fs.readFile(authPath, 'utf-8'));
+      expect(written.kilo).toEqual({ type: 'oauth', refresh: 'r', access: 'a' });
+      expect(written[KILO_PROVIDER_SLUG]).toBeUndefined();
+    });
+
+    it('re-reads kilo.jsonc before committing models so a concurrent edit is preserved (Codex 154 round 11)', async () => {
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      const before =
+        '{\n  "provider": {\n    "aidome-gateway": { "name": "AIdome", "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "https://old.example.com/v1" }, "models": { "m-1": { "name": "m-1" } } },\n    "other-provider": { "name": "Other", "npm": "@ai-sdk/openai-compatible", "models": { "o-1": { "name": "o-1" } } }\n  }\n}';
+      const concurrent =
+        '{\n  "provider": {\n    "aidome-gateway": { "name": "AIdome", "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "https://new.example.com/v1" }, "models": { "user-added": { "name": "User added" } } },\n    "other-provider": { "name": "Other", "npm": "@ai-sdk/openai-compatible", "models": { "o-1": { "name": "o-1" } } }\n  }\n}';
+      await fs.writeFile(configPath, before);
+      mockGetKiloConfigPath.mockReturnValue(configPath);
+      mockDiscoverModels.mockResolvedValue(['m-2']);
+      // First read (existingContent) sees BEFORE; the guarded re-read sees
+      // the concurrent edit.
+      configReadQueue.values = [before, concurrent];
+
+      await writeKiloProviderAuth({
+        baseUrl: 'https://gw.example.com/v1',
+        apiKey: 'aid_pat_race',
+        dataDir,
+        configPath
+      });
+
+      const final = await fs.readFile(configPath, 'utf-8');
+      const parsed = JSON.parse(final);
+      const gw = parsed.provider['aidome-gateway'];
+      // Reconciled onto the FRESH content: the gateway list is authoritative
+      // over OUR provider's models map, and the concurrent edit's unrelated
+      // third-party provider entry survives the write.
+      // (options.baseURL stays profile-authoritative by design.)
+      expect(gw.options.baseURL).toBe('https://gw.example.com/v1');
+      expect(Object.keys(gw.models)).toEqual(['m-2']);
+      expect(parsed.provider['other-provider'].models['o-1']).toEqual({ name: 'o-1' });
     });
 
     it('preserves a symlinked auth.json and writes through to its target (dotfiles setups)', async () => {

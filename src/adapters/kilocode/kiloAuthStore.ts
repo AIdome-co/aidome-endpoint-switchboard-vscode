@@ -226,8 +226,18 @@ export async function writeKiloProviderAuth(
     // createBackup preserves the SOURCE mode (fs.copyFile): a legacy 0644
     // auth.json would leave a world-readable backup containing the old PAT
     // and every other Kilo credential. Credential backups are always 0600
-    // (Codex 154 round 6, finding a).
-    await fs.chmod(authBackupPath, 0o600).catch(() => undefined);
+    // (Codex 154 round 6, finding a) — and if the mode cannot be tightened
+    // (filesystems without POSIX modes), fail closed and REMOVE the backup
+    // instead of leaving a permissive credential copy on disk
+    // (Codex 154 round 11, finding U1QG).
+    try {
+      await fs.chmod(authBackupPath, 0o600);
+    } catch (error) {
+      await fs.rm(authBackupPath, { force: true }).catch(() => undefined);
+      throw new Error(
+        `Could not restrict the credential backup ${authBackupPath} to 0600 and removed it; refusing to continue while a permissive copy of the credentials exists. (${error instanceof Error ? error.message : String(error)})`
+      );
+    }
   }
   if (authExisted && danglingSymlinkText === undefined && !authBackupPath) {
     throw new Error(
@@ -299,6 +309,13 @@ export async function writeKiloProviderAuth(
   // instructions instead of silently keeping the committed credential.
   const restoreAuth = async (): Promise<void> => {
     if (danglingSymlinkText !== undefined) {
+      // The write may have MATERIALIZED the previously absent target — a
+      // rollback must remove that file too, or the PAT survives behind the
+      // recreated dangling link while the step reports rolled-back
+      // (Codex 154 round 11, finding U1QL).
+      if (resolvedTarget) {
+        await fs.rm(resolvedTarget, { force: true });
+      }
       // Restore the LINK ITSELF — the managed store stays symlink-managed.
       await fs.rm(authPath, { force: true });
       await fs.symlink(danglingSymlinkText, authPath);
@@ -425,12 +442,35 @@ async function refreshKiloModels(
   // discovered list IS the gateway's current model set. Entries still served
   // keep their full existing metadata; models the gateway no longer serves
   // are REMOVED, so profile re-activation picks up removals too.
-  const merged = reconcileModelEntries(existingContent, slugs);
+  // Guarded commit (same pattern as the auth.json write): Kilo or the user
+  // may have saved kilo.jsonc while discovery was running — re-read
+  // immediately before rendering and re-apply OUR change onto the fresh
+  // content instead of overwriting a concurrent edit with the stale
+  // snapshot (Codex 154 round 11, finding U1QP).
+  let baseContent = existingContent;
+  const freshContent = await readFileSafe(configPath);
+  if (freshContent === undefined) {
+    throw new Error(
+      `${configPath} disappeared before the model list could be written; re-run the setup.`
+    );
+  }
+  if (freshContent !== existingContent) {
+    try {
+      parseJsonc(freshContent);
+    } catch (error) {
+      throw new Error(
+        `${configPath} changed concurrently and is no longer valid JSONC; refusing to overwrite it. (${error instanceof Error ? error.message : String(error)})`
+      );
+    }
+    baseContent = freshContent;
+  }
+
+  const merged = reconcileModelEntries(baseContent, slugs);
   const models =
     Object.keys(merged).length > 0
       ? (merged as Record<string, { name: string }>)
       : buildModelEntries(slugs);
-  const rendered = buildKiloConfigContent(options.baseUrl, existingContent, undefined, models);
+  const rendered = buildKiloConfigContent(options.baseUrl, baseContent, undefined, models);
 
   const configBackupPath = await createBackup(configPath);
   if (!configBackupPath) {
