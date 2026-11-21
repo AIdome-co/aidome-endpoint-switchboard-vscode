@@ -96,6 +96,25 @@ export async function assignProfileAssistants(
   const deselectedAssistantKeys = currentlyAssignedAssistantKeys
     .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey));
 
+  // Detach-only path for mapped UI-kind gaps (Codex 156 round 4): the gap
+  // assistant is excluded from the selectable list, but an existing mapping
+  // to this profile must stay removable — offer an explicit detach.
+  for (const gap of attachUiKindGaps) {
+    if (!currentlyAssignedAssistantKeys.includes(gap.assistantKey)) {
+      continue;
+    }
+    const detachChoice = await vscode.window.showInformationMessage(
+      `${gap.displayName} is assigned to ${profile.name} but currently runs on your local machine, ` +
+      'so the Switchboard cannot configure it here. Detach it from this profile?',
+      { modal: true },
+      'Detach',
+      'Keep assignment'
+    );
+    if (detachChoice === 'Detach') {
+      deselectedAssistantKeys.push(gap.assistantKey);
+    }
+  }
+
   if (selectedAssistantKeys.length === 0 && deselectedAssistantKeys.length === 0) {
     await showWarning('No assistants selected. Nothing changed.');
     return;
