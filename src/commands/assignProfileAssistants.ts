@@ -9,6 +9,7 @@ import { EndpointProfile } from '../core/profiles/profileTypes';
 import { showError, showSuccess, showWarning, withProgress } from '../ui/notifications';
 import { Logger } from '../util/log';
 import { promptReloadAfterApply } from '../util/assistantReload';
+import { offerUiKindSelfHeal, partitionUiKindGaps } from '../core/detection/uiKindDetection';
 import { buildAutomatedReapplyPlan } from './activateProfile';
 
 interface AssistantSelectionItem extends vscode.QuickPickItem {
@@ -52,31 +53,89 @@ export async function assignProfileAssistants(
     async () => await switchboard.detectAll()
   );
 
-  const items = buildAssistantSelectionItems(profile, profiles, mappings, registry.assistants, detected);
-  if (items.length === 0) {
+  // Self-heal: assistants installed remotely but running client-side
+  // (UI-kind manifests) get explained + clipboard instructions, and are
+  // excluded from the switchable list until the user applies the override
+  // (placement ignores workspace-level remote.extensionKind:
+  // microsoft/vscode#309379).
+  const { gaps: attachUiKindGaps, switchable: remotelySwitchable } =
+    partitionUiKindGaps(detected.assistants);
+  await offerUiKindSelfHeal(attachUiKindGaps);
+  detected.assistants = remotelySwitchable;
+
+  const items = buildAssistantSelectionItems(
+    profile,
+    profiles,
+    mappings,
+    registry.assistants,
+    detected,
+    // Exclude a gap key only when the assistant has no usable remote CLI
+    // detection: claude-code-style entries can be detected BOTH as a UI-kind
+    // extension and as a remote CLI, and the CLI candidate must stay
+    // assignable (Codex 156 round 6).
+    new Set(attachUiKindGaps
+      .filter(gap => !detected.clis.some(cli => cli.assistantKey === gap.assistantKey))
+      .map(gap => gap.assistantKey))
+  );
+  // Detach-only path for mapped UI-kind gaps (Codex 156 round 4): the gap
+  // assistant is excluded from the selectable list, but an existing mapping
+  // to this profile must stay removable — offer an explicit detach. This
+  // runs BEFORE the empty-selection early return so the single-mapping case
+  // still gets a detach path (Codex 156 round 8).
+  const deselectedAssistantKeys: string[] = [];
+  for (const gap of attachUiKindGaps) {
+    if (!mappings.some(mapping => mapping.profileId === profile.id && mapping.assistantKey === gap.assistantKey)) {
+      continue;
+    }
+    if (detected.clis.some(cli => cli.assistantKey === gap.assistantKey)) {
+      // The assistant also has a usable remote CLI installation and remains
+      // selectable — no stale-mapping detach needed.
+      continue;
+    }
+    const detachChoice = await vscode.window.showInformationMessage(
+      `${gap.displayName} is assigned to ${profile.name} but currently runs on your local machine, ` +
+      'so the Switchboard cannot configure it here. Detach it from this profile?',
+      { modal: true },
+      'Detach',
+      'Keep assignment'
+    );
+    if (detachChoice === 'Detach') {
+      deselectedAssistantKeys.push(gap.assistantKey);
+    }
+  }
+
+  if (items.length === 0 && deselectedAssistantKeys.length === 0) {
     await showWarning('No switchable assistants are currently detected. Run setup after installing an assistant or CLI first.');
     return;
   }
 
-  const selected = await vscode.window.showQuickPick(items, {
-    title: `Assign Assistants to ${profile.name}`,
-    placeHolder: 'Select the assistants that should use this profile',
-    canPickMany: true,
-    ignoreFocusOut: true
-  });
+  // Skip the picker when there is nothing selectable but a detach choice is
+  // pending (single-mapping UI-kind gap case, Codex 156 round 5/9): showing
+  // an empty picker would let a dismissal silently discard the detach.
+  let selectedAssistantKeys: string[] = [];
+  if (items.length > 0) {
+    const selected = await vscode.window.showQuickPick(items, {
+      title: `Assign Assistants to ${profile.name}`,
+      placeHolder: 'Select the assistants that should use this profile',
+      canPickMany: true,
+      ignoreFocusOut: true
+    });
 
-  if (selected === undefined) {
-    logger.info(`Assistant assignment cancelled for profile ${profile.name}`);
-    return;
+    if (selected === undefined) {
+      logger.info(`Assistant assignment cancelled for profile ${profile.name}`);
+      return;
+    }
+
+    selectedAssistantKeys = selected.map(item => item.assistantKey);
+    const visibleAssistantKeys = new Set(items.map(item => item.assistantKey));
+    const currentlyAssignedAssistantKeys = mappings
+      .filter(mapping => mapping.profileId === profile.id)
+      .map(mapping => mapping.assistantKey);
+    deselectedAssistantKeys.push(
+      ...currentlyAssignedAssistantKeys
+        .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey))
+    );
   }
-
-  const selectedAssistantKeys = selected.map(item => item.assistantKey);
-  const visibleAssistantKeys = new Set(items.map(item => item.assistantKey));
-  const currentlyAssignedAssistantKeys = mappings
-    .filter(mapping => mapping.profileId === profile.id)
-    .map(mapping => mapping.assistantKey);
-  const deselectedAssistantKeys = currentlyAssignedAssistantKeys
-    .filter(assistantKey => visibleAssistantKeys.has(assistantKey) && !selectedAssistantKeys.includes(assistantKey));
 
   if (selectedAssistantKeys.length === 0 && deselectedAssistantKeys.length === 0) {
     await showWarning('No assistants selected. Nothing changed.');
@@ -165,7 +224,24 @@ export async function assignProfileAssistants(
 
 
 
+  // UI-kind gaps that are NOT also CLI-detectable take a mapping-only
+  // detach path (Codex 156 round 7): the generic fallback reapply would
+  // buildPlan/applyPlan for another profile with an assistant that cannot
+  // consume a remote configuration in this session.
+  const uiKindGapKeys = new Set(attachUiKindGaps
+    .filter(gap => !detected.clis.some(cli => cli.assistantKey === gap.assistantKey))
+    .map(gap => gap.assistantKey));
+
   for (const assistantKey of deselectedAssistantKeys) {
+    if (uiKindGapKeys.has(assistantKey)) {
+      await profileStore.deleteAssistantMapping(assistantKey, profile.id);
+      detachedAssistantKeys.push(assistantKey);
+      detachWarnings.push(
+        `${assistantKey} mapping removed without a remote reapply: the assistant currently runs on your local machine, so no remote configuration was written.`
+      );
+      continue;
+    }
+
     const outcome = await detachAssistantFromProfile(
       profileStore,
       switchboard,
@@ -455,7 +531,8 @@ function buildAssistantSelectionItems(
   profiles: EndpointProfile[],
   mappings: Awaited<ReturnType<ProfileStore['getAssistantMappings']>>,
   assistants: AssistantEntry[],
-  detected: Awaited<ReturnType<Switchboard['detectAll']>>
+  detected: Awaited<ReturnType<Switchboard['detectAll']>>,
+  excludedKeys: ReadonlySet<string> = new Set<string>()
 ): AssistantSelectionItem[] {
   const assistantsByKey = new Map(assistants.map(assistant => [assistant.key, assistant]));
   const detectedExtensionKeys = detected.assistants
@@ -467,7 +544,11 @@ function buildAssistantSelectionItems(
   const assignedKeys = mappings
     .filter(mapping => mapping.profileId === profile.id)
     .map(mapping => mapping.assistantKey);
-  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])];
+  const candidateKeys = [...new Set([...assignedKeys, ...detectedExtensionKeys, ...detectedCliKeys])]
+    // UI-kind activation gaps that could not be resolved must not appear even
+    // as previously assigned: applying would write a remote configuration the
+    // client-side assistant will not read (Codex 156 round 3).
+    .filter(assistantKey => !excludedKeys.has(assistantKey));
 
   const items: AssistantSelectionItem[] = [];
 
