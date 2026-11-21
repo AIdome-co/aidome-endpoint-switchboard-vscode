@@ -101,15 +101,19 @@ function getActiveServerExtensionRoots(): string[] {
   // Codespaces installs the application below /vscode/bin/... while user
   // extensions live in ~/.vscode-remote/extensions (microsoft/vscode#196794
   // logs show the two as separate roots), so no ancestor of appRoot contains
-  // the user extensions directory. Fall back to that specific root — regular
-  // SSH/WSL servers do not use it, so no inactive-tree false gaps.
-  const codespacesRoot = path.join(os.homedir(), '.vscode-remote', 'extensions');
-  try {
-    if (fs.statSync(codespacesRoot).isDirectory()) {
-      return [codespacesRoot];
+  // the user extensions directory. Fall back to that specific root, but ONLY
+  // for a Codespaces remote: an SSH/WSL host with a retained legacy
+  // ~/.vscode-remote tree would otherwise surface inactive extensions as
+  // false gaps.
+  if (/^codespace/.test(vscode.env.remoteName ?? '')) {
+    const codespacesRoot = path.join(os.homedir(), '.vscode-remote', 'extensions');
+    try {
+      if (fs.statSync(codespacesRoot).isDirectory()) {
+        return [codespacesRoot];
+      }
+    } catch {
+      // fall through
     }
-  } catch {
-    // fall through
   }
   // No derivable server root: report nothing rather than risk false gaps.
   return [];

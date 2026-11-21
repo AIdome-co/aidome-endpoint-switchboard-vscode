@@ -69,7 +69,13 @@ export async function assignProfileAssistants(
     mappings,
     registry.assistants,
     detected,
-    new Set(attachUiKindGaps.map(gap => gap.assistantKey))
+    // Exclude a gap key only when the assistant has no usable remote CLI
+    // detection: claude-code-style entries can be detected BOTH as a UI-kind
+    // extension and as a remote CLI, and the CLI candidate must stay
+    // assignable (Codex 156 round 6).
+    new Set(attachUiKindGaps
+      .filter(gap => !detected.clis.some(cli => cli.assistantKey === gap.assistantKey))
+      .map(gap => gap.assistantKey))
   );
   // Detach-only path for mapped UI-kind gaps (Codex 156 round 4): the gap
   // assistant is excluded from the selectable list, but an existing mapping
@@ -79,6 +85,11 @@ export async function assignProfileAssistants(
   const deselectedAssistantKeys: string[] = [];
   for (const gap of attachUiKindGaps) {
     if (!mappings.some(mapping => mapping.profileId === profile.id && mapping.assistantKey === gap.assistantKey)) {
+      continue;
+    }
+    if (detected.clis.some(cli => cli.assistantKey === gap.assistantKey)) {
+      // The assistant also has a usable remote CLI installation and remains
+      // selectable — no stale-mapping detach needed.
       continue;
     }
     const detachChoice = await vscode.window.showInformationMessage(
