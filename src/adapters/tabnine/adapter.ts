@@ -6,14 +6,42 @@ import * as vscode from 'vscode';
 import { EndpointProfile } from '../../core/profiles/profileTypes';
 import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
-import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
+import { BaseExtensionAdapter, formatThrowable } from '../BaseExtensionAdapter';
 import { validateUrl } from '../../core/profiles/profileValidator';
 
 /**
  * Tabnine assistant adapter.
  */
 export class TabnineAdapter extends BaseExtensionAdapter {
-  protected readonly extensionId = 'TabNine.tabnine-vscode';
+  // Both marketplace IDs ship the Enterprise flows: the legacy extension and
+  // the "Tabnine for Enterprise" (self-hosted) updater extension.
+  private static readonly extensionIds = ['TabNine.tabnine-vscode', 'TabNine.tabnine-vscode-self-hosted-updater'];
+
+  protected readonly extensionId = TabnineAdapter.extensionIds[0];
+
+  private static findInstalledExtension(): vscode.Extension<unknown> | undefined {
+    for (const id of TabnineAdapter.extensionIds) {
+      const extension = vscode.extensions.getExtension(id);
+      if (extension) {
+        return extension;
+      }
+    }
+    return undefined;
+  }
+
+  override async detect(): Promise<boolean> {
+    try {
+      return TabnineAdapter.findInstalledExtension() !== undefined;
+    } catch (error) {
+      const formatted = formatThrowable(error);
+      this.logger.error(
+        `Error detecting ${this.getDisplayName()}: ${formatted.message}`,
+        formatted.error,
+        formatted.context
+      );
+      return false;
+    }
+  }
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     if (!validateUrl(profile.baseUrl)) {
@@ -52,8 +80,8 @@ export class TabnineAdapter extends BaseExtensionAdapter {
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
-    const extension = vscode.extensions.getExtension(this.extensionId);
-    
+    const extension = TabnineAdapter.findInstalledExtension();
+
     if (!extension) {
       return {
         success: false,

@@ -487,7 +487,8 @@
       "kind": "vscode-extension",
       "detection": {
         "vscodeExtensionIds": [
-          "TabNine.tabnine-vscode"
+          "TabNine.tabnine-vscode",
+          "TabNine.tabnine-vscode-self-hosted-updater"
         ]
       },
       "dialect": {
