@@ -378,7 +378,7 @@ This document tracks everything completed to date and everything remaining befor
 | CodeGPT | Yes | Done (Tier B) | VS Code settings with guided fallback |
 | AnythingLLM | Yes | Done (Tier B) | Guided Generic OpenAI provider setup |
 | Gemini CLI | No | Done (Tier C) | No base URL override — info only |
-| Tabnine | No | Done (Tier C) | Admin Console → Models → Self-Managed Models manual setup guidance — status not auto-verified |
+| Tabnine | Partial | Done (Tier C) | Custom base URL supported only through admin configuration: Admin Console → Models → Self-Managed Models — status not auto-verified |
 | Windsurf/Codeium | Partial | Not started | YAML config — not yet implemented |
 | Amazon Q | No | Not started | AWS IAM only |
 | JetBrains AI | No | Not started | JetBrains-managed — no custom endpoint |
