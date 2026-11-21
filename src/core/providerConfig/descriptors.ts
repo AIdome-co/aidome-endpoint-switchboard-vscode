@@ -205,7 +205,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     fields: [
       { field: 'provider', path: 'models[].provider', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
       { field: 'baseUrl', path: 'models[].apiBase', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], preserveUnknown: true },
-      { field: 'apiKey', path: 'models[].apiKey', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true, support: 'external' },
+      { field: 'apiKey', path: 'models[].apiKey', valueKind: 'array-entry', requiredFor: ['openai.chat_completions'], secret: true, preserveUnknown: true, support: 'automatic' },
       { field: 'protocol', path: 'models[].useResponsesApi', valueKind: 'array-entry', requiredFor: ['openai.responses'], preserveUnknown: true }
     ],
     plan: [
@@ -222,11 +222,11 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     driver: 'yaml-model-array',
     support: 'automatic',
     tier: 'A',
-    secretPolicy: 'secret-storage-only',
+    secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-extension',
     discovery: { extensionIds: ['Continue.continue'], environmentOverrides: ['CONTINUE_GLOBAL_DIR'], notes: ['YAML is primary when present; legacy JSONC remains supported.'] },
-    verification: { requiredFields: ['models[].provider', 'models[].apiBase'], exactUrlMatch: true, selectedProviderRequired: true, protocolRequired: false, notes: ['Verify the exact model entry changed by the plan.'] },
-    drift: { sourceSymbols: ['getPrimaryConfigFilePath', 'resolveSerializedConfig', 'LLM.apiBase'], failClosedOnMissingEvidence: true, notes: ['Keep YAML/JSON behavior covered by fixtures.'] },
+    verification: { requiredFields: ['models[].provider', 'models[].apiBase', 'models[].apiKey'], exactUrlMatch: true, selectedProviderRequired: true, protocolRequired: false, notes: ['Verify the exact model entry changed by the plan, including its apiKey.'] },
+    drift: { sourceSymbols: ['getPrimaryConfigFilePath', 'resolveSerializedConfig', 'LLM.apiBase'], failClosedOnMissingEvidence: true, notes: ['Keep YAML/JSON behavior covered by fixtures.', 'Managed apiKey is persisted at apply time and CLEARED when no profile secret exists (clear-not-replay); unrelated user entries are never touched.'] },
     versionEvidence: evidence('https://github.com/continuedev/continue.git', '5522c6f44ca0ac3528b37244818fbfa39b5af470', 'high', ['core/util/paths.ts', 'core/config/load.ts', 'core/config/types.ts', 'docs/customize/model-providers/top-level/openai.mdx']),
     limitations: ['Comment preservation depends on the YAML/JSONC serializer.']
   },

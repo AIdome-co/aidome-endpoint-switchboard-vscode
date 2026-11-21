@@ -112,6 +112,17 @@ export class ContinueAdapter extends BaseExtensionAdapter {
       };
     }
 
+    // Credential verification (Tier A): the managed entry must carry the
+    // gateway key — Continue reads it from this file at request time.
+    const managedApiKey = typeof managed.apiKey === 'string' ? managed.apiKey : undefined;
+    if (managedApiKey === undefined || managedApiKey.trim().length === 0) {
+      return {
+        success: false,
+        message: `Continue.dev ${AIDOME_MODEL_IDENTITY} entry has no apiKey configured — save a credential for the profile and re-apply it`,
+        details: { configPath, format, modelCount: models.length, managedApiBase }
+      };
+    }
+
     return {
       success: true,
       message: 'Continue.dev configuration verified',
@@ -119,7 +130,7 @@ export class ContinueAdapter extends BaseExtensionAdapter {
         configPath,
         format,
         modelCount: models.length,
-        managedEntry: { apiBase: managedApiBase, provider: managed.provider }
+        managedEntry: { apiBase: managedApiBase, provider: managed.provider, apiKeyConfigured: true }
       }
     };
   }

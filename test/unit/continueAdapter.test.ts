@@ -142,7 +142,8 @@ describe('ContinueAdapter', () => {
             title: 'AIdome Gateway',
             provider: 'openai',
             model: 'gpt-4o-mini',
-            apiBase: 'https://aidome.example.com/v1'
+            apiBase: 'https://aidome.example.com/v1',
+            apiKey: 'aid_pat_verify'
           }
         ]
       }));
@@ -153,6 +154,44 @@ describe('ContinueAdapter', () => {
       expect(result.message).toContain('verified');
       expect(result.details?.configPath).toBe('/tmp/continue/config.json');
       expect(result.details?.modelCount).toBe(1);
+    });
+
+    it('should fail when the managed entry has no apiKey (Tier A credential contract)', async () => {
+      await adapter.buildPlan(mockProfile);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        models: [
+          {
+            title: 'AIdome Gateway',
+            provider: 'openai',
+            apiBase: 'https://aidome.example.com/v1'
+          }
+        ]
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('no apiKey');
+      expect(result.details?.managedApiBase).toBe('https://aidome.example.com/v1');
+    });
+
+    it('should fail when the managed entry has only a whitespace apiKey', async () => {
+      await adapter.buildPlan(mockProfile);
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(JSON.stringify({
+        models: [
+          {
+            title: 'AIdome Gateway',
+            provider: 'openai',
+            apiBase: 'https://aidome.example.com/v1',
+            apiKey: '   '
+          }
+        ]
+      }));
+
+      const result = await adapter.verify();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('no apiKey');
     });
 
     it('should fail when the managed entry has no apiBase', async () => {
@@ -214,7 +253,7 @@ describe('ContinueAdapter', () => {
       vi.spyOn(continuePaths, 'getContinueConfigPath').mockReturnValue('/tmp/continue/config.yaml');
       await adapter.buildPlan(mockProfile);
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
-        'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n'
+        'models:\n  - name: AIdome Gateway\n    title: AIdome Gateway\n    provider: openai\n    apiBase: https://aidome.example.com/v1\n    apiKey: aid_pat_verify\n'
       );
 
       const result = await adapter.verify();

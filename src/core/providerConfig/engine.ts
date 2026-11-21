@@ -235,6 +235,15 @@ function compileTargetPlan(
           identity: identityValue,
           provider,
           ...(useResponsesApi === undefined ? {} : { useResponsesApi }),
+          // Credential write: the profile's saved gateway token is persisted
+          // into the managed model entry's `apiKey` field at apply time
+          // (Continue reads the key from its own config file — the vendor's
+          // only credential mechanism). A credential-less profile switch
+          // CLEARS the managed key instead of replaying the previous one.
+          authRef: context.profile.authRef ?? context.profile.name,
+          secretPolicy: 'target-persisted-at-apply',
+          clearAuthWhenMissing: true,
+          missingSecretMessage: `Continue.dev credentials were cleared for "${context.profile.name}" because no saved profile secret was found.`,
         },
         reversible: true
       }];
