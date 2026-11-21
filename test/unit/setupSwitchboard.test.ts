@@ -36,6 +36,7 @@ const {
   mockSetActiveProfile,
   mockSaveProfile,
   mockStoreSecret,
+  mockProfileIneligibleKeys,
 } = vi.hoisted(() => ({
   mockShowQuickPick: vi.fn(),
   mockShowInputBox: vi.fn(),
@@ -56,6 +57,9 @@ const {
   mockSetActiveProfile: vi.fn(),
   mockSaveProfile: vi.fn(),
   mockStoreSecret: vi.fn(),
+  // Codex round 6, PR 118: keys that become ineligible once a profile is
+  // known (dialect-aware adapters revoke profile-specific eligibility).
+  mockProfileIneligibleKeys: new Set<string>(),
 }));
 
 // ---------- vscode mock ----------
@@ -156,8 +160,9 @@ vi.mock('../../src/core/profiles/profileSecrets', () => ({
 vi.mock('../../src/adapters/adapters.index', () => ({
   // Eligibility is explicit per test: only the keys listed here offer
   // actionable guided setup. The helper returns them unchecked for brevity.
-  getGuidedSetupEligibleKeys: vi.fn(async (keys: readonly string[]) =>
-    new Set(keys.filter(key => mockGuidedEligibleKeys.has(key)))
+  getGuidedSetupEligibleKeys: vi.fn(async (keys: readonly string[], _registry?: unknown, profile?: unknown) =>
+    new Set(keys.filter(key => mockGuidedEligibleKeys.has(key)
+      && !(profile && mockProfileIneligibleKeys.has(key))))
   ),
 }));
 
@@ -474,6 +479,52 @@ describe('setupSwitchboard', () => {
     expect(mockLoggerInfo).toHaveBeenCalledWith(
       'Setup cancelled - no profile selected'
     );
+  });
+
+  it('re-filters guided Tier C assistants the selected profile makes ineligible (Codex round 6, PR 118)', async () => {
+    const registryLoader = await import('../../src/core/registry/registryLoader');
+    vi.mocked(registryLoader.loadRegistry).mockResolvedValue({
+      assistants: [
+        { key: 'gemini-cli', displayName: 'Gemini CLI', endpointSwitching: { tier: 'C' } },
+        { key: 'kilocode', displayName: 'Kilo Code', endpointSwitching: { tier: 'A' } },
+      ],
+      dialectCatalog: {},
+    } as any);
+    mockDetectAll.mockResolvedValue({
+      assistants: [],
+      clis: [{ assistantKey: 'gemini-cli', command: 'gemini', version: '1.0.0' }],
+    });
+    mockProfileIneligibleKeys.add('gemini-cli');
+    mockShowQuickPick
+      .mockResolvedValueOnce([{ label: 'Gemini CLI', assistantKey: 'gemini-cli', picked: true }])
+      .mockResolvedValueOnce({ label: '$(add) Create New Profile', value: 'create' })
+      .mockResolvedValueOnce({ label: 'Custom Endpoint', value: 'custom' })
+      .mockResolvedValueOnce({ label: '$(search) Auto-detect', value: undefined })
+      .mockResolvedValueOnce({ label: 'No', value: false });
+    mockShowInputBox
+      .mockResolvedValueOnce('Wizard Auto Profile')
+      .mockResolvedValueOnce('https://wizard.example.com')
+      .mockResolvedValueOnce('');
+    mockShowInformationMessage
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    try {
+      await setupSwitchboard(makeContext());
+
+      // gemini-cli was actionable without a profile but the selected profile
+      // makes it unsupported — the plan must not include it, and the user
+      // must be told why.
+      expect(mockBuildPlan).not.toHaveBeenCalled();
+      expect(mockShowWarning).toHaveBeenCalledWith(
+        expect.stringContaining('Gemini CLI cannot use guided setup with this profile')
+      );
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
+        'Guided setup not applicable to the selected profile for: gemini-cli'
+      );
+    } finally {
+      mockProfileIneligibleKeys.delete('gemini-cli');
+    }
   });
 
   it('offers auto-detect in setup-wizard profile creation as a default to openai.chat_completions', async () => {
