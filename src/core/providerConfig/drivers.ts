@@ -314,14 +314,21 @@ function renderJsoncModelArray(
   modelPath: string,
   provider: string
 ): string {
-  const parsed = parseJsonc<unknown>(request.existingContent ?? '{}');
+  // Empty or whitespace-only legacy config.json is a valid first-time
+  // setup, not an error (same semantics as main's creation path): normalize
+  // it to an empty document before parsing. A NONEMPTY malformed file still
+  // fails closed below (Codex P2 follow-up).
+  const existingContent = request.existingContent !== undefined && request.existingContent.trim().length > 0
+    ? request.existingContent
+    : undefined;
+  const parsed = parseJsonc<unknown>(existingContent ?? '{}');
   const root = isRecord(parsed) ? parsed : {};
   // RAW array: the reconcile indexes below are applied to the original
   // document, so any compaction here would shift them onto user entries
   // (Codex 157 round 7). Non-object elements are rejected by
   // isManagedModelEntry itself.
   const existingModels = Array.isArray(root.models) ? root.models : [];
-  let output = request.existingContent ?? '{}';
+  let output = existingContent ?? '{}';
 
   if (data.gatewayModels && data.gatewayModels.length > 0) {
     // Multi-model reconcile (see renderYamlModelArray), performed SURGICALLY

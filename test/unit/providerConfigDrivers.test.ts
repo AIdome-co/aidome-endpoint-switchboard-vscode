@@ -520,6 +520,42 @@ describe('configuration drivers', () => {
       expect(models).toHaveLength(2);
     });
 
+    it('jsonc: creates managed entries from an empty or whitespace-only config.json', () => {
+      for (const existing of [undefined, '', '   \n  ']) {
+        const output = renderConfigFileContent({
+          baseUrl: BASE_URL,
+          existingContent: existing,
+          format: 'jsonc',
+          options: {
+            driver: 'yaml-model-array',
+            format: 'jsonc',
+            provider: 'openai',
+            identity: 'AIdome Gateway',
+            gatewayModels: ['m/a']
+          }
+        });
+        const parsed = parseJsonc<Record<string, unknown>>(output);
+        const models = parsed.models as Array<Record<string, unknown>>;
+        expect(models).toHaveLength(1);
+        expect(models[0]).toMatchObject({ model: 'm/a', aidomeManaged: true });
+      }
+    });
+
+    it('jsonc: still fails closed on a malformed nonempty config.json', () => {
+      expect(() => renderConfigFileContent({
+        baseUrl: BASE_URL,
+        existingContent: '{ "models": [ oops',
+        format: 'jsonc',
+        options: {
+          driver: 'yaml-model-array',
+          format: 'jsonc',
+          provider: 'openai',
+          identity: 'AIdome Gateway',
+          gatewayModels: ['m/a']
+        }
+      })).toThrow();
+    });
+
     it('jsonc: creates the models array when the document has none', () => {
       // First-time setup on a fresh/legacy config.json without models.
       const output = renderConfigFileContent({
