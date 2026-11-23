@@ -255,7 +255,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@stylistic/eslint-plugin": "^5.10.0",
+    "@stylistic/eslint-plugin": "^6.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.1.2",
     "@types/vscode": "^1.85.0",
