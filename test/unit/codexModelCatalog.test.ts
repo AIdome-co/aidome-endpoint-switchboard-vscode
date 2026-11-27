@@ -204,6 +204,25 @@ describe('CodexAdapter model catalog plan behavior', () => {
     expect(configStep?.data.removeModelCatalogJson).toBe(true);
   });
 
+  it('writes no catalog and no model binding when discovery returns only bundled gpt-* models', async () => {
+    mockHttpRequest.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: { data: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-6.2-astra' }] }
+    });
+
+    const plan = await adapter.buildPlan(profile);
+
+    // An all-`gpt-*` discovery yields an EMPTY catalog, and an empty catalog
+    // file fails Codex startup — so no catalog file, no binding, no model.
+    expect(plan.steps.find(step => step.data?.configType === 'codex-model-catalog')).toBeUndefined();
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.modelCatalogJson).toBeUndefined();
+    expect(configStep?.data.removeModelCatalogJson).toBe(true);
+    expect(configStep?.data.model).toBeUndefined();
+  });
+
   it('applies both files with backups, binds the catalog, and is byte-stable on re-apply', async () => {
     mockHttpRequest.mockResolvedValue({
       status: 200,

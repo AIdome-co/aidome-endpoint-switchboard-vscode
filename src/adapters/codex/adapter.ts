@@ -53,14 +53,20 @@ export class CodexAdapter extends BaseExtensionAdapter {
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getCodexConfigPath();
     const models = await this.discoverModels(profile);
-    const model = models[0]?.id;
+    // Build the catalog FIRST and decide everything from its filtered
+    // entries: the catalog replaces Codex's bundled catalog entirely, so an
+    // all-`gpt-*` discovery (every entry filtered out) must produce NO catalog
+    // file and NO binding — an empty `{"models":[]}` file fails Codex startup.
+    // The configured model is likewise the first filtered entry's slug.
+    const catalogEntries = buildCodexModelCatalog(models).models;
+    const model = catalogEntries[0]?.slug;
     // The Codex model catalog is generated automatically as part of the same
-    // plan whenever discovery returned models. Codex loads a top-level
-    // `model_catalog_json` file ONLY at startup and it REPLACES the bundled
-    // catalog, so it is written only from real gateway models and the config
-    // key is removed (via the descriptor binding) when there is nothing to
-    // point at.
-    const catalogPath = models.length > 0 ? getCodexModelsCatalogPath() : undefined;
+    // plan whenever usable gateway models were discovered. Codex loads a
+    // top-level `model_catalog_json` file ONLY at startup and it REPLACES the
+    // bundled catalog, so it is written only from real gateway models and the
+    // config key is removed (via the descriptor binding) when there is
+    // nothing to point at.
+    const catalogPath = catalogEntries.length > 0 ? getCodexModelsCatalogPath() : undefined;
     if (!DESCRIPTOR) {
       throw new Error('OpenAI Codex provider descriptor is missing');
     }
@@ -92,7 +98,7 @@ export class CodexAdapter extends BaseExtensionAdapter {
           profileId: profile.id,
           baseUrl: profile.baseUrl,
           patches: [
-            { path: ['models'], value: buildCodexModelCatalog(models).models }
+            { path: ['models'], value: catalogEntries }
           ]
         },
         reversible: true
