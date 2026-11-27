@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
 import { redactUrl } from '../../util/redact';
-import { createBackup, safeWriteFile, isFileNotFoundError } from '../../util/fsSafe';
+import { createBackup, safeWriteFile, writeFileAtomic, isFileNotFoundError } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
@@ -407,7 +407,19 @@ export class PlanApplier {
     // Write new content
     const content = await this.resolveConfigFileContent(step, fileExists, appliedStep);
 
-    const success = await safeWriteFile(step.targetPath, content);
+    // A dotenv-var target may carry a credential in a later plan step
+    // (e.g. GEMINI_API_KEY written into the same env file by a
+    // write-env-file step, which PRESERVES the existing file's mode).
+    // Creating the file here with default permissions would leave the
+    // credential in a 0644 file forever, so create dotenv-var targets
+    // private (0600). writeFileAtomic keeps an existing target's mode.
+    const isDotEnvTarget = step.data?.driver === 'dotenv-var';
+    const success = await writeFileAtomic(
+      step.targetPath,
+      content,
+      1,
+      isDotEnvTarget ? { mode: 0o600 } : undefined
+    );
     if (!success) {
       throw new Error(`Failed to write to ${step.targetPath}`);
     }

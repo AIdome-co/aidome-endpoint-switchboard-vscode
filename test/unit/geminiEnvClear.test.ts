@@ -180,3 +180,64 @@ describe('applier clear-not-replay with export-prefixed managed keys', () => {
     expect(result.assistantResults.get('gemini-cli')?.status).toBe('configured');
   });
 });
+
+/**
+ * Two-step production path (Codex PR 159 round N P1): the base-URL
+ * edit-config-file step creates a MISSING env file, and the following
+ * write-env-file step preserves whatever mode that file has. Creating it
+ * with default permissions left GEMINI_API_KEY in a 0644 file forever.
+ * The applier must create dotenv-var targets 0600.
+ */
+function baseUrlStep(): PlanStep {
+  return {
+    id: 'step-base-url',
+    action: 'edit-config-file',
+    description: 'Write GOOGLE_GEMINI_BASE_URL to the Gemini CLI env file',
+    assistantKey: 'gemini-cli',
+    targetPath: envPath,
+    data: {
+      driver: 'dotenv-var',
+      envVarName: 'GOOGLE_GEMINI_BASE_URL',
+      baseUrl: profile.baseUrl,
+    },
+    reversible: true,
+  };
+}
+
+function twoStepPlan(): Plan {
+  return {
+    id: 'plan-two-step',
+    profileId: profile.id,
+    assistantKeys: ['gemini-cli'],
+    steps: [baseUrlStep(), writeEnvFileStep()],
+    createdAt: '2026-11-27T00:00:00.000Z',
+    status: 'pending',
+  };
+}
+
+describe.skipIf(process.platform === 'win32')('dotenv-var creation permissions in the two-step path', () => {
+  it('creates a missing env file 0600 when the credential follows in the next step', async () => {
+    mockGetSecret.mockResolvedValue('TOKEN_NEW');
+
+    const result = await applier.applyPlan(twoStepPlan(), profile.name);
+
+    expect(result.assistantResults.get('gemini-cli')?.status).toBe('configured');
+    const env = await fs.readFile(envPath, 'utf-8');
+    expect(env).toContain('GOOGLE_GEMINI_BASE_URL=https://gateway-b.example.com/v1');
+    expect(env).toContain('GEMINI_API_KEY=TOKEN_NEW');
+    expect((await fs.stat(envPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it('does not narrow an existing env file that was already writable by the user', async () => {
+    await fs.writeFile(envPath, 'OTHER=keep\n', { mode: 0o644 });
+    await fs.chmod(envPath, 0o644);
+    mockGetSecret.mockResolvedValue('TOKEN_NEW');
+
+    await applier.applyPlan(twoStepPlan(), profile.name);
+
+    expect((await fs.stat(envPath)).mode & 0o777).toBe(0o644);
+    const env = await fs.readFile(envPath, 'utf-8');
+    expect(env).toContain('OTHER=keep');
+    expect(env).toContain('GEMINI_API_KEY=TOKEN_NEW');
+  });
+});
