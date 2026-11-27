@@ -58,6 +58,7 @@ describe('OpenCodeAdapter', () => {
       profileType: 'aidome',
       dialect: 'openai.chat_completions',
       baseUrl: 'https://aidome.example.com/v1',
+      authRef: 'test-profile',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -168,13 +169,29 @@ describe('OpenCodeAdapter', () => {
 
       const editStep = plan.steps.find(s => s.action === 'edit-config-file');
       expect(editStep?.data.clearAuthWhenMissing).toBe(true);
-      expect(editStep?.data.authRef).toBe(mockProfile.name);
+      expect(editStep?.data.authRef).toBe(mockProfile.authRef);
       expect(editStep?.data.missingSecretMessage).toContain('Test Profile');
 
       const guidedStep = plan.steps.find(s => s.action === 'show-guided-steps');
       expect(guidedStep?.data.tier).toBe('A');
       expect(guidedStep?.data.optional).toBe(true);
       expect((guidedStep?.data.steps as string[])[0]).toContain('/home/user/.config/opencode/opencode.json');
+    });
+
+    it('writes no apiKey patch and keeps guidance credential-free for an intentionally unauthenticated profile', async () => {
+      const unauthenticated = { ...mockProfile, authRef: undefined } as typeof mockProfile;
+
+      const plan = await adapter.buildPlan(unauthenticated);
+      const editStep = plan.steps.find(s => s.action === 'edit-config-file') as unknown as {
+        data: { patches: Array<{ path: string[] }>; clearAuthWhenMissing?: boolean; missingSecretMessage?: string }
+      };
+
+      expect(editStep.data.patches.find((p: { path: string[] }) => p.path.at(-1) === 'apiKey')).toBeUndefined();
+      expect(editStep.data.clearAuthWhenMissing).toBeUndefined();
+      expect(editStep.data.missingSecretMessage).toBeUndefined();
+
+      const guidedStep = plan.steps.find(s => s.action === 'show-guided-steps');
+      expect((guidedStep?.data.steps as string[]).join(' ')).toContain('no saved credential');
     });
 
     it('includes a verify-endpoint step', async () => {

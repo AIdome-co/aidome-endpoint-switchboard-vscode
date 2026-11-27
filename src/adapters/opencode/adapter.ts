@@ -53,6 +53,8 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
 
   /** Profile URL expected by the most recent buildPlan, for exact verification. */
   private expectedBaseUrl: string | undefined;
+  /** The assigned profile's authRef, or null when the profile is intentionally credential-free. */
+  private expectedAuthRef: string | null | undefined;
 
   constructor(private readonly dependencies: AdapterDependencies = {}) {
     super();
@@ -91,6 +93,11 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
     // match (fail closed when unknown — a config pointing at a different URL
     // must NOT verify for this profile).
     this.expectedBaseUrl = baseUrl;
+    // Remember whether the assigned profile intentionally carries no
+    // credential (authRef undefined = "Authentication: No" in the profile
+    // flow): verification then accepts a missing apiKey instead of
+    // reporting a valid unauthenticated endpoint as broken.
+    this.expectedAuthRef = profile.authRef ?? null;
     // The managed provider's models map is wholly owned by the Switchboard:
     // on every apply it is replaced with the CURRENT profile's full discovery
     // result (authoritative reconcile). An empty discovery probe writes no
@@ -131,10 +138,16 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
           ...(models.length > 0
             ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'models'], value: managedModels }]
             : []),
-          { path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey'], source: 'secret', removeWhenMissing: true }
+          ...(profile.authRef
+            ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey'], source: 'secret', removeWhenMissing: true }]
+            : []),
         ],
-        clearAuthWhenMissing: true,
-        missingSecretMessage: `OpenCode API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
+        ...(profile.authRef
+          ? {
+              clearAuthWhenMissing: true,
+              missingSecretMessage: `OpenCode API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
+            }
+          : {}),
       },
       reversible: true
     });
@@ -143,8 +156,14 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       message: 'OpenCode profile-switch notes',
       steps: [
         `OpenCode reads provider.${OPENCODE_PROVIDER_ID} from ${configPath}.`,
-        'When this profile is activated, Switchboard writes the profile\'s saved gateway token into provider.aidome.options.apiKey in that config file.',
-        'If no saved secret exists for this profile, Switchboard clears the API key and OpenCode auth will fail until you save a token for the profile.',
+        ...(profile.authRef
+          ? [
+              'When this profile is activated, Switchboard writes the profile\'s saved gateway token into provider.aidome.options.apiKey in that config file.',
+              'If no saved secret exists for this profile, Switchboard clears the API key and OpenCode auth will fail until you save a token for the profile.'
+            ]
+          : [
+              'This profile has no saved credential: Switchboard leaves provider.aidome.options.apiKey unset, which is valid for endpoints without authentication.'
+            ]),
         'Restart OpenCode after switching profiles so the new configuration is picked up.'
       ],
       baseUrl: profile.baseUrl,
@@ -260,6 +279,27 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
         success: false,
         message: 'OpenCode config points at a different endpoint than the assigned profile',
         details: { cli: cliDetected, configPath, expectedBaseUrl: sanitizeUrl(this.expectedBaseUrl), actualBaseUrl: sanitizeUrl(baseURL) }
+      };
+    }
+
+    if (this.expectedAuthRef === null) {
+      // An intentionally credential-free profile is valid without a key
+      // (OpenCode supports unauthenticated endpoints); an unset key on a
+      // profile that HAS a credential reference is still an error below.
+      return {
+        success: true,
+        message: 'OpenCode gateway configuration verified (unauthenticated profile)',
+        details: {
+          cli: cliDetected,
+          configPath,
+          baseUrlConfigured: true,
+          apiKeyConfigured: false,
+          unauthenticatedProfile: true,
+          exactUrlMatchVerified: true,
+          models: provider.models && typeof provider.models === 'object'
+            ? Object.keys(provider.models as Record<string, unknown>)
+            : []
+        }
       };
     }
 
