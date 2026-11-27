@@ -127,8 +127,11 @@ describe('OpenCodeAdapter', () => {
       expect(serialized.includes('aid_pat_')).toBe(false);
     });
 
-    it('includes the discovered model in the managed models map', async () => {
-      vi.spyOn(modelDiscovery, 'getCachedOpenAiModels').mockReturnValue([{ id: 'test-model' } as never]);
+    it('replaces the managed models map with every discovered model', async () => {
+      vi.spyOn(modelDiscovery, 'getCachedOpenAiModels').mockReturnValue([
+        { id: 'model-a' } as never,
+        { id: 'model-b' } as never
+      ]);
 
       const plan = await adapter.buildPlan(mockProfile);
       const editStep = plan.steps.find(s => s.action === 'edit-config-file');
@@ -136,10 +139,19 @@ describe('OpenCodeAdapter', () => {
       expect(editStep?.data.patches).toEqual(expect.arrayContaining([
         expect.objectContaining({
           path: ['provider', 'aidome', 'models'],
-          value: { 'test-model': {} },
-          mergeObject: true
+          value: { 'model-a': {}, 'model-b': {} }
         })
       ]));
+      // Authoritative reconcile: no mergeObject, so stale models from a
+      // previously applied endpoint cannot survive the switch.
+      expect(editStep?.data.patches.find((p: { path: string[] }) => p.path.at(-1) === 'models').mergeObject).toBeUndefined();
+    });
+
+    it('writes no models patch when discovery returns nothing (empty probe never rewrites)', async () => {
+      const plan = await adapter.buildPlan(mockProfile);
+      const editStep = plan.steps.find(s => s.action === 'edit-config-file');
+
+      expect(editStep?.data.patches.find((p: { path: string[] }) => p.path.at(-1) === 'models')).toBeUndefined();
     });
 
     it('uses the jsonc format for .jsonc config targets', async () => {

@@ -64,8 +64,13 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       if (cliDetected) {
         return true;
       }
-      // Config-file presence also counts: opencode may be installed without
-      // being resolvable on the extension host's PATH.
+      // Config-file presence also counts at the adapter level: opencode may
+      // be installed without being resolvable on the extension host's PATH.
+      // NOTE: the setup/assignment wizards drive their pickers from
+      // `Switchboard.detectAll()` → `detectCLIs()`, which probes PATH only
+      // for every CLI assistant (uniform for codex, claude-code, gemini-cli,
+      // opencode); this fallback serves the adapter-level detect() contract
+      // and does not add the assistant to the wizard's candidate list.
       return await fileExists(getOpenCodeConfigPath());
     } catch (error) {
       this.logger.error('Error detecting OpenCode', error as Error);
@@ -86,8 +91,15 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
     // match (fail closed when unknown — a config pointing at a different URL
     // must NOT verify for this profile).
     this.expectedBaseUrl = baseUrl;
+    // The managed provider's models map is wholly owned by the Switchboard:
+    // on every apply it is replaced with the CURRENT profile's full discovery
+    // result (authoritative reconcile). An empty discovery probe writes no
+    // models patch at all, so a failed lookup never wipes an existing map.
     const models = await this.discoverModels(profile);
-    const modelId = models[0]?.id;
+    const managedModels: Record<string, Record<string, never>> = {};
+    for (const model of models) {
+      managedModels[model.id] = {};
+    }
 
     let plan = createPlan(profile.id, ['opencode']);
 
@@ -116,8 +128,8 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
           { path: ['provider', OPENCODE_PROVIDER_ID, 'npm'], value: OPENCODE_PROVIDER_NPM },
           { path: ['provider', OPENCODE_PROVIDER_ID, 'name'], value: OPENCODE_PROVIDER_NAME },
           { path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'baseURL'], source: 'baseUrl' },
-          ...(modelId
-            ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'models'], value: { [modelId]: {} }, mergeObject: true }]
+          ...(models.length > 0
+            ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'models'], value: managedModels }]
             : []),
           { path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey'], source: 'secret', removeWhenMissing: true }
         ],
