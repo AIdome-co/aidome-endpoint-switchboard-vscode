@@ -669,6 +669,12 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
   };
   if (typeof data.model === 'string' && data.model.trim().length > 0) {
     output.model = data.model.trim();
+  } else if (data.removeModelCatalogJson === true) {
+    // A confirmed empty catalog means no usable gateway model exists on the
+    // NEW endpoint: a top-level `model` slug selected by a previous apply
+    // would then point at an unsupported model, so remove it together with
+    // the catalog binding.
+    delete output.model;
   }
   if (typeof data.modelCatalogJson === 'string' && data.modelCatalogJson.trim().length > 0) {
     output.model_catalog_json = data.modelCatalogJson.trim();

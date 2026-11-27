@@ -69,7 +69,12 @@ export function buildCodexModelCatalog(models: DiscoveredModel[]): {
 
     const contextWindow = typeof model.contextWindow === 'number' && model.contextWindow > 0
       ? model.contextWindow
-      : FALLBACK_CONTEXT_WINDOW;
+      : typeof model.maxInputTokens === 'number' && model.maxInputTokens > 0
+        // Discovered input limit is a conservative, per-model bound — prefer
+        // it over the generic unknown-slug fallback so a 32k-input model is
+        // not compacted as though it supported 272k.
+        ? model.maxInputTokens
+        : FALLBACK_CONTEXT_WINDOW;
 
     entries.push({
       slug,

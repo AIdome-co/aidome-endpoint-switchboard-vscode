@@ -78,7 +78,15 @@ export class CodexAdapter extends BaseExtensionAdapter {
       ...(catalogPath ? { modelCatalogJsonPath: catalogPath } : {}),
       // A failed discovery request must neither rebind nor remove the
       // catalog binding: keep whatever the previous apply left in place.
-      ...(discoveryFailed ? { preserveModelCatalogJson: true } : {})
+      // Preserve the existing binding ONLY when discovery failed during a
+      // reapply of the same endpoint (transient failure). On a profile
+      // switch (different endpoint) a failure must NOT preserve the old
+      // catalog: the plan then unbinds the catalog and removes a stale
+      // selected model so the new endpoint never receives the old profile's
+      // slug while Codex falls back to its bundled catalog.
+      ...(discoveryFailed && (await this.configMatchesEndpoint(configPath, profile))
+        ? { preserveModelCatalogJson: true }
+        : {})
     });
     this.expectedBaseUrl = profile.baseUrl;
 
@@ -162,6 +170,20 @@ export class CodexAdapter extends BaseExtensionAdapter {
     });
 
     return plan;
+  }
+
+  /**
+   * True when the existing Codex config's managed provider already points at
+   * this profile's endpoint (a reapply of the owning profile) — the only case
+   * where a failed discovery may safely preserve the existing catalog.
+   */
+  private async configMatchesEndpoint(configPath: string, profile: EndpointProfile): Promise<boolean> {
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      return false;
+    }
+    const match = content.match(/\[model_providers\.aidome\][^[]*?base_url\s*=\s*"([^"]+)"/s);
+    return match?.[1] === profile.baseUrl;
   }
 
   private async discoverModels(profile: EndpointProfile): Promise<{ models: DiscoveredModel[]; discoveryFailed: boolean }> {

@@ -14,6 +14,7 @@ import { CodexAdapter } from '../../src/adapters/codex/adapter';
 import { getCodexModelsCatalogPath, getCodexConfigPath } from '../../src/adapters/codex/codexConfigPatcher';
 import { buildCodexModelCatalog } from '../../src/adapters/codex/modelCatalog';
 import { renderConfigFileContent } from '../../src/core/providerConfig/drivers';
+import * as fsSafe from '../../src/util/fsSafe';
 import { parse as parseToml } from 'smol-toml';
 import { PlanApplier } from '../../src/core/orchestration/applier';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
@@ -157,6 +158,7 @@ describe('CodexAdapter model catalog plan behavior', () => {
 
   afterEach(async () => {
     process.env.CODEX_CONFIG_PATH = originalConfigPath;
+    vi.restoreAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
@@ -207,6 +209,11 @@ describe('CodexAdapter model catalog plan behavior', () => {
   it('keeps the existing catalog binding untouched when the discovery request fails', async () => {
     // A transient network failure is NOT an empty catalog: collapsing it into
     // [] would emit removeModelCatalogJson and unbind a working catalog.
+    // Preservation is allowed because the existing config belongs to the
+    // same profile (reapply of the owning endpoint).
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+      '[model_providers.aidome]\nbase_url = "https://gateway.example.com/v1"\n'
+    );
     mockHttpRequest.mockRejectedValue(new Error('connection reset'));
 
     const plan = await adapter.buildPlan(profile);
@@ -218,6 +225,9 @@ describe('CodexAdapter model catalog plan behavior', () => {
   });
 
   it('keeps the existing catalog binding when discovery returns a malformed body', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+      '[model_providers.aidome]\nbase_url = "https://gateway.example.com/v1"\n'
+    );
     mockHttpRequest.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, body: { data: 'not-an-array' } });
 
     const plan = await adapter.buildPlan(profile);
@@ -227,12 +237,42 @@ describe('CodexAdapter model catalog plan behavior', () => {
   });
 
   it('keeps the existing catalog binding when every entry in a non-empty response is malformed', async () => {
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+      '[model_providers.aidome]\nbase_url = "https://gateway.example.com/v1"\n'
+    );
     mockHttpRequest.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, body: { data: [{}] } });
 
     const plan = await adapter.buildPlan(profile);
 
     const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
     expect(configStep?.data.removeModelCatalogJson).toBeUndefined();
+  });
+
+  it('unbinds the catalog and stale model when discovery fails on a profile switch', async () => {
+    // The existing config points at a DIFFERENT endpoint: preserving the old
+    // catalog would build a hybrid configuration (old model slug + new
+    // endpoint). The plan unbinds the catalog and removes the stale model
+    // instead; Codex falls back to its bundled catalog.
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(
+      '[model_providers.aidome]\nbase_url = "https://other-gateway.example.com/v1"\n'
+    );
+    mockHttpRequest.mockRejectedValue(new Error('connection reset'));
+
+    const plan = await adapter.buildPlan(profile);
+
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.removeModelCatalogJson).toBe(true);
+  });
+
+  it('removes a stale selected model when discovery confirms an empty catalog', async () => {
+    mockHttpRequest.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, body: { data: [] } });
+
+    const plan = await adapter.buildPlan(profile);
+
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.removeModelCatalogJson).toBe(true);
+    // The stale model slug is removed together with the binding: verified at
+    // the driver level in the toml driver suite below.
   });
 
   it('writes no catalog and no model binding when discovery returns only bundled gpt-* models', async () => {
