@@ -264,7 +264,22 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     providerKey: 'openai-codex',
     displayName: 'OpenAI Codex',
     dialects: [{ dialect: 'openai.responses', protocol: 'responses', preferred: true }],
-    targets: [{ id: 'codex-config', format: 'toml', driver: 'toml-table', path: '~/.codex/config.toml or ~/snap/codex/<revision>/config.toml', priority: 1 }],
+    targets: [
+      { id: 'codex-config', format: 'toml', driver: 'toml-table', path: '~/.codex/config.toml or ~/snap/codex/<revision>/config.toml', priority: 1 },
+      {
+        // Companion catalog target (codex-rs top-level model_catalog_json).
+        // Resolved and emitted by the Codex adapter only when gateway model
+        // discovery returned models — the catalog REPLACES the bundled
+        // catalog, so it must never be written empty or stale. No plan
+        // operations: verification of this target is the adapter's catalog
+        // step, not the config document.
+        id: 'codex-model-catalog',
+        format: 'json',
+        driver: 'json-object',
+        path: '<CODEX_HOME>/models.json (CODEX_HOME / snap aware, resolved from the config path)',
+        priority: 2
+      }
+    ],
     fields: [
       { field: 'provider', path: 'model_provider', valueKind: 'string', requiredFor: ['openai.responses'] },
       { field: 'baseUrl', path: 'model_providers.<name>.base_url', valueKind: 'string', requiredFor: ['openai.responses'], preserveUnknown: true },
@@ -287,7 +302,7 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
           },
           { type: 'set' as const, path: ['model'], value: { type: 'discovered-model' } }
         ],
-        stepData: { source: 'descriptor-plan' }
+        stepData: { source: 'descriptor-plan', modelCatalogJsonTargetId: 'codex-model-catalog' }
       }
     ],
     driver: 'toml-table',

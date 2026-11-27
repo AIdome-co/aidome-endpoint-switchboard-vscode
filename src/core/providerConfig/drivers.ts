@@ -74,6 +74,21 @@ export interface TomlTableDriverData {
   wireApi: 'responses';
   envKey?: string;
   model?: string;
+  /**
+   * Codex model-catalog binding (codex-rs top-level `model_catalog_json`).
+   * When set, the key points at the Switchboard-generated catalog file
+   * (~/.codex/models.json); a top-level catalog path REPLACES Codex's bundled
+   * catalog, so it must only be set when that file is being written by the
+   * same plan.
+   */
+  modelCatalogJson?: string;
+  /**
+   * Removes a stale `model_catalog_json` key (e.g. written for a catalog file
+   * that a later plan with failed/empty model discovery no longer produces) so
+   * Codex falls back to its bundled catalog instead of failing to load a
+   * missing or empty catalog file.
+   */
+  removeModelCatalogJson?: boolean;
 }
 
 /** Union of file-driver plan data. */
@@ -654,6 +669,11 @@ function renderTomlTable(request: ConfigDriverRequest, data: TomlTableDriverData
   };
   if (typeof data.model === 'string' && data.model.trim().length > 0) {
     output.model = data.model.trim();
+  }
+  if (typeof data.modelCatalogJson === 'string' && data.modelCatalogJson.trim().length > 0) {
+    output.model_catalog_json = data.modelCatalogJson.trim();
+  } else if (data.removeModelCatalogJson === true) {
+    delete output.model_catalog_json;
   }
   output.model_providers = modelProviders;
   output.model_provider = providerName;

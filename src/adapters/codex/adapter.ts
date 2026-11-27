@@ -15,7 +15,8 @@ import { Plan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
-import { getCodexConfigPath } from './codexConfigPatcher';
+import { getCodexConfigPath, getCodexModelsCatalogPath } from './codexConfigPatcher';
+import { buildCodexModelCatalog } from './modelCatalog';
 import { readFileSafe } from '../../util/fsSafe';
 import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
@@ -53,6 +54,13 @@ export class CodexAdapter extends BaseExtensionAdapter {
     const configPath = getCodexConfigPath();
     const models = await this.discoverModels(profile);
     const model = models[0]?.id;
+    // The Codex model catalog is generated automatically as part of the same
+    // plan whenever discovery returned models. Codex loads a top-level
+    // `model_catalog_json` file ONLY at startup and it REPLACES the bundled
+    // catalog, so it is written only from real gateway models and the config
+    // key is removed (via the descriptor binding) when there is nothing to
+    // point at.
+    const catalogPath = models.length > 0 ? getCodexModelsCatalogPath() : undefined;
     if (!DESCRIPTOR) {
       throw new Error('OpenAI Codex provider descriptor is missing');
     }
@@ -61,8 +69,35 @@ export class CodexAdapter extends BaseExtensionAdapter {
       profile,
       resolvedTargetPaths: { 'codex-config': configPath },
       discoveredModels: model ? [model] : undefined,
+      ...(catalogPath ? { modelCatalogJsonPath: catalogPath } : {})
     });
     this.expectedBaseUrl = profile.baseUrl;
+
+    if (catalogPath && DESCRIPTOR) {
+      plan = addStep(plan, {
+        action: 'edit-config-file',
+        description: 'Write the Codex model catalog from discovered gateway models',
+        assistantKey: 'openai-codex',
+        targetPath: catalogPath,
+        newValue: profile.baseUrl,
+        data: {
+          // PlanApplier backs up the catalog file before its edit-config-file
+          // step; backupRequired below is preview metadata, not a duplicate
+          // backup.
+          backupRequired: true,
+          driver: 'json-object',
+          format: 'json',
+          configPath: catalogPath,
+          configType: 'codex-model-catalog',
+          profileId: profile.id,
+          baseUrl: profile.baseUrl,
+          patches: [
+            { path: ['models'], value: buildCodexModelCatalog(models).models }
+          ]
+        },
+        reversible: true
+      });
+    }
 
     // Credential persistence: Codex loads <codex_home>/.env at startup
     // (upstream load_dotenv) — the official on-disk location for the
