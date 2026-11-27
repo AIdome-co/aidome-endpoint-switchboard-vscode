@@ -311,24 +311,25 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     tier: 'A',
     secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-process',
-    discovery: { cliCommands: ['opencode'], environmentOverrides: ['OPENCODE_CONFIG_PATH', 'SNAP_USER_COMMON'], notes: ['Snap-confined installs may keep config under ~/snap/opencode/<revision>/; the adapter resolves candidates in a documented order.'] },
+    discovery: { cliCommands: ['opencode'], environmentOverrides: ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_PATH', 'SNAP_USER_COMMON'], notes: ['Upstream honors OPENCODE_CONFIG (explicit config file), OPENCODE_CONFIG_DIR (global config dir, default $XDG_CONFIG_HOME/opencode). When both opencode.json and opencode.jsonc exist in a directory, upstream merges .jsonc at higher priority, so the adapter prefers the .jsonc sibling (verified live against installed opencode 1.19.6). Snap-confined installs may keep config under ~/snap/opencode/<revision>/; the adapter resolves candidates in a documented order.'] },
     verification: { requiredFields: ['provider.<id>.options.baseURL', 'provider.<id>.options.apiKey'], exactUrlMatch: true, selectedProviderRequired: true, protocolRequired: false, notes: ['Exact-profile verification: the managed provider options.baseURL must equal the assigned profile URL (fail closed when the expected profile is unknown).'] },
     drift: {
       sourceSymbols: ['provider.<id>', 'ProviderConfig.options.baseURL', 'ProviderConfig.options.apiKey', 'ProviderConfig.models'],
       failClosedOnMissingEvidence: true,
       notes: [
-        'Target the legacy top-level provider.<id> shape with npm @ai-sdk/openai-compatible — verified live against installed opencode 1.19.5.',
-        'The newer upstream top-level providers/package/settings shape is NOT accepted by installed releases; do not migrate until the installed CLI requires it.'
+        'Target the legacy top-level provider.<id> shape with npm @ai-sdk/openai-compatible — verified live against installed opencode 1.19.5 and 1.19.6 (opencode debug config accepts provider.<id> and lists the managed models; the top-level providers/package shape is rejected by 1.19.6).',
+        'The newer upstream top-level providers/package/settings shape is NOT accepted by installed releases; do not migrate until the installed CLI requires it. Current docs (opencode.ai/docs/providers) document only the new shape — a docs/upstream-vs-installed discrepancy to re-check on upgrade.'
       ]
     },
     versionEvidence: evidence(
       'https://github.com/sst/opencode.git',
-      '47f333299bb193f28dfdd94ccc43e55c529198ee',
+      'ba5bbef82c9fc27e033a12ca50657f4ec8d629da',
       'medium',
       [
-        'packages/opencode/src/config/config.ts',
-        'packages/opencode/src/config/provider.ts',
-        'packages/web/src/content/docs/docs/providers.mdx'
+        'packages/core/src/v1/config/provider.ts (legacy ProviderConfig: options.apiKey, options.baseURL, models, npm)',
+        'packages/core/src/config/normalize.ts (legacy provider.<id> migration into the current shape)',
+        'packages/util/src/global.ts (global config dir: $XDG_CONFIG_HOME/opencode, OPENCODE_CONFIG_DIR override)',
+        'packages/core/src/config/discovery.ts (config file names: opencode.json, opencode.jsonc)'
       ]
     ),
     limitations: [

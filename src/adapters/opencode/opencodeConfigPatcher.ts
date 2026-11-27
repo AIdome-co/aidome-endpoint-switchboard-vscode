@@ -48,15 +48,32 @@ export interface OpenCodeConfigBuildOptions {
  * Gets the OpenCode config path.
  *
  * Resolution order (mirrors the snap-aware Codex pattern):
- *  1. OPENCODE_CONFIG_PATH explicit override
- *  2. ~/.config/opencode/opencode.json (standard location; also where the
- *     installed snap release reads config on this machine)
- *  3. snap-confined candidates: $SNAP_USER_COMMON/opencode.json, then the
+ *  1. OPENCODE_CONFIG (upstream explicit-config-file env, highest vendor
+ *     priority — packages/cli/src/server-process.ts passes it as the explicit
+ *     config source, which overrides the global directory)
+ *  2. OPENCODE_CONFIG_PATH explicit override (Switchboard's own escape hatch)
+ *  3. ~/.config/opencode/opencode.json[c] (standard location; upstream
+ *     resolves the global config dir as $XDG_CONFIG_HOME/opencode, with
+ *     OPENCODE_CONFIG_DIR overriding it — packages/util/src/global.ts:7,79)
+ *  4. snap-confined candidates: $SNAP_USER_COMMON/opencode.json, then the
  *     newest numeric ~/snap/opencode/<revision>/opencode.json
- * `.jsonc` variants are preferred over creating a new `.json` file.
+ *
+ * Within a directory, an existing `.jsonc` file is preferred over `.json`:
+ * upstream loads both and merges documents lowest-to-highest priority in
+ * ConfigDiscovery.names order ("opencode.json" then "opencode.jsonc"), so a
+ * key present in both files resolves to the `.jsonc` value, and upstream's
+ * own config writer also picks the `.jsonc` candidate when both exist
+ * (packages/core/src/config.ts `Effect.filter(candidates, fs.isFile)).at(-1)`).
+ * Writing to `.json` when `.jsonc` also defines the managed provider would
+ * therefore be shadowed.
  * @returns Config file path
  */
 export function getOpenCodeConfigPath(): string {
+  const vendorExplicitConfig = process.env.OPENCODE_CONFIG?.trim();
+  if (vendorExplicitConfig) {
+    return expandTilde(vendorExplicitConfig);
+  }
+
   const explicitConfigPath = process.env.OPENCODE_CONFIG_PATH?.trim();
   if (explicitConfigPath) {
     return expandTilde(explicitConfigPath);
@@ -67,8 +84,15 @@ export function getOpenCodeConfigPath(): string {
     ? path.join(snapCommon, 'opencode.json')
     : undefined;
 
+  // Upstream: OPENCODE_CONFIG_DIR replaces the global config directory
+  // (packages/util/src/global.ts), which defaults to $XDG_CONFIG_HOME/opencode.
+  const configDirOverride = process.env.OPENCODE_CONFIG_DIR?.trim();
+  const standardDir = configDirOverride
+    ? expandTilde(configDirOverride)
+    : expandTilde('~/.config/opencode');
+
   const candidates: string[] = [
-    expandTilde('~/.config/opencode/opencode.json'),
+    path.join(standardDir, 'opencode.json'),
     ...(snapCommonConfig ? [snapCommonConfig] : [])
   ];
 
@@ -89,16 +113,19 @@ export function getOpenCodeConfigPath(): string {
   candidates.push(path.join(snapRoot, 'common', 'opencode.json'));
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
+    // Prefer an existing .jsonc sibling: upstream merges documents in
+    // ["opencode.json", "opencode.jsonc"] order, so .jsonc has the higher
+    // priority and a .json write would be shadowed when both exist.
     const jsoncVariant = candidate.replace(/\.json$/, '.jsonc');
     if (fs.existsSync(jsoncVariant)) {
       return jsoncVariant;
     }
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
 
-  return expandTilde('~/.config/opencode/opencode.json');
+  return path.join(standardDir, 'opencode.json');
 }
 
 /**

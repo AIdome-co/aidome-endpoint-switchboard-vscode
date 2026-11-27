@@ -3,9 +3,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   OPENCODE_PROVIDER_ID,
   buildOpenCodeConfigContent,
+  getOpenCodeConfigPath,
   parseOpenCodeConfigForVerification,
   patchOpenCodeConfig
 } from '../../src/adapters/opencode/opencodeConfigPatcher';
@@ -40,6 +44,81 @@ describe('opencodeConfigPatcher', () => {
       updatedAt: new Date().toISOString()
     };
     vi.clearAllMocks();
+  });
+
+  describe('getOpenCodeConfigPath', () => {
+    const ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_PATH', 'OPENCODE_CONFIG_DIR', 'SNAP_USER_COMMON'] as const;
+    let savedEnv: Record<string, string | undefined>;
+    let tempDirs: string[] = [];
+
+    const makeTempDir = (): string => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-cfg-test-'));
+      tempDirs.push(dir);
+      return dir;
+    };
+
+    beforeEach(() => {
+      savedEnv = {};
+      for (const key of ENV_KEYS) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+      tempDirs = [];
+    });
+
+    afterEach(() => {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      for (const dir of tempDirs) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+      tempDirs = [];
+    });
+
+    it('prefers an existing .jsonc sibling over .json in the same directory', () => {
+      const dir = makeTempDir();
+      process.env.OPENCODE_CONFIG_DIR = dir;
+      fs.writeFileSync(path.join(dir, 'opencode.json'), '{}');
+      fs.writeFileSync(path.join(dir, 'opencode.jsonc'), '{}');
+
+      expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'opencode.jsonc'));
+    });
+
+    it('uses the .json file when no .jsonc sibling exists', () => {
+      const dir = makeTempDir();
+      process.env.OPENCODE_CONFIG_DIR = dir;
+      fs.writeFileSync(path.join(dir, 'opencode.json'), '{}');
+
+      expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'opencode.json'));
+    });
+
+    it('honors the upstream OPENCODE_CONFIG explicit-file env first', () => {
+      const dir = makeTempDir();
+      const explicit = path.join(dir, 'custom-config.json');
+      fs.writeFileSync(explicit, '{}');
+      process.env.OPENCODE_CONFIG = explicit;
+
+      expect(getOpenCodeConfigPath()).toBe(explicit);
+    });
+
+    it('honors OPENCODE_CONFIG_DIR as the global config directory', () => {
+      const dir = makeTempDir();
+      process.env.OPENCODE_CONFIG_DIR = dir;
+
+      expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'opencode.json'));
+    });
+
+    it('falls back to opencode.json in the configured directory when no candidate exists', () => {
+      const dir = makeTempDir();
+      process.env.OPENCODE_CONFIG_DIR = path.join(dir, 'missing-subdir');
+
+      expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'missing-subdir', 'opencode.json'));
+    });
   });
 
   describe('buildOpenCodeConfigContent', () => {

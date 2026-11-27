@@ -48,6 +48,8 @@ describe('OpenCodeAdapter', () => {
 
   beforeEach(() => {
     delete process.env.OPENCODE_CONFIG_PATH;
+    delete process.env.OPENCODE_CONFIG;
+    delete process.env.OPENCODE_CONFIG_DIR;
     delete process.env.SNAP_USER_COMMON;
     adapter = new OpenCodeAdapter();
     mockProfile = {
