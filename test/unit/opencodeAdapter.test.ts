@@ -178,15 +178,18 @@ describe('OpenCodeAdapter', () => {
       expect((guidedStep?.data.steps as string[])[0]).toContain('/home/user/.config/opencode/opencode.json');
     });
 
-    it('writes no apiKey patch and keeps guidance credential-free for an intentionally unauthenticated profile', async () => {
+    it('removes the managed apiKey and keeps guidance credential-free for an intentionally unauthenticated profile', async () => {
       const unauthenticated = { ...mockProfile, authRef: undefined } as typeof mockProfile;
 
       const plan = await adapter.buildPlan(unauthenticated);
       const editStep = plan.steps.find(s => s.action === 'edit-config-file') as unknown as {
-        data: { patches: Array<{ path: string[] }>; clearAuthWhenMissing?: boolean; missingSecretMessage?: string }
+        data: { patches: Array<{ path: string[] }>; removePaths?: string[][]; clearAuthWhenMissing?: boolean; missingSecretMessage?: string }
       };
 
+      // No credential patch is emitted, but a stale managed key from a
+      // previously authenticated profile must be REMOVED, not left behind.
       expect(editStep.data.patches.find((p: { path: string[] }) => p.path.at(-1) === 'apiKey')).toBeUndefined();
+      expect(editStep.data.removePaths?.some(path => path.at(-1) === 'apiKey')).toBe(true);
       expect(editStep.data.clearAuthWhenMissing).toBeUndefined();
       expect(editStep.data.missingSecretMessage).toBeUndefined();
 

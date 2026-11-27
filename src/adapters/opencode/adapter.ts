@@ -147,7 +147,14 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
               clearAuthWhenMissing: true,
               missingSecretMessage: `OpenCode API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
             }
-          : {}),
+          : {
+              // Switching from an authenticated profile to a credential-free
+              // one must REMOVE the managed apiKey: the JSON driver only
+              // patches fields it is given, so omitting the patch would leave
+              // the previous profile's token in the config and it could be
+              // sent to the new endpoint.
+              removePaths: [['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey']]
+            }),
       },
       reversible: true
     });
@@ -162,7 +169,7 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
               'If no saved secret exists for this profile, Switchboard clears the API key and OpenCode auth will fail until you save a token for the profile.'
             ]
           : [
-              'This profile has no saved credential: Switchboard leaves provider.aidome.options.apiKey unset, which is valid for endpoints without authentication.'
+              'This profile has no saved credential: Switchboard removes any previously managed provider.aidome.options.apiKey from the config, which is valid for endpoints without authentication.'
             ]),
         'Restart OpenCode after switching profiles so the new configuration is picked up.'
       ],
