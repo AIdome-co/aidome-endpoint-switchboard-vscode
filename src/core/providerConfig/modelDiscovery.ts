@@ -46,11 +46,20 @@ export async function tryDiscoverOpenAiModels(
       return { ok: false, models: [] };
     }
 
+    const models = response.body.data
+      .map(toDiscoveredModel)
+      .filter((model): model is DiscoveredModel => model !== undefined);
+    // A non-empty array whose entries are ALL malformed (e.g. {"data":[{}]}
+    // after an upstream schema change) is also a discovery failure, not a
+    // confirmed empty catalog: collapsing it to [] would unbind a working
+    // model_catalog_json that the previous apply left in place.
+    if (response.body.data.length > 0 && models.length === 0) {
+      return { ok: false, models: [] };
+    }
+
     return {
       ok: true,
-      models: response.body.data
-        .map(toDiscoveredModel)
-        .filter((model): model is DiscoveredModel => model !== undefined)
+      models
     };
   } catch {
     return { ok: false, models: [] };

@@ -226,6 +226,15 @@ describe('CodexAdapter model catalog plan behavior', () => {
     expect(configStep?.data.removeModelCatalogJson).toBeUndefined();
   });
 
+  it('keeps the existing catalog binding when every entry in a non-empty response is malformed', async () => {
+    mockHttpRequest.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, body: { data: [{}] } });
+
+    const plan = await adapter.buildPlan(profile);
+
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.removeModelCatalogJson).toBeUndefined();
+  });
+
   it('writes no catalog and no model binding when discovery returns only bundled gpt-* models', async () => {
     mockHttpRequest.mockResolvedValue({
       status: 200,
