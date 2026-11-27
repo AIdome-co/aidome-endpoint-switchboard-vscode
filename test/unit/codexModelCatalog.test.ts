@@ -14,6 +14,7 @@ import { CodexAdapter } from '../../src/adapters/codex/adapter';
 import { getCodexModelsCatalogPath, getCodexConfigPath } from '../../src/adapters/codex/codexConfigPatcher';
 import { buildCodexModelCatalog } from '../../src/adapters/codex/modelCatalog';
 import { renderConfigFileContent } from '../../src/core/providerConfig/drivers';
+import { parse as parseToml } from 'smol-toml';
 import { PlanApplier } from '../../src/core/orchestration/applier';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import type { DiscoveredModel } from '../../src/core/providerConfig/modelDiscovery';
@@ -118,14 +119,14 @@ describe('Codex model catalog path resolution', () => {
 
   it('honors CODEX_HOME for the catalog path', () => {
     delete process.env.CODEX_CONFIG_PATH;
-    process.env.CODEX_HOME = '/tmp/codex-home';
-    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp/codex-home', 'models.json'));
-    expect(getCodexConfigPath()).toBe(path.join('/tmp/codex-home', 'config.toml'));
+    process.env.CODEX_HOME = path.join('/tmp', 'codex-home');
+    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'models.json'));
+    expect(getCodexConfigPath()).toBe(path.join('/tmp', 'codex-home', 'config.toml'));
   });
 
   it('stays coherent with an explicit CODEX_CONFIG_PATH', () => {
-    process.env.CODEX_CONFIG_PATH = '/tmp/codex-home/deep/config.toml';
-    expect(getCodexModelsCatalogPath()).toBe('/tmp/codex-home/deep/models.json');
+    process.env.CODEX_CONFIG_PATH = path.join('/tmp', 'codex-home', 'deep', 'config.toml');
+    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'deep', 'models.json'));
   });
 });
 
@@ -236,7 +237,10 @@ describe('CodexAdapter model catalog plan behavior', () => {
 
     const parsedCatalog = JSON.parse(firstCatalog) as { models: Array<Record<string, unknown>> };
     expect(parsedCatalog.models.map(entry => entry.slug)).toEqual(['gateway-large']);
-    expect(firstConfig).toContain(`model_catalog_json = "${catalogPath}"`);
+    // Parse the TOML instead of substring matching: backslashes in the path
+    // are escaped differently on Windows.
+    const parsedConfig = parseToml(firstConfig) as { model_catalog_json?: string };
+    expect(parsedConfig.model_catalog_json).toBe(catalogPath);
 
     // Second apply: both files exist now, so both get backup-before-modify.
     const plan2 = await adapter.buildPlan(profile);
@@ -251,7 +255,8 @@ describe('CodexAdapter model catalog plan behavior', () => {
     await applier2.rollbackPlan(result2.changeLogEntry.id);
     const rolledBackCatalog = JSON.parse(await fs.readFile(catalogPath, 'utf8')) as { models: unknown[] };
     expect(rolledBackCatalog.models).toEqual(parsedCatalog.models);
-    expect(await fs.readFile(configPath, 'utf8')).toContain(`model_catalog_json = "${catalogPath}"`);
+    const rolledBackConfig = parseToml(await fs.readFile(configPath, 'utf8')) as { model_catalog_json?: string };
+    expect(rolledBackConfig.model_catalog_json).toBe(catalogPath);
   });
 
   it('applies the stale-key removal when no models are discovered', async () => {
