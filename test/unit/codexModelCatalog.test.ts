@@ -204,6 +204,28 @@ describe('CodexAdapter model catalog plan behavior', () => {
     expect(configStep?.data.removeModelCatalogJson).toBe(true);
   });
 
+  it('keeps the existing catalog binding untouched when the discovery request fails', async () => {
+    // A transient network failure is NOT an empty catalog: collapsing it into
+    // [] would emit removeModelCatalogJson and unbind a working catalog.
+    mockHttpRequest.mockRejectedValue(new Error('connection reset'));
+
+    const plan = await adapter.buildPlan(profile);
+
+    expect(plan.steps.find(step => step.data?.configType === 'codex-model-catalog')).toBeUndefined();
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.modelCatalogJson).toBeUndefined();
+    expect(configStep?.data.removeModelCatalogJson).toBeUndefined();
+  });
+
+  it('keeps the existing catalog binding when discovery returns a malformed body', async () => {
+    mockHttpRequest.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, body: { data: 'not-an-array' } });
+
+    const plan = await adapter.buildPlan(profile);
+
+    const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
+    expect(configStep?.data.removeModelCatalogJson).toBeUndefined();
+  });
+
   it('writes no catalog and no model binding when discovery returns only bundled gpt-* models', async () => {
     mockHttpRequest.mockResolvedValue({
       status: 200,

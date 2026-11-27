@@ -42,6 +42,13 @@ export interface ProviderConfigEngineContext {
    * means the descriptor's toml target must REMOVE a stale catalog key.
    */
   modelCatalogJsonPath?: string;
+  /**
+   * When true, a failed model-discovery request left the existing catalog
+   * binding untouched: the toml target emits neither `modelCatalogJson` nor
+   * `removeModelCatalogJson` for this apply. A confirmed-empty successful
+   * discovery still removes the stale binding.
+   */
+  preserveModelCatalogJson?: boolean;
   /** Overrides evaluated per operation value source when the adapter owns resolution (hook). */
   valueOverrides?: Partial<Record<DescriptorValueSource['type'], unknown>>;
 }
@@ -309,7 +316,7 @@ function compileTargetPlan(
           ...(model ? { model } : {}),
           ...(catalogPath !== undefined
             ? { modelCatalogJson: catalogPath }
-            : catalogTargetId !== undefined
+            : catalogTargetId !== undefined && !context.preserveModelCatalogJson
               ? { removeModelCatalogJson: true }
               : {}),
         },

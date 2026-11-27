@@ -18,7 +18,7 @@ import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath, getCodexModelsCatalogPath } from './codexConfigPatcher';
 import { buildCodexModelCatalog } from './modelCatalog';
 import { readFileSafe } from '../../util/fsSafe';
-import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import { getCachedOpenAiModels, tryDiscoverOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
 import * as path from 'path';
@@ -52,7 +52,7 @@ export class CodexAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getCodexConfigPath();
-    const models = await this.discoverModels(profile);
+    const { models, discoveryFailed } = await this.discoverModels(profile);
     // Build the catalog FIRST and decide everything from its filtered
     // entries: the catalog replaces Codex's bundled catalog entirely, so an
     // all-`gpt-*` discovery (every entry filtered out) must produce NO catalog
@@ -75,7 +75,10 @@ export class CodexAdapter extends BaseExtensionAdapter {
       profile,
       resolvedTargetPaths: { 'codex-config': configPath },
       discoveredModels: model ? [model] : undefined,
-      ...(catalogPath ? { modelCatalogJsonPath: catalogPath } : {})
+      ...(catalogPath ? { modelCatalogJsonPath: catalogPath } : {}),
+      // A failed discovery request must neither rebind nor remove the
+      // catalog binding: keep whatever the previous apply left in place.
+      ...(discoveryFailed ? { preserveModelCatalogJson: true } : {})
     });
     this.expectedBaseUrl = profile.baseUrl;
 
@@ -161,16 +164,20 @@ export class CodexAdapter extends BaseExtensionAdapter {
     return plan;
   }
 
-  private async discoverModels(profile: EndpointProfile): Promise<DiscoveredModel[]> {
+  private async discoverModels(profile: EndpointProfile): Promise<{ models: DiscoveredModel[]; discoveryFailed: boolean }> {
     const cached = getCachedOpenAiModels(profile);
     if (cached.length > 0) {
-      return cached;
+      return { models: cached, discoveryFailed: false };
     }
 
     const token = profile.authRef && this.dependencies.profileSecrets
       ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
       : undefined;
-    return discoverOpenAiModels(profile.baseUrl, token);
+    // A failed request is NOT an empty catalog: collapsing it into [] would
+    // emit removeModelCatalogJson and unbind a working catalog on a transient
+    // network error. The caller keeps the existing catalog binding instead.
+    const result = await tryDiscoverOpenAiModels(profile.baseUrl, token);
+    return { models: result.models, discoveryFailed: !result.ok };
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {

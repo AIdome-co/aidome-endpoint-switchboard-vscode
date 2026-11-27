@@ -11,15 +11,25 @@ export interface DiscoveredModel {
   capabilities?: string[];
 }
 
+/** Outcome of a model discovery attempt: a confirmed empty list is distinct from a failed request. */
+export interface OpenAiModelDiscoveryResult {
+  /** False when the request failed (timeout, network, malformed response). */
+  ok: boolean;
+  models: DiscoveredModel[];
+}
+
 /**
- * Discovers models through the OpenAI-compatible API.
+ * Discovers models through the OpenAI-compatible API, distinguishing a
+ * confirmed (successful) empty model list from a failed request. Callers that
+ * must not treat a transient failure as an authoritative "no models" state
+ * (e.g. catalog unbinding) use this variant.
  * The token is used only for this in-memory request and is never returned or
  * included in a configuration plan.
  */
-export async function discoverOpenAiModels(
+export async function tryDiscoverOpenAiModels(
   baseUrl: string,
   apiKey?: string
-): Promise<DiscoveredModel[]> {
+): Promise<OpenAiModelDiscoveryResult> {
   try {
     const response = await httpRequest<{ data?: unknown[] }>(
       joinApiPath(baseUrl, '/v1/models'),
@@ -32,15 +42,31 @@ export async function discoverOpenAiModels(
     );
 
     if (!Array.isArray(response.body?.data)) {
-      return [];
+      // A malformed response is a failed discovery, not an empty catalog.
+      return { ok: false, models: [] };
     }
 
-    return response.body.data
-      .map(toDiscoveredModel)
-      .filter((model): model is DiscoveredModel => model !== undefined);
+    return {
+      ok: true,
+      models: response.body.data
+        .map(toDiscoveredModel)
+        .filter((model): model is DiscoveredModel => model !== undefined)
+    };
   } catch {
-    return [];
+    return { ok: false, models: [] };
   }
+}
+
+/**
+ * Discovers models through the OpenAI-compatible API.
+ * The token is used only for this in-memory request and is never returned or
+ * included in a configuration plan.
+ */
+export async function discoverOpenAiModels(
+  baseUrl: string,
+  apiKey?: string
+): Promise<DiscoveredModel[]> {
+  return (await tryDiscoverOpenAiModels(baseUrl, apiKey)).models;
 }
 
 /** Uses cached verification data when a network lookup is not needed. */
