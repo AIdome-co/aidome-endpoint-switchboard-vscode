@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { Plan, PlanStep } from './planBuilder';
 import { redactUrl } from '../../util/redact';
-import { createBackup, safeWriteFile, writeFileAtomic, isFileNotFoundError } from '../../util/fsSafe';
+import { createBackup, safeWriteFile, isFileNotFoundError } from '../../util/fsSafe';
 import { getOutputChannel } from '../../ui/output';
 import { showWarning } from '../../ui/notifications';
 import { Logger } from '../../util/log';
@@ -414,12 +414,9 @@ export class PlanApplier {
     // credential in a 0644 file forever, so create dotenv-var targets
     // private (0600). writeFileAtomic keeps an existing target's mode.
     const isDotEnvTarget = step.data?.driver === 'dotenv-var';
-    const success = await writeFileAtomic(
-      step.targetPath,
-      content,
-      1,
-      isDotEnvTarget ? { mode: 0o600 } : undefined
-    );
+    const success = isDotEnvTarget
+      ? await safeWriteFile(step.targetPath, content, 1, { mode: 0o600 })
+      : await safeWriteFile(step.targetPath, content);
     if (!success) {
       throw new Error(`Failed to write to ${step.targetPath}`);
     }

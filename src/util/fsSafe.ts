@@ -152,8 +152,13 @@ export async function writeFileAtomic(
  * @param retries Number of retries on lock errors (default: 1)
  * @returns Promise resolving to true if successful
  */
-export async function safeWriteFile(filePath: string, content: string, retries: number = 1): Promise<boolean> {
-  return writeFileAtomic(filePath, content, retries);
+export async function safeWriteFile(
+  filePath: string,
+  content: string,
+  retries: number = 1,
+  options: { mode?: number } = {}
+): Promise<boolean> {
+  return writeFileAtomic(filePath, content, retries, options);
 }
 
 /**
