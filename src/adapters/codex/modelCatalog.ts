@@ -7,7 +7,7 @@
  * every entry must be a full, valid ModelInfo: required (non-defaulted) fields
  * are slug, display_name, description, supported_reasoning_levels, shell_type,
  * visibility, supported_in_api, priority, support_verbosity, truncation_policy,
- * supports_parallel_tool_calls and experimental_supported_tools; remaining
+ * experimental_supported_tools; remaining
  * fields carry upstream-safe defaults modeled on `model_info_from_slug`
  * (models-manager/src/model_info.rs). `supports_parallel_tool_calls` is
  * required (no serde default) on older supported releases such as
@@ -40,7 +40,7 @@ export interface CodexModelCatalogEntry {
   apply_patch_tool_type: null;
   truncation_policy: { mode: 'bytes'; limit: number };
   /** Required without a serde default on older supported releases (e.g. rust-v0.148.0-alpha.9). */
-  supports_parallel_tool_calls: true;
+  supports_parallel_tool_calls: false;
   context_window: number;
   max_context_window: number;
   experimental_supported_tools: unknown[];
@@ -95,7 +95,7 @@ export function buildCodexModelCatalog(models: DiscoveredModel[]): {
       default_verbosity: null,
       apply_patch_tool_type: null,
       truncation_policy: { mode: 'bytes', limit: 10_000 },
-      supports_parallel_tool_calls: true,
+      supports_parallel_tool_calls: false,
       context_window: contextWindow,
       max_context_window: contextWindow,
       experimental_supported_tools: [],

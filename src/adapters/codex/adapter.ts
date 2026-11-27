@@ -19,6 +19,7 @@ import { getCodexConfigPath, getCodexModelsCatalogPath } from './codexConfigPatc
 import { buildCodexModelCatalog } from './modelCatalog';
 import { readFileSafe } from '../../util/fsSafe';
 import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import { parse as parseToml } from 'smol-toml';
 import { getCachedOpenAiModels, tryDiscoverOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
@@ -183,8 +184,17 @@ export class CodexAdapter extends BaseExtensionAdapter {
     if (!content) {
       return false;
     }
-    const match = content.match(/\[model_providers\.aidome\][^[]*?base_url\s*=\s*"([^"]+)"/s);
-    const existingBaseUrl = match?.[1];
+    // Parse the TOML structurally: a bracket-scan regex would stop at a `[`
+    // inside a quoted value or array in the preserved provider table and
+    // falsely report a different endpoint, dropping a valid catalog on a
+    // same-profile reapply with transient discovery failure.
+    let providers: unknown;
+    try {
+      providers = (parseToml(content) as { model_providers?: { aidome?: { base_url?: unknown } } }).model_providers?.aidome?.base_url;
+    } catch {
+      return false;
+    }
+    const existingBaseUrl = typeof providers === 'string' ? providers : undefined;
     if (!existingBaseUrl) {
       return false;
     }
