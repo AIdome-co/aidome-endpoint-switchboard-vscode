@@ -85,11 +85,15 @@ export function getOpenCodeConfigPath(): string {
     : undefined;
 
   // Upstream: OPENCODE_CONFIG_DIR replaces the global config directory
-  // (packages/util/src/global.ts), which defaults to $XDG_CONFIG_HOME/opencode.
+  // (packages/util/src/global.ts), which defaults to $XDG_CONFIG_HOME/opencode
+  // and then ~/.config/opencode (packages/util/src/global-roots.ts).
   const configDirOverride = process.env.OPENCODE_CONFIG_DIR?.trim();
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
   const standardDir = configDirOverride
     ? expandTilde(configDirOverride)
-    : expandTilde('~/.config/opencode');
+    : xdgConfigHome
+      ? path.join(expandTilde(xdgConfigHome), 'opencode')
+      : expandTilde('~/.config/opencode');
 
   const candidates: string[] = [
     path.join(standardDir, 'opencode.json'),

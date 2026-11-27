@@ -34,9 +34,9 @@ const ADAPTER_REGISTRY: Record<string, (dependencies?: AdapterDependencies) => P
     const { ClaudeCodeAdapter } = await import('./claudeCode/adapter');
     return new ClaudeCodeAdapter();
   },
-  'opencode': async () => {
+  'opencode': async (dependencies) => {
     const { OpenCodeAdapter } = await import('./opencode/adapter');
-    return new OpenCodeAdapter();
+    return new OpenCodeAdapter(dependencies);
   },
   'gemini-cli': async () => {
     const { GeminiCliAdapter } = await import('./geminiCli/adapter');

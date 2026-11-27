@@ -47,7 +47,7 @@ describe('opencodeConfigPatcher', () => {
   });
 
   describe('getOpenCodeConfigPath', () => {
-    const ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_PATH', 'OPENCODE_CONFIG_DIR', 'SNAP_USER_COMMON'] as const;
+    const ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_PATH', 'OPENCODE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'SNAP_USER_COMMON'] as const;
     let savedEnv: Record<string, string | undefined>;
     let tempDirs: string[] = [];
 
@@ -106,11 +106,19 @@ describe('opencodeConfigPatcher', () => {
       expect(getOpenCodeConfigPath()).toBe(explicit);
     });
 
-    it('honors OPENCODE_CONFIG_DIR as the global config directory', () => {
+    it('honors OPENCODE_CONFIG_DIR as the global config directory over XDG_CONFIG_HOME', () => {
       const dir = makeTempDir();
       process.env.OPENCODE_CONFIG_DIR = dir;
+      process.env.XDG_CONFIG_HOME = path.join(dir, 'xdg');
 
       expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'opencode.json'));
+    });
+
+    it('derives the global config directory from XDG_CONFIG_HOME when set', () => {
+      const dir = makeTempDir();
+      process.env.XDG_CONFIG_HOME = path.join(dir, 'xdg');
+
+      expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'xdg', 'opencode', 'opencode.json'));
     });
 
     it('falls back to opencode.json in the configured directory when no candidate exists', () => {
