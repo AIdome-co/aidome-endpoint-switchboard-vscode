@@ -95,6 +95,15 @@ export function getOpenCodeConfigPath(): string {
       ? path.join(expandTilde(xdgConfigHome), 'opencode')
       : expandTilde('~/.config/opencode');
 
+  if (configDirOverride) {
+    // An explicit directory override REPLACES the global directory: snap
+    // candidates live in a different HOME than the one OpenCode reads with
+    // this override set, so never fall through to them — pick the config
+    // inside the override directory only.
+    return pickExistingConfigVariant([path.join(standardDir, 'opencode.json')])
+      ?? path.join(standardDir, 'opencode.json');
+  }
+
   const candidates: string[] = [
     path.join(standardDir, 'opencode.json'),
     ...(snapCommonConfig ? [snapCommonConfig] : [])
@@ -117,6 +126,18 @@ export function getOpenCodeConfigPath(): string {
   candidates.push(path.join(snapRoot, 'common', 'opencode.json'));
 
   for (const candidate of candidates) {
+    const selected = pickExistingConfigVariant([candidate]);
+    if (selected !== undefined) {
+      return selected;
+    }
+  }
+
+  return path.join(standardDir, 'opencode.json');
+}
+
+/** Returns the first candidate that exists, preferring an existing .jsonc sibling. */
+function pickExistingConfigVariant(candidates: string[]): string | undefined {
+  for (const candidate of candidates) {
     // Prefer an existing .jsonc sibling: upstream merges documents in
     // ["opencode.json", "opencode.jsonc"] order, so .jsonc has the higher
     // priority and a .json write would be shadowed when both exist.
@@ -128,8 +149,7 @@ export function getOpenCodeConfigPath(): string {
       return candidate;
     }
   }
-
-  return path.join(standardDir, 'opencode.json');
+  return undefined;
 }
 
 /**
