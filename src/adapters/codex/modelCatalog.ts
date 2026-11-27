@@ -19,6 +19,7 @@
  */
 
 import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
+import { CODEX_INSTRUCTIONS_TEMPLATE } from './codexInstructionsTemplate';
 
 /** Safe fallback window, matching the upstream unknown-slug fallback. */
 const FALLBACK_CONTEXT_WINDOW = 272_000;
@@ -44,6 +45,7 @@ export interface CodexModelCatalogEntry {
   max_context_window: number;
   experimental_supported_tools: unknown[];
   input_modalities: string[];
+  model_messages: { instructions_template: string };
 }
 
 /**
@@ -97,7 +99,8 @@ export function buildCodexModelCatalog(models: DiscoveredModel[]): {
       context_window: contextWindow,
       max_context_window: contextWindow,
       experimental_supported_tools: [],
-      input_modalities: ['text', 'image']
+      input_modalities: ['text', 'image'],
+      model_messages: { instructions_template: CODEX_INSTRUCTIONS_TEMPLATE }
     });
   }
 

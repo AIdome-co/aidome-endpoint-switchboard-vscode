@@ -18,6 +18,7 @@ import { detectCli } from '../../core/detection/detectCLIs';
 import { getCodexConfigPath, getCodexModelsCatalogPath } from './codexConfigPatcher';
 import { buildCodexModelCatalog } from './modelCatalog';
 import { readFileSafe } from '../../util/fsSafe';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
 import { getCachedOpenAiModels, tryDiscoverOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
@@ -183,7 +184,20 @@ export class CodexAdapter extends BaseExtensionAdapter {
       return false;
     }
     const match = content.match(/\[model_providers\.aidome\][^[]*?base_url\s*=\s*"([^"]+)"/s);
-    return match?.[1] === profile.baseUrl;
+    const existingBaseUrl = match?.[1];
+    if (!existingBaseUrl) {
+      return false;
+    }
+    // The descriptor engine writes the NORMALIZED url (gateway root becomes
+    // `<root>/v1`, trailing slashes stripped) into TOML, while the profile
+    // keeps its raw user-entered form. Compare normalized representations —
+    // otherwise a same-profile reapply with a root-form profile URL would be
+    // misclassified as a profile switch and drop a still-valid catalog.
+    try {
+      return normalizeOpenAiBaseUrl(existingBaseUrl) === normalizeOpenAiBaseUrl(profile.baseUrl);
+    } catch {
+      return false;
+    }
   }
 
   private async discoverModels(profile: EndpointProfile): Promise<{ models: DiscoveredModel[]; discoveryFailed: boolean }> {
