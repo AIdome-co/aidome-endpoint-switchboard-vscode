@@ -138,6 +138,13 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
           ...(models.length > 0
             ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'models'], value: managedModels }]
             : []),
+          // OpenCode V1 model resolution prioritizes the configured top-level
+          // `model` and then the last-used model; registering the provider and
+          // its catalog without selecting it would leave requests going to the
+          // previous provider. Select the first managed model explicitly.
+          ...(models.length > 0
+            ? [{ path: ['model'], value: `${OPENCODE_PROVIDER_ID}/${models[0].id}` }]
+            : []),
           ...(profile.authRef
             ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey'], source: 'secret', removeWhenMissing: true }]
             : []),
@@ -171,7 +178,8 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
           : [
               'This profile has no saved credential: Switchboard removes any previously managed provider.aidome.options.apiKey from the config, which is valid for endpoints without authentication.'
             ]),
-        'Restart OpenCode after switching profiles so the new configuration is picked up.'
+        'Restart OpenCode after switching profiles so the new configuration is picked up.',
+        'Project-level opencode.json(c) files override the global configuration: if the workspace you open OpenCode in defines provider.aidome (or a model), its values take precedence over what Switchboard wrote here.'
       ],
       baseUrl: profile.baseUrl,
       tier: 'A',
