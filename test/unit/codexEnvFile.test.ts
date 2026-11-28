@@ -81,6 +81,28 @@ describe('buildDotEnvContent', () => {
     expect(parseDotEnv(out2).GEMINI_API_KEY).toBe('real');
   });
 
+  it('detects a quote-ONLY multiline terminator line (round 21)', () => {
+    // The closing quote as the FIRST character of its own line is a valid
+    // terminator — hasClosingQuote must not discard it.
+    const existing = 'NOTE="first\nGEMINI_API_KEY=inside\n"\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toBe('first\nGEMINI_API_KEY=inside\n');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+    expect(out).toContain('GEMINI_API_KEY=inside');
+  });
+
+  it('fails closed when a credential combines an apostrophe with # or a newline (round 21)', () => {
+    // That combination has NO faithful dotenv representation — refuse
+    // instead of silently writing bytes Gemini would receive differently.
+    expect(() => buildDotEnvContent(undefined, { GEMINI_API_KEY: "ab'c#d" })).toThrow('cannot be represented faithfully');
+    expect(() => buildDotEnvContent(undefined, { GEMINI_API_KEY: "ab'c\nd" })).toThrow('cannot be represented faithfully');
+    // Apostrophe WITHOUT #/newline still round-trips literally.
+    const ok = "ab'cd";
+    const out = buildDotEnvContent(undefined, { GEMINI_API_KEY: ok });
+    expect(parseDotEnv(out).GEMINI_API_KEY).toBe(ok);
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.

@@ -87,7 +87,9 @@ export function parseDotEnv(
     // to any form whose opening quote is unclosed on the line (Codex PR 159
     // round 19; dotenv v16.4.5 lib/main.js).
     const quote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
-    if (quote !== undefined && !hasClosingQuote(value, quote)) {
+    // The opening quote itself must not count as a terminator (round 21):
+    // test the value WITHOUT its first character.
+    if (quote !== undefined && !hasClosingQuote(value.slice(1), quote)) {
       // MULTILINE only when a closing quote actually EXISTS later in the file
       // (Codex PR 159 round 20): dotenv treats an UNMATCHED opening quote as
       // a single-line unquoted value, not as consuming the rest of the file.
@@ -124,10 +126,15 @@ export function parseDotEnv(
   return output;
 }
 
-/** True when the trimmed value contains an unescaped closing quote. */
-function hasClosingQuote(value: string, quote: string): boolean {
-  const escaped = value.slice(1).replace(/\\./g, '');
-  return escaped.includes(quote);
+/**
+ * True when the text contains the quote character (Codex PR 159 round 21).
+ * A quote-ONLY line (the terminator as the first character) must count, so
+ * there is no leading-character discard here; callers testing an OPENING
+ * value pass the value WITHOUT its first character so the opening quote
+ * itself never matches.
+ */
+function hasClosingQuote(text: string, quote: string): boolean {
+  return text.includes(quote);
 }
 
 /** Matches an assignment line and returns its unexported key, or null. */
@@ -202,7 +209,8 @@ export function buildDotEnvContent(
       let value = valueStart > 0 ? line.slice(valueStart + 1).trim() : '';
       // All three dotenv quote forms open multiline spans (round 19).
       const openQuote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
-      if (openQuote !== undefined && !hasClosingQuote(value, openQuote)) {
+      // The opening quote itself must not count as a terminator (round 21).
+      if (openQuote !== undefined && !hasClosingQuote(value.slice(1), openQuote)) {
         // MULTILINE open: consume continuation lines until the FIRST line
         // whose content contains the closing quote. The opening line itself
         // must NOT be re-checked — its raw text contains the opening quote
@@ -332,15 +340,24 @@ function serializeDotEnvValue(value: string): string {
     return value;
   }
   // SINGLE-quoted dotenv values are LITERAL: no \n/\r expansion, no escape
-  // processing — dotenv only strips the first and last quote (v16.4.5
-  // lib/main.js). That holds even with EMBEDDED single quotes (an embedded
-  // ' does not end the form: the value still starts and ends with one, so
-  // slice(1,-1) reconstructs the exact bytes), which makes single-quoting
-  // the round-trip-exact representation for EVERY unsafe value — including
-  // literal backslash-n sequences that a double-quoted form would wrongly
-  // expand into newlines (Codex PR 159 rounds 19-20). The double-quoted
-  // escape form cannot represent a literal backslash-n at all, so it is
-  // never used.
+  // processing — dotenv only strips the first and last quote of a value that
+  // STARTS and ENDS with the quote. That holds even with EMBEDDED single
+  // quotes, which makes single-quoting the round-trip-exact representation
+  // for unsafe values (Codex PR 159 rounds 19-20). The double-quoted escape
+  // form cannot represent a literal backslash-n at all, so it is never used.
+  // ONE combination has NO faithful dotenv representation: an embedded
+  // apostrophe together with a `#`, CR, or LF breaks the parser's quoted
+  // alternative (the apostrophe terminates it) and the unquoted fallback
+  // then truncates at `#` or at the physical newline (Codex PR 159 round
+  // 21). Fail CLOSED there instead of silently writing a value Gemini would
+  // receive with different bytes.
+  if (value.includes("'") && /[#\r\n]/.test(value)) {
+    throw new Error(
+      'The credential value cannot be represented faithfully in a dotenv file ' +
+      '(it combines a single quote with a comment marker or newline). ' +
+      'The original file was left untouched.'
+    );
+  }
   return `'${value}'`;
 }
 
