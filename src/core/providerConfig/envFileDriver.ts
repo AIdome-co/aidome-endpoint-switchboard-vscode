@@ -66,31 +66,43 @@ function findAssignment(line: string): { key: string; separator: number } | null
 }
 
 /** Finds the line index that CLOSES a multiline quoted value opened before
- * `fromIndex` (Codex PR 159 rounds 21-24). A line closes the span when it
+ * `fromIndex` (Codex PR 159 rounds 21-25). A line closes the span when it
  * contains a quote NOT immediately preceded by a backslash (dotenv v16.4.5
  * regex `(?:\\"|[^"])*"` consumes a quote after a backslash as an escape
  * pair from the backslash position). If NO later plain quote exists, the
  * regex backtracks: the LAST backslash-prefixed quote becomes the
- * terminator (its preceding backslash is re-matched by `[^"]`). Returns -1
- * when the value never terminates (unmatched opening quote). */
+ * terminator — but ONLY when the remainder of its line matches dotenv's
+ * closing suffix grammar (`\s*(?:#.*)?$`); trailing other text prevents the
+ * quoted alternative from matching at all (round 25), leaving the value
+ * unmatched. Returns -1 when the value never terminates. */
 function findClosingLineIndex(
   lines: readonly string[],
   fromIndex: number,
   quote: string
 ): number {
-  let lastAnyQuoteLine = -1;
+  let lastFallbackLine = -1;
   for (let i = fromIndex + 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     for (let j = 0; j < trimmed.length; j++) {
       if (trimmed[j] === quote) {
-        lastAnyQuoteLine = i;
         if (trimmed[j - 1] !== '\\') {
           return i;
         }
+        lastFallbackLine = i;
       }
     }
   }
-  return lastAnyQuoteLine;
+  if (lastFallbackLine === -1) {
+    return -1;
+  }
+  // Backtracking fallback: the closing quote must be followed by nothing but
+  // whitespace and/or a comment — otherwise the quoted alternative cannot
+  // match and dotenv treats the value as a single-line unquoted string.
+  const trimmed = lines[lastFallbackLine].trim();
+  const quotePos = trimmed.lastIndexOf(quote);
+  return /^\s*(?:#.*)?$/.test(trimmed.slice(quotePos + 1))
+    ? lastFallbackLine
+    : -1;
 }
 
 /** Parses a .env file into key/value records. */

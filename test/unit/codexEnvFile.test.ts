@@ -147,6 +147,17 @@ describe('buildDotEnvContent', () => {
     expect(parsed.GEMINI_API_KEY).toBe('real');
   });
 
+  it('rejects a fallback terminator whose line has trailing non-comment text (round 25)', () => {
+    // dotenv v16.4.5 cannot backtrack to a backslash-prefixed quote when
+    // non-comment text follows it — the value stays unmatched, so the stale
+    // key after the false-span candidate must stay reconcilable.
+    const existing = 'NOTE="first\nGEMINI_API_KEY=stale\nlast\\\\"junk\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, {}, { removeKeys: ['GEMINI_API_KEY'] });
+    const parsed = parseDotEnv(out);
+    expect(parsed.GEMINI_API_KEY).toBeUndefined();
+    expect(parsed.KEEP).toBe('yes');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.
