@@ -358,6 +358,91 @@ describe('GeminiCliAdapter', () => {
       expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(true);
     });
 
+    it('reports guided steps when a WORKSPACE settings.json pins an incompatible auth mode', async () => {
+      const project = await makeProjectDir({});
+      adapterWithProject([project]);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(project, '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+      expect(String(plan.steps[0].data.message)).toContain(nodePath.join(project, '.gemini', 'settings.json'));
+    });
+
+    it('lets a higher-precedence workspace selection override an incompatible user pin', async () => {
+      const project = await makeProjectDir({});
+      adapterWithProject([project]);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(project, '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+        }
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+    });
+
+    it('reports guided steps when an existing settings scope is unreadable (mode cannot be ruled out)', async () => {
+      const userSettings = nodePath.join(os.homedir(), '.gemini', 'settings.json');
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(async (filePath: string) => filePath === userSettings);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+    });
+
+    it('reports guided steps when an incompatible security.auth.enforcedType is pinned', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { enforcedType: 'oauth-personal' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+    });
+
+    it('checks the system settings scope (GEMINI_CLI_SYSTEM_SETTINGS_PATH) for a pinned mode', async () => {
+      const systemSettings = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-sys-')), 'settings.json');
+      process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = systemSettings;
+      try {
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === systemSettings) {
+            return JSON.stringify({ security: { auth: { selectedType: 'vertex-ai' } } });
+          }
+          return undefined;
+        });
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+        const plan = await adapter.buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+        expect(String(plan.steps[0].data.message)).toContain(systemSettings);
+      } finally {
+        delete process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
+      }
+    });
+
     it('reports guided steps instead of automatic writes when a project .gemini/.env shadows the user-level file', async () => {
       const project = await makeProjectDir({ '.gemini/.env': 'OTHER=1\n' });
 

@@ -152,23 +152,108 @@ export async function findProjectEnvShadowing(
 const GATEWAY_COMPATIBLE_AUTH_TYPES = new Set(['gemini-api-key', 'gateway']);
 
 /**
- * Reads security.auth.selectedType from the Gemini CLI settings.json
- * (upstream validateNonInterActiveAuth chooses this mode before environment
- * discovery). Returns undefined when absent, unreadable or malformed — an
- * unparseable file is not evidence of an incompatible mode.
+ * System-wide settings path (upstream packages/cli/src/config/settings.ts
+ * getSystemSettingsPath): $GEMINI_CLI_SYSTEM_SETTINGS_PATH when set, else a
+ * platform-specific location. System settings participate in Gemini's merged
+ * settings, so they can pin security.auth.selectedType too.
  */
-async function readSelectedGeminiAuthType(): Promise<string | undefined> {
-  const content = await readFileSafe(path.join(resolveGeminiDir(), 'settings.json'));
-  if (!content) {
-    return undefined;
+function getSystemSettingsPath(): string {
+  const override = process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
+  if (override) {
+    return path.resolve(override);
   }
-  let security: unknown;
+  switch (os.platform()) {
+    case 'darwin':
+      return '/Library/Application Support/GeminiCli/settings.json';
+    case 'win32':
+      return 'C:\\ProgramData\\gemini-cli\\settings.json';
+    default:
+      return '/etc/gemini-cli/settings.json';
+  }
+}
+
+type AuthScopeRead =
+  | { kind: 'absent' }
+  | { kind: 'undetermined' }
+  | { kind: 'read'; selectedType?: string; enforcedType?: string };
+
+/**
+ * Reads one settings.json scope. An EXISTING file that cannot be read or
+ * parsed leaves the pinned mode UNDETERMINED — Gemini still merges that
+ * scope, so a missing value there is not evidence of absence (mirrors the
+ * existence-based shadow detection: Gemini's existsSync-based selection does
+ * not fall back after selection).
+ */
+async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
+  const content = await readFileSafe(filePath);
+  if (content === undefined) {
+    if (await fileExists(filePath)) {
+      return { kind: 'undetermined' };
+    }
+    return { kind: 'absent' };
+  }
+  let parsed: { security?: { auth?: { selectedType?: unknown; enforcedType?: unknown } } };
   try {
-    security = (JSON.parse(content) as { security?: { auth?: { selectedType?: unknown } } }).security?.auth?.selectedType;
+    parsed = JSON.parse(content);
   } catch {
-    return undefined;
+    return { kind: 'undetermined' };
   }
-  return typeof security === 'string' ? security : undefined;
+  const auth = parsed.security?.auth;
+  return {
+    kind: 'read',
+    selectedType: typeof auth?.selectedType === 'string' ? auth.selectedType : undefined,
+    enforcedType: typeof auth?.enforcedType === 'string' ? auth.enforcedType : undefined
+  };
+}
+
+type EffectiveGeminiAuth = {
+  selectedType?: string;
+  enforcedType?: string;
+  sourcePath?: string;
+  undetermined: boolean;
+};
+
+/**
+ * Resolves the EFFECTIVE security.auth.selectedType/enforcedType across every
+ * configuration scope Gemini merges (upstream settings.ts computeMergedSettings:
+ * mergeSettings(system, systemDefaults, user, workspace) with LAST ONE WINS, so
+ * workspace settings override user settings, which override system settings).
+ * The extension host can only observe the workspace roots and the well-known
+ * user/system paths — scopes are probed in precedence order and the FIRST scope
+ * that defines each field wins; if a higher-precedence scope exists but cannot
+ * be read, the result is undetermined and the caller must fall back to guided
+ * steps instead of claiming automatic configuration (Codex round 11, PR 159).
+ */
+async function resolveEffectiveGeminiAuth(
+  workspaceDirs: readonly string[]
+): Promise<EffectiveGeminiAuth> {
+  const scopes: string[] = [
+    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
+    path.join(resolveGeminiDir(), 'settings.json'),
+    getSystemSettingsPath()
+  ];
+  const result: EffectiveGeminiAuth = { undetermined: false };
+  for (const scopePath of scopes) {
+    const scope = await readAuthScope(scopePath);
+    if (scope.kind === 'undetermined') {
+      result.undetermined = true;
+      break;
+    }
+    if (scope.kind === 'absent') {
+      continue;
+    }
+    if (scope.selectedType !== undefined && result.selectedType === undefined) {
+      result.selectedType = scope.selectedType;
+      result.sourcePath = scopePath;
+    }
+    if (scope.enforcedType !== undefined && result.enforcedType === undefined) {
+      result.enforcedType = scope.enforcedType;
+      if (result.sourcePath === undefined) {
+        result.sourcePath = scopePath;
+      }
+    }
+  }
+  return result;
 }
 
 /**
@@ -411,17 +496,36 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // oauth-personal, vertex-ai, compute-default-credentials (Code Assist
     // branch, base URL never read), or an unknown value — must be reported
     // as guided-required instead of configured (Codex round 11, PR 159).
-    const selectedAuthType = await readSelectedGeminiAuthType();
-    if (selectedAuthType !== undefined && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(selectedAuthType)) {
+    // The check covers EVERY merged scope (workspace > user > system) and
+    // also security.auth.enforcedType, which upstream rejects a run for when
+    // it differs from the effective type.
+    const effectiveAuth = await resolveEffectiveGeminiAuth(
+      await this.getProjectCandidateDirs()
+    );
+    const pinnedIncompatible =
+      effectiveAuth.undetermined ||
+      (effectiveAuth.selectedType !== undefined
+        && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(effectiveAuth.selectedType))
+      || (effectiveAuth.enforcedType !== undefined
+        && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(effectiveAuth.enforcedType));
+    if (pinnedIncompatible) {
+      const pinnedMode = effectiveAuth.selectedType
+        ?? effectiveAuth.enforcedType
+        ?? 'unreadable';
+      const settingsPath = effectiveAuth.sourcePath ?? getSystemSettingsPath();
       return addStep(plan, {
         action: 'show-guided-steps',
         description: 'The existing Gemini CLI installation is pinned to an incompatible auth mode',
         assistantKey: 'gemini-cli',
         data: {
           configurationStatus: 'manual-configuration-required',
-          message: `The existing Gemini CLI installation selects "${selectedAuthType}" authentication (security.auth.selectedType in ${path.join(resolveGeminiDir(), 'settings.json')}). Gemini chooses this mode before reading environment variables, so the gateway endpoint and API key Switchboard writes would be bypassed.`,
+          message: effectiveAuth.undetermined
+            ? `A Gemini CLI settings scope that participates in the effective configuration (workspace, user, or system settings.json) could not be read, so the pinned authentication mode (security.auth.selectedType/enforcedType) cannot be ruled out. Gemini chooses its auth mode before reading environment variables, so Switchboard cannot verify that the gateway endpoint and API key it writes would be used.`
+            : `The existing Gemini CLI installation selects "${pinnedMode}" authentication (security.auth in ${settingsPath}). Gemini chooses this mode before reading environment variables, so the gateway endpoint and API key Switchboard writes would be bypassed.`,
           steps: [
-            `Switch the auth mode to Gemini API-key authentication (for example: gemini, then choose "Gemini API Key" in the auth dialog, or set security.auth.selectedType to "gemini-api-key" in ${path.join(resolveGeminiDir(), 'settings.json')}).`,
+            effectiveAuth.undetermined
+              ? `Make the unreadable settings file (${settingsPath}) readable or remove it, and ensure no merged scope (workspace, user, or system settings.json) pins security.auth.selectedType/enforcedType to a mode other than "gemini-api-key".`
+              : `Switch the auth mode to Gemini API-key authentication (for example: gemini, then choose "Gemini API Key" in the auth dialog, or set security.auth.selectedType to "gemini-api-key" in ${settingsPath}).`,
             `Then reapply so Switchboard writes GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} and the profile credential to ${resolveGeminiEnvFilePath()}.`,
             'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.',
             'Re-run the wizard afterwards to confirm the configuration.'
@@ -429,7 +533,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           baseUrl: profile.baseUrl,
           envVarName: 'GOOGLE_GEMINI_BASE_URL',
           limitation: 'selected-auth-type-incompatible-with-gateway',
-          selectedAuthType,
+          selectedAuthType: pinnedMode,
           tier: DESCRIPTOR?.tier ?? 'A'
         } satisfies GuidedStepsData,
         reversible: false
