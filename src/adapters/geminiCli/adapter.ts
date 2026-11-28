@@ -7,12 +7,13 @@ import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestra
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
-import stripJsonComments from 'strip-json-comments';
+import { parse as parseJsonc, ParseError } from 'jsonc-parser';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import { validateUrl } from '../../core/profiles/profileValidator';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 const DESCRIPTOR = getProviderConfigDescriptor('gemini-cli');
 
@@ -221,9 +222,15 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
   };
   try {
     // Gemini parses settings scopes as JSONC (stripJsonComments before
-    // JSON.parse, upstream settings.ts:1660), so a commented settings.json
-    // is VALID and readable — not undetermined.
-    parsed = JSON.parse(stripJsonComments(content));
+    // JSON.parse, upstream settings.ts:1660). jsonc-parser is CJS-compatible
+    // (strip-json-comments v5 is ESM-only, breaking CommonJS emit on older
+    // VS Code extension hosts) and strips comments the same way; parse
+    // errors mean the file cannot be classified.
+    const errors: ParseError[] = [];
+    parsed = parseJsonc(content, errors) as typeof parsed;
+    if (errors.length > 0) {
+      return { kind: 'undetermined' };
+    }
   } catch {
     return { kind: 'undetermined' };
   }
@@ -396,12 +403,23 @@ type WorkspaceTrustResolution = {
 };
 
 /**
- * Normalizes a path for trust-rule comparison (upstream normalizePath):
- * resolved, forward-slash separators, case-insensitive on case-insensitive
- * filesystems (win32, darwin).
+ * Normalizes a path for trust-rule comparison (upstream normalizePath +
+ * canonicalization): resolved, forward-slash separators, case-insensitive on
+ * case-insensitive filesystems (win32, darwin). Gemini canonicalizes BOTH
+ * the launch directory and each rule path with realpath before comparing
+ * (packages/core/src/utils/trust.ts:146-170), so a workspace that reaches a
+ * location outside a trusted directory THROUGH a symlink is not trusted even
+ * when its lexical path is inside. When a path (or a symlink target) cannot
+ * be resolved on disk, the lexical resolution is used as the best available
+ * approximation.
  */
 function normalizeTrustPath(value: string): string {
-  const resolved = path.resolve(value);
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync.native(value);
+  } catch {
+    resolved = path.resolve(value);
+  }
   const unified = resolved.replace(/\\/g, '/');
   return process.platform === 'win32' || process.platform === 'darwin'
     ? unified.toLowerCase()
@@ -495,7 +513,14 @@ async function resolveWorkspaceTrust(
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(content);
+    // trustedFolders.json is parsed by Gemini with JSON comments stripped
+    // (upstream packages/core/src/utils/trust.ts:94-99). jsonc-parser keeps
+    // CJS compatibility and reports failures via the errors array.
+    const errors: ParseError[] = [];
+    parsed = parseJsonc(content, errors);
+    if (errors.length > 0) {
+      return { trusted: false, unverifiable: true };
+    }
   } catch {
     return { trusted: false, unverifiable: true };
   }
@@ -884,9 +909,14 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // reporting success. Report guided steps that ask for the variable to be
     // unset instead of claiming Tier A configuration.
     const inheritedOverrides = [
-      ...SUPPORTED_BASE_URL_VARIABLES,
-      'GEMINI_API_KEY',
-      'GOOGLE_API_KEY'
+      // Only the two MANAGED values can supersede the automatic gateway
+      // configuration: post-write, Gemini selects 'gateway' (via the file's
+      // GOOGLE_GEMINI_BASE_URL) and reads GEMINI_API_KEY — GOOGLE_API_KEY is
+      // not consulted by the gateway mode and GOOGLE_VERTEX_BASE_URL only
+      // matters under vertex-ai, so neither justifies guided steps
+      // (Codex round 14, PR 159).
+      'GOOGLE_GEMINI_BASE_URL',
+      'GEMINI_API_KEY'
     ].filter(name => Object.prototype.hasOwnProperty.call(process.env, name));
     if (inheritedOverrides.length > 0) {
       return addStep(plan, {
