@@ -143,7 +143,7 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
         providerId: OPENCODE_PROVIDER_ID,
         profileId: profile.id,
         profileName: profile.name,
-        authRef: profile.authRef ?? profile.name,
+        authRef: profile.authRef,
         baseUrl,
         format: configPath.endsWith('.jsonc') ? 'jsonc' : 'json',
         secretPolicy: 'target-persisted-at-apply',
