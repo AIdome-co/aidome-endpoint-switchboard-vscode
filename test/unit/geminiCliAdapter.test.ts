@@ -295,6 +295,23 @@ describe('GeminiCliAdapter', () => {
       return adapter;
     }
 
+    it('reports guided steps when security.auth.selectedType pins an incompatible auth mode', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].action).toBe('show-guided-steps');
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+      expect(plan.steps.some(s2 => s2.action === 'edit-config-file')).toBe(false);
+    });
+
     it('reports guided steps instead of automatic writes when a project .gemini/.env shadows the user-level file', async () => {
       const project = await makeProjectDir({ '.gemini/.env': 'OTHER=1\n' });
 
@@ -317,6 +334,26 @@ describe('GeminiCliAdapter', () => {
 
       expect(plan.steps).toHaveLength(1);
       expect(plan.steps[0].data.limitation).toBe('project-env-file-shadows-user-env-file');
+    });
+
+    it('treats the OS home .env as a shadow when GEMINI_CLI_HOME overrides the effective home', async () => {
+      const fakeHome = await makeProjectDir({});
+      process.env['GEMINI_CLI_HOME'] = fakeHome;
+      try {
+        const osHome = os.homedir();
+        // Simulate the OS home holding a .env: the adapterWithProject stub
+        // restores real reads, so point readFileSafe/fileExists at it.
+        vi.spyOn(fsSafe, 'fileExists').mockImplementation(
+          async (filePath: string) => filePath === nodePath.join(osHome, '.env')
+        );
+
+        const plan = await adapterWithProject([nodePath.join(osHome, 'project')]).buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('project-env-file-shadows-user-env-file');
+      } finally {
+        delete process.env['GEMINI_CLI_HOME'];
+      }
     });
 
     it('keeps the automatic write plan when no project env file exists', async () => {

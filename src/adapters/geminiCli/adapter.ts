@@ -97,7 +97,14 @@ export async function findProjectEnvShadowing(
 ): Promise<string | undefined> {
   const target = resolveGeminiEnvFilePath();
   const targetDir = path.dirname(target);
-  const homeDir = os.homedir();
+  // The walk must stop at the EFFECTIVE home — $GEMINI_CLI_HOME when set,
+  // not the OS home. With an override, the OS home's own .env is an ordinary
+  // project ancestor relative to Gemini's effective home and DOES shadow the
+  // user-level file, so exempting it there would hide real shadowing.
+  const overrideHome = process.env['GEMINI_CLI_HOME']
+    ? path.resolve(process.env['GEMINI_CLI_HOME'])
+    : undefined;
+  const homeDir = overrideHome ?? os.homedir();
 
   for (const start of startDirs) {
     let current = path.resolve(start);
@@ -127,6 +134,26 @@ export async function findProjectEnvShadowing(
     }
   }
   return undefined;
+}
+
+/**
+ * Reads security.auth.selectedType from the Gemini CLI settings.json
+ * (upstream validateNonInterActiveAuth chooses this mode before environment
+ * discovery). Returns undefined when absent, unreadable or malformed — an
+ * unparseable file is not evidence of an incompatible mode.
+ */
+async function readSelectedGeminiAuthType(): Promise<string | undefined> {
+  const content = await readFileSafe(path.join(resolveGeminiDir(), 'settings.json'));
+  if (!content) {
+    return undefined;
+  }
+  let security: unknown;
+  try {
+    security = (JSON.parse(content) as { security?: { auth?: { selectedType?: unknown } } }).security?.auth?.selectedType;
+  } catch {
+    return undefined;
+  }
+  return typeof security === 'string' ? security : undefined;
 }
 
 /**
@@ -354,6 +381,38 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           baseUrl: profile.baseUrl,
           envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
           limitation: 'gemini-cli-requires-https-base-url',
+          tier: DESCRIPTOR?.tier ?? 'A'
+        } satisfies GuidedStepsData,
+        reversible: false
+      });
+    }
+
+    // Selected auth mode (Codex round 10, PR 159): Gemini's non-interactive
+    // flow chooses security.auth.selectedType BEFORE environment discovery,
+    // and its content generator bypasses the Gemini gateway variables under
+    // OAuth or routes to the Vertex backend under vertex-ai. Writing
+    // GEMINI_API_KEY cannot switch the mode, so an existing installation
+    // pinned to oauth-personal or vertex-ai must be reported as
+    // guided-required instead of configured.
+    const selectedAuthType = await readSelectedGeminiAuthType();
+    if (selectedAuthType === 'oauth-personal' || selectedAuthType === 'vertex-ai') {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'The existing Gemini CLI installation is pinned to an incompatible auth mode',
+        assistantKey: 'gemini-cli',
+        data: {
+          configurationStatus: 'manual-configuration-required',
+          message: `The existing Gemini CLI installation selects "${selectedAuthType}" authentication (security.auth.selectedType in ${path.join(resolveGeminiDir(), 'settings.json')}). Gemini chooses this mode before reading environment variables, so the gateway endpoint and API key Switchboard writes would be bypassed.`,
+          steps: [
+            `Switch the auth mode to Gemini API-key authentication (for example: gemini, then choose "Gemini API Key" in the auth dialog, or set security.auth.selectedType to "gemini-api-key" in ${path.join(resolveGeminiDir(), 'settings.json')}).`,
+            `Then reapply so Switchboard writes GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} and the profile credential to ${resolveGeminiEnvFilePath()}.`,
+            'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.',
+            'Re-run the wizard afterwards to confirm the configuration.'
+          ],
+          baseUrl: profile.baseUrl,
+          envVarName: 'GOOGLE_GEMINI_BASE_URL',
+          limitation: 'selected-auth-type-incompatible-with-gateway',
+          selectedAuthType,
           tier: DESCRIPTOR?.tier ?? 'A'
         } satisfies GuidedStepsData,
         reversible: false
