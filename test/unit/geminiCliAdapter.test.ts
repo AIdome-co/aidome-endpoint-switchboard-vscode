@@ -57,6 +57,11 @@ describe('GeminiCliAdapter', () => {
     delete process.env['GOOGLE_VERTEX_BASE_URL'];
     // Isolate verification's ~/.gemini file lookups: default to no files.
     vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+    // Existence too: the auth-mode scope walk probes settings.json paths, and
+    // a REAL ~/.gemini/settings.json on the dev machine (absent on CI) would
+    // otherwise exist-but-be-unreadable under the stub above and flip plans
+    // to guided. Default to "no settings files anywhere".
+    vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
   });
 
   afterEach(() => {
