@@ -125,6 +125,13 @@ export function getOpenCodeConfigPath(): string {
   }
   candidates.push(path.join(snapRoot, 'common', 'opencode.json'));
 
+  // When the installed opencode executable IS the snap, its confined config
+  // is the one actually read at runtime — prefer snap candidates over the
+  // standard path even when both exist.
+  if (isSnapOpencode()) {
+    candidates.reverse();
+  }
+
   for (const candidate of candidates) {
     const selected = pickExistingConfigVariant([candidate]);
     if (selected !== undefined) {
@@ -133,6 +140,27 @@ export function getOpenCodeConfigPath(): string {
   }
 
   return path.join(standardDir, 'opencode.json');
+}
+
+/**
+ * True when the opencode executable resolved from PATH is the snap wrapper
+ * (its real path lives under /snap/). Snap-confined OpenCode reads a
+ * different config root, so the extension must target that instead.
+ */
+function isSnapOpencode(): boolean {
+  const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, 'opencode');
+    try {
+      const real = fs.realpathSync(candidate);
+      if (real.includes(`${path.sep}snap${path.sep}`)) {
+        return true;
+      }
+    } catch {
+      // Not on this PATH entry; keep scanning.
+    }
+  }
+  return false;
 }
 
 /** Returns the first candidate that exists, preferring an existing .jsonc sibling. */
