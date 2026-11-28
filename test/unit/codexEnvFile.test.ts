@@ -103,6 +103,17 @@ describe('buildDotEnvContent', () => {
     expect(parseDotEnv(out).GEMINI_API_KEY).toBe(ok);
   });
 
+  it('ignores ESCAPED quotes when finding multiline terminators (round 22)', () => {
+    // `\"` inside a multiline double-quoted value is CONTENT (dotenv's quoted
+    // alternatives consume escaped quotes), not a terminator.
+    const existing = 'NOTE="first \\"quoted\nGEMINI_API_KEY=inside\nlast"\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toBe('first \\"quoted\nGEMINI_API_KEY=inside\nlast');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+    expect(out).toContain('GEMINI_API_KEY=inside');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.

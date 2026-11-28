@@ -127,14 +127,28 @@ export function parseDotEnv(
 }
 
 /**
- * True when the text contains the quote character (Codex PR 159 round 21).
- * A quote-ONLY line (the terminator as the first character) must count, so
- * there is no leading-character discard here; callers testing an OPENING
- * value pass the value WITHOUT its first character so the opening quote
- * itself never matches.
+ * True when the text contains an UNESCAPED quote character (Codex PR 159
+ * round 22): dotenv's quoted alternatives consume `\"`-style escaped quotes
+ * as CONTENT, so a quote preceded by an odd number of backslashes is not a
+ * terminator. A quote-ONLY line (terminator as the first character) has no
+ * preceding backslashes and still counts; callers testing an OPENING value
+ * pass the value WITHOUT its first character so the opening quote itself
+ * never matches.
  */
 function hasClosingQuote(text: string, quote: string): boolean {
-  return text.includes(quote);
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== quote) {
+      continue;
+    }
+    let backslashes = 0;
+    for (let k = i - 1; k >= 0 && text[k] === '\\'; k--) {
+      backslashes++;
+    }
+    if (backslashes % 2 === 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Matches an assignment line and returns its unexported key, or null. */
