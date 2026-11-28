@@ -1083,15 +1083,19 @@ describe('fail-closed on malformed existing configuration', () => {
       })).toThrow('non-empty envVarName');
     });
 
-    it('dotenv-var fails closed on malformed existing env content', () => {
-      expect(() => renderConfigFileContent({
+    it('dotenv-var skips dotenv-tolerated junk lines instead of failing', () => {
+      // dotenv.parse (upstream settings.ts:645-650) silently skips lines
+      // without a separator, so such content is NOT malformed — the render
+      // proceeds with the managed write (Codex PR 159 round 17).
+      const rendered = renderConfigFileContent({
         baseUrl: BASE_URL,
         existingContent: 'not-a-valid-env-line\n',
         options: {
           driver: 'dotenv-var',
           envVarName: 'GOOGLE_GEMINI_BASE_URL'
         }
-      })).toThrow('malformed');
+      });
+      expect(rendered).toContain(`GOOGLE_GEMINI_BASE_URL=${BASE_URL}`);
     });
   });
 });

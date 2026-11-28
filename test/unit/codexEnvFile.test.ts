@@ -24,10 +24,15 @@ describe('parseDotEnv', () => {
     expect(parseDotEnv('')).toEqual({});
   });
 
-  it('fails closed on malformed lines', () => {
-    expect(() => parseDotEnv('OPENAI_API_KEY=ok\nbroken-line-without-equals\n'))
-      .toThrow('malformed');
-    expect(() => parseDotEnv('=no-key\n')).toThrow('malformed');
+  it('parses with dotenv semantics: skips unparseable lines, rejects empty keys', () => {
+    // dotenv.parse silently skips lines without a separator (Codex PR 159
+    // round 17) — Gemini itself loads such files successfully, so a
+    // no-separator line cannot fail profile application.
+    expect(parseDotEnv('OPENAI_API_KEY=ok\nbroken-line-without-equals\n')).toEqual({ OPENAI_API_KEY: 'ok' });
+    expect(parseDotEnv('=no-key\n')).toEqual({});
+    expect(() => parseDotEnv('export =value\n')).toThrow('empty variable name');
+    // Colon separator and multiline quoted values are valid dotenv syntax.
+    expect(parseDotEnv('KEY: value\nOTHER="multi\nline"\n')).toEqual({ KEY: 'value', OTHER: 'multi\nline' });
   });
 });
 
@@ -84,11 +89,14 @@ describe('patchCodexEnvFile (backup-before-modify, atomic write)', () => {
     expect(written).toBe('OPENAI_API_KEY=new-secret\n');
   });
 
-  it('fails closed BEFORE any backup/write on a malformed existing file', async () => {
-    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('broken line\n');
+  it('does not write when the existing file has an empty variable name (undecodable)', async () => {
+    // Lines without a separator are valid-to-skip (dotenv semantics), but an
+    // assignment with an EMPTY key cannot be classified — fail before any
+    // mutation.
+    vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('export =value\n');
 
     await expect(patchCodexEnvFile('/tmp/codex/.env', { OPENAI_API_KEY: 'x' }))
-      .rejects.toThrow('malformed');
+      .rejects.toThrow('empty variable name');
     expect(fsSafe.createBackup).not.toHaveBeenCalled();
     expect(fsSafe.writeFileAtomic).not.toHaveBeenCalled();
   });

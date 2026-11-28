@@ -56,23 +56,47 @@ export function parseDotEnv(
     return output;
   }
 
-  for (const [index, rawLine] of content.split('\n').entries()) {
-    const line = rawLine.trim();
+  // dotenv-compatible semantics (Codex PR 159 round 17): Gemini loads the
+  // file through dotenv.parse (upstream settings.ts:645-650), which accepts
+  // `KEY: value` (colon separators), MULTILINE quoted values, and silently
+  // skips lines it cannot parse — so a file Gemini considers valid must not
+  // make profile application fail here.
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim();
     if (line.length === 0 || line.startsWith('#')) {
       continue;
     }
-    // Fail closed on malformed lines: a corrupted .env would otherwise be
-    // silently rewritten and provider credentials could be lost.
-    const separator = line.indexOf('=');
+    // Earliest separator wins (dotenv's KEY[:=] pattern). A separator inside
+    // a quoted value comes after the assignment, so this is safe.
+    const eq = line.indexOf('=');
+    const colon = line.indexOf(':');
+    const separator = eq === -1 ? colon : colon === -1 ? eq : Math.min(eq, colon);
     if (separator <= 0) {
-      throw new Error(
-        `${fileLabel} is malformed at line ${index + 1}: "${line}". ` +
-        'Fix or remove the file manually, then retry — the original file was left untouched.'
-      );
+      // dotenv.parse skips lines without a separator — mirror that instead
+      // of failing: such a line cannot carry a managed key anyway.
+      continue;
     }
     const key = stripExportPrefix(line.slice(0, separator).trim());
     let value = line.slice(separator + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if (value.startsWith('"') && !hasClosingQuote(value, '"')) {
+      // MULTILINE quoted value: consume continuation lines until the closing
+      // quote (dotenv's multiline mode), joining with newlines.
+      const builder: string[] = [value];
+      let closed = false;
+      while (index + 1 < lines.length && !closed) {
+        index++;
+        const continuation = lines[index];
+        builder.push(continuation);
+        if (hasClosingQuote(continuation, '"')) {
+          closed = true;
+        }
+      }
+      const joined = builder.join('\n').trim();
+      value = joined.startsWith('"') && joined.endsWith('"') && joined.length >= 2
+        ? joined.slice(1, -1)
+        : joined;
+    } else if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
     if (key.length === 0 || key === 'export') {
@@ -83,13 +107,24 @@ export function parseDotEnv(
   return output;
 }
 
+/** True when the trimmed value contains an unescaped closing quote. */
+function hasClosingQuote(value: string, quote: string): boolean {
+  const escaped = value.slice(1).replace(/\\./g, '');
+  return escaped.includes(quote);
+}
+
 /** Matches an assignment line and returns its unexported key, or null. */
 function assignmentKeyOf(rawLine: string): string | null {
   const trimmed = rawLine.trim();
   if (trimmed.length === 0 || trimmed.startsWith('#')) {
     return null;
   }
-  const separator = trimmed.indexOf('=');
+  // dotenv accepts both `KEY=value` and `KEY: value` — a managed key defined
+  // with a colon separator must still be replaced in place, not appended
+  // twice (dotenv.parse is last-wins, but in-place is truthful).
+  const eq = trimmed.indexOf('=');
+  const colon = trimmed.indexOf(':');
+  const separator = eq === -1 ? colon : colon === -1 ? eq : Math.min(eq, colon);
   if (separator <= 0) {
     return null;
   }

@@ -28,9 +28,10 @@ describe('parseDotEnv export-prefix semantics', () => {
     expect(parsed).toEqual({ GEMINI_API_KEY: 'old-token', OTHER: 'a', PLAIN: 'b' });
   });
 
-  it('still fails closed on malformed lines', () => {
-    expect(() => parseDotEnv('GEMINI_API_KEY=ok\nexport broken-line\n'))
-      .toThrow('malformed');
+  it('skips unparseable lines like dotenv.parse does', () => {
+    // dotenv (upstream settings.ts:645-650) skips lines without a separator
+    // instead of failing — a line Gemini tolerates cannot fail application.
+    expect(parseDotEnv('GEMINI_API_KEY=ok\nexport broken-line\n')).toEqual({ GEMINI_API_KEY: 'ok' });
   });
 
   it('throws on an export statement without a variable name', () => {
