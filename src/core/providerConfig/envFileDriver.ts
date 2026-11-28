@@ -46,6 +46,9 @@ function stripExportPrefix(key: string): string {
 }
 
 /** Parses a .env file into key/value records. */
+/** The quote characters dotenv accepts around values. */
+const DOTENV_QUOTES = `"'` + '`';
+
 export function parseDotEnv(
   content: string | undefined,
   options: EnvFileDriverOptions = {}
@@ -79,7 +82,12 @@ export function parseDotEnv(
     }
     const key = stripExportPrefix(line.slice(0, separator).trim());
     let value = line.slice(separator + 1).trim();
-    if (value.startsWith('"') && !hasClosingQuote(value, '"')) {
+    // dotenv accepts THREE quote forms — double, single, and backtick — and
+    // single-quoted values are LITERAL (no \n expansion). Multiline applies
+    // to any form whose opening quote is unclosed on the line (Codex PR 159
+    // round 19; dotenv v16.4.5 lib/main.js).
+    const quote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
+    if (quote !== undefined && !hasClosingQuote(value, quote)) {
       // MULTILINE quoted value: consume continuation lines until the closing
       // quote (dotenv's multiline mode), joining with newlines.
       const builder: string[] = [value];
@@ -88,16 +96,22 @@ export function parseDotEnv(
         index++;
         const continuation = lines[index];
         builder.push(continuation);
-        if (hasClosingQuote(continuation, '"')) {
+        if (hasClosingQuote(continuation, quote)) {
           closed = true;
         }
       }
       const joined = builder.join('\n').trim();
-      value = joined.startsWith('"') && joined.endsWith('"') && joined.length >= 2
+      value = joined.startsWith(quote) && joined.endsWith(quote) && joined.length >= 2
         ? joined.slice(1, -1)
         : joined;
-    } else if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    } else if (quote !== undefined && value.endsWith(quote) && value.length >= 2) {
       value = value.slice(1, -1);
+    }
+    if (quote === '"' && value.includes('\\')) {
+      // dotenv EXPANDS \n and \r escape sequences inside double quotes
+      // (v16.4.5 lib/main.js:29-38) — mirror that so round-trip checks in
+      // tests use the same bytes Gemini will receive.
+      value = value.replace(/\\r\\n|\\r|\\n/g, m => (m === '\\r\\n' ? '\n' : m === '\\n' ? '\n' : '\r'));
     }
     if (key.length === 0 || key === 'export') {
       throw new Error(`${fileLabel} has an empty variable name at line ${index + 1}.`);
@@ -183,13 +197,15 @@ export function buildDotEnvContent(
           ? Math.min(line.indexOf('='), line.indexOf(':'))
           : line.indexOf('=');
       let value = valueStart > 0 ? line.slice(valueStart + 1).trim() : '';
-      if (value.startsWith('"') && !hasClosingQuote(value, '"')) {
+      // All three dotenv quote forms open multiline spans (round 19).
+      const openQuote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
+      if (openQuote !== undefined && !hasClosingQuote(value, openQuote)) {
         // Multiline open: consume continuation lines until the FIRST line
         // whose content contains the closing quote. The opening line itself
         // must NOT be re-checked — its raw text contains the opening quote
         // (Codex PR 159 round 18, follow-up to the missed-continuation fix).
         let j = i + 1;
-        while (j < rawLines.length && !hasClosingQuote(rawLines[j].trim(), '"')) {
+        while (j < rawLines.length && !hasClosingQuote(rawLines[j].trim(), openQuote)) {
           j++;
         }
         // No closing quote anywhere: the value runs to end of file (dotenv
@@ -307,6 +323,16 @@ export function buildDotEnvContent(
 function serializeDotEnvValue(value: string): string {
   if (/^[A-Za-z0-9_./:@+=,-]*$/.test(value)) {
     return value;
+  }
+  // SINGLE-quoted dotenv values are LITERAL: no \n/\r expansion, no escape
+  // processing (dotenv v16.4.5 lib/main.js). Any value without an embedded
+  // single quote therefore round-trips byte-identically through dotenv.parse
+  // in single quotes — including literal backslash-n sequences that a
+  // double-quoted form would wrongly expand into newlines (Codex PR 159
+  // round 19). Only values containing a single quote need the double-quoted
+  // escape form.
+  if (!value.includes("'")) {
+    return `'${value}'`;
   }
   const escaped = value
     .replace(/\\/g, '\\\\')

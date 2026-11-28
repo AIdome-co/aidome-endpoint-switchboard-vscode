@@ -56,6 +56,27 @@ describe('buildDotEnvContent', () => {
     expect(out).not.toContain('old');
   });
 
+  it('parses all three dotenv quote forms, multiline, with dotenv escape semantics (round 19)', () => {
+    expect(parseDotEnv("A='single\nquoted'\nB=`tick\nline`\n")).toEqual({ A: 'single\nquoted', B: 'tick\nline' });
+    // Single-quoted: literal — no \n expansion (file has backslash + n).
+    expect(parseDotEnv(String.raw`C='lit\nkept'` + '\n')).toEqual({ C: 'lit\\nkept' });
+    // Double-quoted: dotenv EXPANDS \n inside double quotes.
+    expect(parseDotEnv(String.raw`D="exp\nanded"` + '\n')).toEqual({ D: 'exp\nanded' });
+  });
+
+  it('round-trips a literal backslash-n credential through serialize+parse (round 19)', () => {
+    // A credential containing the literal two characters \ + n must survive:
+    // single-quoted form is literal in dotenv (no \n expansion).
+    const credential = 'abc\\ndef';
+    const out = buildDotEnvContent(undefined, { GEMINI_API_KEY: credential });
+    expect(parseDotEnv(out).GEMINI_API_KEY).toBe(credential);
+    // And a backtick/single-quote multiline interior is not an assignment.
+    const existing = "NOTE=`first\nGEMINI_API_KEY=inside\nlast`\n";
+    const out2 = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    expect(parseDotEnv(out2).NOTE).toBe('first\nGEMINI_API_KEY=inside\nlast');
+    expect(parseDotEnv(out2).GEMINI_API_KEY).toBe('real');
+  });
+
   it('updates managed variables and preserves unrelated ones', () => {
     const out = buildDotEnvContent('KEEP_ME=yes\nOPENAI_API_KEY=old\n# note\n', { OPENAI_API_KEY: 'new' });
     const parsed = parseDotEnv(out);
