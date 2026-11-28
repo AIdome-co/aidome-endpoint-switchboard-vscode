@@ -156,9 +156,17 @@ function isSnapOpencode(): boolean {
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
   for (const dir of pathDirs) {
     const candidate = path.join(dir, 'opencode');
+    // /snap/bin/<name> is a LAUNCHER symlink to /usr/bin/snap (the snap
+    // execution chain: snap run <name>) — its real path contains no
+    // `${sep}snap${sep}` segment, so realpathSync alone reports false for a
+    // normal snap install. Check the unresolved path too: it lies under a
+    // snap bin directory (/snap/bin, /var/lib/snapd/snap/bin).
+    if (isSnapBinPath(candidate)) {
+      return true;
+    }
     try {
       const real = fs.realpathSync(candidate);
-      if (real.includes(`${path.sep}snap${path.sep}`)) {
+      if (isSnapBinPath(real) || real.includes(`${path.sep}snap${path.sep}`)) {
         return true;
       }
     } catch {
@@ -166,6 +174,11 @@ function isSnapOpencode(): boolean {
     }
   }
   return false;
+}
+
+/** True when the path lives under a snap bin directory. */
+function isSnapBinPath(candidate: string): boolean {
+  return candidate.includes(`${path.sep}snap${path.sep}bin${path.sep}`);
 }
 
 /** Returns the first candidate that exists, preferring an existing .jsonc sibling. */

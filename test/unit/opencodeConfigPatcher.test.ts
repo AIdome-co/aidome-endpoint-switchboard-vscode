@@ -176,6 +176,51 @@ describe('opencodeConfigPatcher', () => {
         }
       }
     });
+    it('recognizes a /snap/bin launcher symlink even when its real path is not under /snap', () => {
+      const home = makeTempDir();
+      const binDir = makeTempDir();
+      const snapRoot = path.join(home, 'snap', 'opencode');
+      const activeRevision = path.join(snapRoot, '299');
+      fs.mkdirSync(activeRevision, { recursive: true });
+      fs.writeFileSync(path.join(activeRevision, 'opencode.json'), '{}');
+      fs.symlinkSync(activeRevision, path.join(snapRoot, 'current'), 'dir');
+
+      // Launcher layout: <binDir>/snap/bin/opencode is a symlink whose real
+      // target (like /usr/bin/snap) contains NO /snap/ segment.
+      const launcher = path.join(binDir, 'snap', 'bin', 'opencode');
+      const launcherTarget = path.join(binDir, 'usr', 'bin', 'snap');
+      fs.mkdirSync(path.dirname(launcher), { recursive: true });
+      fs.mkdirSync(path.dirname(launcherTarget), { recursive: true });
+      fs.writeFileSync(launcherTarget, '');
+      fs.symlinkSync(launcherTarget, launcher);
+      const savedPath = process.env.PATH;
+      const savedHome = process.env.HOME;
+      const savedUserProfile = process.env.USERPROFILE;
+      process.env.PATH = binDir;
+      process.env.HOME = home;
+      process.env.USERPROFILE = home;
+
+      try {
+        expect(getOpenCodeConfigPath()).toBe(path.join(snapRoot, 'current', 'opencode.json'));
+      } finally {
+        if (savedPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = savedPath;
+        }
+        if (savedHome === undefined) {
+          delete process.env.HOME;
+        } else {
+          process.env.HOME = savedHome;
+        }
+        if (savedUserProfile === undefined) {
+          delete process.env.USERPROFILE;
+        } else {
+          process.env.USERPROFILE = savedUserProfile;
+        }
+      }
+    });
+
   });
 
   describe('buildOpenCodeConfigContent', () => {

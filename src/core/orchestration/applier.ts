@@ -144,7 +144,7 @@ export class PlanApplier {
           // (no-op) or left stale state in place. A confirmed no-op with no
           // credential available also leaves auth incomplete: guided-required.
           const credentialGap = appliedChangeSteps.find(step =>
-            step.type === 'write-env-file'
+            (step.type === 'write-env-file' || step.type === 'edit-config-file')
             && (step as { secretResolved?: boolean }).secretResolved === false);
           if (credentialGap) {
             assistantResults.set(assistantKey, assistantResult(
@@ -176,7 +176,7 @@ export class PlanApplier {
             // (the user must supply a credential), NOT deferred, even
             // though no file was touched.
             const noOpCredentialGap = appliedChangeSteps.find(step =>
-              step.type === 'write-env-file'
+              (step.type === 'write-env-file' || step.type === 'edit-config-file')
               && step.mutationApplied === false
               && (step as { secretResolved?: boolean }).secretResolved === false);
             // P1: no break/continue here — classify THIS assistant and let
@@ -369,7 +369,7 @@ export class PlanApplier {
     }
 
     // Write new content
-    const content = await this.resolveConfigFileContent(step, fileExists);
+    const content = await this.resolveConfigFileContent(step, fileExists, appliedStep);
 
     const success = await safeWriteFile(step.targetPath, content);
     if (!success) {
@@ -380,7 +380,11 @@ export class PlanApplier {
     this.logger.info(`Updated config file ${step.targetPath}`);
   }
 
-  private async resolveConfigFileContent(step: PlanStep, fileExists: boolean): Promise<string> {
+  private async resolveConfigFileContent(
+    step: PlanStep,
+    fileExists: boolean,
+    appliedStep?: AppliedStep
+  ): Promise<string> {
     const existingContent = fileExists
       ? await fs.readFile(step.targetPath!, 'utf-8')
       : undefined;
@@ -414,9 +418,20 @@ export class PlanApplier {
       ? step.data.authRef.trim()
       : undefined;
     const secretPolicy = step.data.secretPolicy;
-    const secret = secretPolicy === 'target-persisted-at-apply' && authRef
+    const secretRaw = secretPolicy === 'target-persisted-at-apply' && authRef
       ? await this.profileSecrets.getSecret(authRef)
       : undefined;
+    // A whitespace-only stored token is not a credential: normalize before
+    // both rendering and the secretResolved flag.
+    const secret = secretRaw !== undefined && secretRaw.trim().length > 0 ? secretRaw : undefined;
+
+    // Truthful credential evidence for the outcome classifier (same contract
+    // as write-env-file): a config-file step that required a credential but
+    // found none leaves authentication incomplete even though the file edit
+    // itself succeeded (the key is cleared via removeWhenMissing).
+    if (secretPolicy === 'target-persisted-at-apply' && authRef && appliedStep) {
+      appliedStep.secretResolved = secret !== undefined;
+    }
 
     if (secretPolicy === 'target-persisted-at-apply' && !secret && step.data.clearAuthWhenMissing === true) {
       const warningMessage = typeof step.data.missingSecretMessage === 'string' && step.data.missingSecretMessage.trim().length > 0

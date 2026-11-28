@@ -13,11 +13,13 @@ import * as os from 'os';
 const {
   mockSaveAssistantMapping,
   mockGetAssistantMappings,
-  mockGetProfiles
+  mockGetProfiles,
+  secretStore
 } = vi.hoisted(() => ({
   mockSaveAssistantMapping: vi.fn(),
   mockGetAssistantMappings: vi.fn(),
-  mockGetProfiles: vi.fn()
+  mockGetProfiles: vi.fn(),
+  secretStore: new Map<string, string | undefined>()
 }));
 
 vi.mock('vscode', () => ({
@@ -47,7 +49,7 @@ vi.mock('../../src/core/profiles/profileStore', () => ({
 
 vi.mock('../../src/core/profiles/profileSecrets', () => ({
   ProfileSecrets: class {
-    getSecret(): Promise<string | undefined> { return Promise.resolve(undefined); }
+    getSecret(authRef: string): Promise<string | undefined> { return Promise.resolve(secretStore.get(authRef)); }
   }
 }));
 
@@ -135,6 +137,62 @@ describe('assistant outcome semantics', () => {
       patches: [{ path: ['baseUrl'], value: 'https://gw.example.com/v1' }]
     }));
     plan.steps.push(step('show-guided-steps', 'assist-a', { message: 'FYI: restart the app', optional: true }));
+
+    const result = await apply(plan);
+
+    const outcome = result.assistantResults.get('assist-a');
+    expect(outcome?.status).toBe('configured');
+    expect(outcome?.success).toBe(true);
+  });
+
+  it('edit-config-file with a required but missing secret reports guided-required, not configured', async () => {
+    secretStore.clear();
+    const file = path.join(tmpDir, 'opencode.json');
+    fs.writeFileSync(file, '{}');
+    const plan = createPlan('p1', ['assist-a']);
+    plan.steps.push(step('edit-config-file', 'assist-a', {
+      configPath: file,
+      configType: 'outcome-test',
+      driver: 'json-object',
+      format: 'json',
+      baseUrl: 'https://gw.example.com/v1',
+      newValue: 'https://gw.example.com/v1',
+      secretPolicy: 'target-persisted-at-apply',
+      authRef: 'auth-missing',
+      clearAuthWhenMissing: true,
+      missingSecretMessage: 'secret missing',
+      patches: [
+        { path: ['baseUrl'], value: 'https://gw.example.com/v1' },
+        { path: ['apiKey'], source: 'secret', removeWhenMissing: true }
+      ]
+    }));
+
+    const result = await apply(plan);
+
+    const outcome = result.assistantResults.get('assist-a');
+    expect(outcome?.status).toBe('guided-required');
+    expect(outcome?.success).toBe(false);
+  });
+
+  it('edit-config-file with a resolved secret stays configured', async () => {
+    secretStore.set('auth-present', '  token-123  ');
+    const file = path.join(tmpDir, 'opencode2.json');
+    fs.writeFileSync(file, '{}');
+    const plan = createPlan('p1', ['assist-a']);
+    plan.steps.push(step('edit-config-file', 'assist-a', {
+      configPath: file,
+      configType: 'outcome-test',
+      driver: 'json-object',
+      format: 'json',
+      baseUrl: 'https://gw.example.com/v1',
+      newValue: 'https://gw.example.com/v1',
+      secretPolicy: 'target-persisted-at-apply',
+      authRef: 'auth-present',
+      patches: [
+        { path: ['baseUrl'], value: 'https://gw.example.com/v1' },
+        { path: ['apiKey'], source: 'secret' }
+      ]
+    }));
 
     const result = await apply(plan);
 
