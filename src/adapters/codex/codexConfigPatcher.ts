@@ -72,6 +72,18 @@ export function getCodexConfigPath(): string {
 }
 
 /**
+ * Gets the Codex model catalog path (<codex home>/aidome-models.json).
+ *
+ * Codex loads an optional top-level `model_catalog_json` file from an absolute
+ * path; Switchboard writes it next to the resolved config file so CODEX_HOME,
+ * CODEX_CONFIG_PATH and the snap fallbacks all stay coherent.
+ * @returns Catalog file path
+ */
+export function getCodexModelsCatalogPath(): string {
+  return path.join(path.dirname(getCodexConfigPath()), 'aidome-models.json');
+}
+
+/**
  * Patches Codex config file with new endpoint.
  * @param profile Endpoint profile to configure
  * @param configPath Path to config file

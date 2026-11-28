@@ -15,9 +15,12 @@ import { Plan, addStep } from '../../core/orchestration/planBuilder';
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
-import { getCodexConfigPath } from './codexConfigPatcher';
+import { getCodexConfigPath, getCodexModelsCatalogPath } from './codexConfigPatcher';
+import { buildCodexModelCatalog } from './modelCatalog';
 import { readFileSafe } from '../../util/fsSafe';
-import { discoverOpenAiModels, getCachedOpenAiModels } from '../../core/providerConfig/modelDiscovery';
+import { normalizeOpenAiBaseUrl } from '../../core/providerConfig/endpointUrl';
+import { parse as parseToml } from 'smol-toml';
+import { getCachedOpenAiModels, tryDiscoverOpenAiModels } from '../../core/providerConfig/modelDiscovery';
 import { parseConfigDocument, verifyFileTarget } from '../../core/providerConfig/engineVerification';
 import { buildProviderConfigPlan } from '../../core/providerConfig/engine';
 import * as path from 'path';
@@ -51,8 +54,21 @@ export class CodexAdapter extends BaseExtensionAdapter {
 
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     const configPath = getCodexConfigPath();
-    const models = await this.discoverModels(profile);
-    const model = models[0]?.id;
+    const { models, discoveryFailed } = await this.discoverModels(profile);
+    // Build the catalog FIRST and decide everything from its filtered
+    // entries: the catalog replaces Codex's bundled catalog entirely, so an
+    // all-`gpt-*` discovery (every entry filtered out) must produce NO catalog
+    // file and NO binding — an empty `{"models":[]}` file fails Codex startup.
+    // The configured model is likewise the first filtered entry's slug.
+    const catalogEntries = buildCodexModelCatalog(models).models;
+    const model = catalogEntries[0]?.slug;
+    // The Codex model catalog is generated automatically as part of the same
+    // plan whenever usable gateway models were discovered. Codex loads a
+    // top-level `model_catalog_json` file ONLY at startup and it REPLACES the
+    // bundled catalog, so it is written only from real gateway models and the
+    // config key is removed (via the descriptor binding) when there is
+    // nothing to point at.
+    const catalogPath = catalogEntries.length > 0 ? getCodexModelsCatalogPath() : undefined;
     if (!DESCRIPTOR) {
       throw new Error('OpenAI Codex provider descriptor is missing');
     }
@@ -61,8 +77,49 @@ export class CodexAdapter extends BaseExtensionAdapter {
       profile,
       resolvedTargetPaths: { 'codex-config': configPath },
       discoveredModels: model ? [model] : undefined,
+      ...(catalogPath ? { modelCatalogJsonPath: catalogPath } : {}),
+      // A failed discovery request must neither rebind nor remove the
+      // catalog binding: keep whatever the previous apply left in place.
+      // Preserve the existing binding ONLY when discovery failed during a
+      // reapply of the same endpoint (transient failure). On a profile
+      // switch (different endpoint) a failure must NOT preserve the old
+      // catalog: the plan then unbinds the catalog and removes a stale
+      // selected model so the new endpoint never receives the old profile's
+      // slug while Codex falls back to its bundled catalog.
+      ...(discoveryFailed && (await this.configMatchesEndpoint(configPath, profile))
+        ? { preserveModelCatalogJson: true }
+        : {}),
+      // Only a binding that points at the Switchboard-generated catalog file
+      // may be removed: a user-configured model_catalog_json is not ours.
+      ownsModelCatalogJson: await this.bindingIsOwnedBySwitchboard(configPath)
     });
     this.expectedBaseUrl = profile.baseUrl;
+
+    if (catalogPath && DESCRIPTOR) {
+      plan = addStep(plan, {
+        action: 'edit-config-file',
+        description: 'Write the Codex model catalog from discovered gateway models',
+        assistantKey: 'openai-codex',
+        targetPath: catalogPath,
+        newValue: profile.baseUrl,
+        data: {
+          // PlanApplier backs up the catalog file before its edit-config-file
+          // step; backupRequired below is preview metadata, not a duplicate
+          // backup.
+          backupRequired: true,
+          driver: 'json-object',
+          format: 'json',
+          configPath: catalogPath,
+          configType: 'codex-model-catalog',
+          profileId: profile.id,
+          baseUrl: profile.baseUrl,
+          patches: [
+            { path: ['models'], value: catalogEntries }
+          ]
+        },
+        reversible: true
+      });
+    }
 
     // Credential persistence: Codex loads <codex_home>/.env at startup
     // (upstream load_dotenv) — the official on-disk location for the
@@ -120,16 +177,77 @@ export class CodexAdapter extends BaseExtensionAdapter {
     return plan;
   }
 
-  private async discoverModels(profile: EndpointProfile): Promise<DiscoveredModel[]> {
+  /** True when the existing binding points at the Switchboard-generated catalog file (or no config exists and none was bound). */
+  private async bindingIsOwnedBySwitchboard(configPath: string): Promise<boolean> {
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      // No config: nothing is bound, so "removal" is a no-op either way and
+      // treating it as owned keeps the driver's stale-model cleanup coupled
+      // only to bindings we actually wrote.
+      return true;
+    }
+    let binding: unknown;
+    try {
+      binding = (parseToml(content) as { model_providers?: { aidome?: { model_catalog_json?: unknown } } }).model_providers?.aidome?.model_catalog_json;
+    } catch {
+      return false;
+    }
+    if (typeof binding !== 'string' || binding.length === 0) {
+      return true;
+    }
+    return path.resolve(binding) === path.resolve(getCodexModelsCatalogPath());
+  }
+
+  /**
+   * True when the existing Codex config's managed provider already points at
+   * this profile's endpoint (a reapply of the owning profile) — the only case
+   * where a failed discovery may safely preserve the existing catalog.
+   */
+  private async configMatchesEndpoint(configPath: string, profile: EndpointProfile): Promise<boolean> {
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      return false;
+    }
+    // Parse the TOML structurally: a bracket-scan regex would stop at a `[`
+    // inside a quoted value or array in the preserved provider table and
+    // falsely report a different endpoint, dropping a valid catalog on a
+    // same-profile reapply with transient discovery failure.
+    let providers: unknown;
+    try {
+      providers = (parseToml(content) as { model_providers?: { aidome?: { base_url?: unknown } } }).model_providers?.aidome?.base_url;
+    } catch {
+      return false;
+    }
+    const existingBaseUrl = typeof providers === 'string' ? providers : undefined;
+    if (!existingBaseUrl) {
+      return false;
+    }
+    // The descriptor engine writes the NORMALIZED url (gateway root becomes
+    // `<root>/v1`, trailing slashes stripped) into TOML, while the profile
+    // keeps its raw user-entered form. Compare normalized representations —
+    // otherwise a same-profile reapply with a root-form profile URL would be
+    // misclassified as a profile switch and drop a still-valid catalog.
+    try {
+      return normalizeOpenAiBaseUrl(existingBaseUrl) === normalizeOpenAiBaseUrl(profile.baseUrl);
+    } catch {
+      return false;
+    }
+  }
+
+  private async discoverModels(profile: EndpointProfile): Promise<{ models: DiscoveredModel[]; discoveryFailed: boolean }> {
     const cached = getCachedOpenAiModels(profile);
     if (cached.length > 0) {
-      return cached;
+      return { models: cached, discoveryFailed: false };
     }
 
     const token = profile.authRef && this.dependencies.profileSecrets
       ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
       : undefined;
-    return discoverOpenAiModels(profile.baseUrl, token);
+    // A failed request is NOT an empty catalog: collapsing it into [] would
+    // emit removeModelCatalogJson and unbind a working catalog on a transient
+    // network error. The caller keeps the existing catalog binding instead.
+    const result = await tryDiscoverOpenAiModels(profile.baseUrl, token);
+    return { models: result.models, discoveryFailed: !result.ok };
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
@@ -173,11 +291,54 @@ export class CodexAdapter extends BaseExtensionAdapter {
       profileBaseUrl: this.expectedBaseUrl
     });
 
+    if (result.success) {
+      // The bound catalog file is authoritative for the picker and the
+      // selected model — when it is deleted, truncated, or corrupted, Codex
+      // cannot load its catalog at startup even though the TOML looks right.
+      const catalogCheck = await this.verifyBoundCatalog(document.parsed);
+      if (!catalogCheck.ok) {
+        return {
+          success: false,
+          message: catalogCheck.message,
+          details: { configPath, ...result.details }
+        };
+      }
+    }
+
     return {
       success: result.success,
       message: result.message,
       details: { configPath, ...result.details }
     };
+  }
+
+  /** Checks the model_catalog_json binding: file exists, parses, non-empty, contains the selected model. */
+  private async verifyBoundCatalog(parsed: unknown): Promise<{ ok: true } | { ok: false; message: string }> {
+    const providers = (parsed as { model_providers?: { aidome?: { model_catalog_json?: unknown } } }).model_providers?.aidome;
+    const boundPath = typeof providers?.model_catalog_json === 'string' ? providers.model_catalog_json : undefined;
+    if (!boundPath) {
+      return { ok: true };
+    }
+    const catalogContent = await readFileSafe(boundPath);
+    if (!catalogContent) {
+      return { ok: false, message: `The bound Codex model catalog file is missing: ${boundPath}` };
+    }
+    let models: unknown;
+    try {
+      models = (JSON.parse(catalogContent) as { models?: unknown }).models;
+    } catch (error) {
+      return { ok: false, message: `The bound Codex model catalog is not valid JSON (${boundPath}): ${String(error)}` };
+    }
+    if (!Array.isArray(models) || models.length === 0) {
+      return { ok: false, message: `The bound Codex model catalog is empty (${boundPath})` };
+    }
+    // The selected top-level model must exist in the bound catalog.
+    const selectedModel = (parsed as { model?: unknown }).model;
+    const slugs = new Set(models.map((entry) => (typeof entry === 'object' && entry !== null ? (entry as { slug?: unknown }).slug : undefined)));
+    if (typeof selectedModel === 'string' && selectedModel && !slugs.has(selectedModel)) {
+      return { ok: false, message: `The selected model "${selectedModel}" is not in the bound Codex model catalog (${boundPath})` };
+    }
+    return { ok: true };
   }
 
   getDisplayName(): string {

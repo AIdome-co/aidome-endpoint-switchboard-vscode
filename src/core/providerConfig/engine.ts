@@ -35,6 +35,27 @@ export interface ProviderConfigEngineContext {
   discoveredModels?: string[];
   /** Adapter-declared availability per target id; false/undefined 'guided' → guided step (hook). */
   targetAvailability?: Record<string, boolean>;
+  /**
+   * Adapter-resolved path for the descriptor's model-catalog companion target
+   * (e.g. Codex's ~/.codex/models.json). Present only when the adapter decided
+   * a catalog must be written this apply (discovery returned models); absent
+   * means the descriptor's toml target must REMOVE a stale catalog key.
+   */
+  modelCatalogJsonPath?: string;
+  /**
+   * When true, a failed model-discovery request left the existing catalog
+   * binding untouched: the toml target emits neither `modelCatalogJson` nor
+   * `removeModelCatalogJson` for this apply. A confirmed-empty successful
+   * discovery still removes the stale binding.
+   */
+  preserveModelCatalogJson?: boolean;
+  /**
+   * When true, the existing config's model_catalog_json binding points at the
+   * Switchboard-generated catalog file, so Switchboard owns it and may remove
+   * it on a confirmed-empty discovery or a profile switch. A user's own
+   * hand-maintained catalog binding is never touched.
+   */
+  ownsModelCatalogJson?: boolean;
   /** Overrides evaluated per operation value source when the adapter owns resolution (hook). */
   valueOverrides?: Partial<Record<DescriptorValueSource['type'], unknown>>;
 }
@@ -272,6 +293,16 @@ function compileTargetPlan(
       const model = modelOp && modelOp.type === 'set' && modelOp.value.type === 'discovered-model'
         ? context.discoveredModels?.[0]
         : undefined;
+      // Codex model-catalog binding (adapter hook): the descriptor's toml
+      // target declares which companion target owns the catalog file. When the
+      // adapter resolved that path (discovery produced models) the TOML gains
+      // model_catalog_json pointing at it; when it did not, a stale key from a
+      // previous apply must be removed so Codex falls back to its bundled
+      // catalog instead of loading a missing/empty file at startup.
+      const catalogTargetId = typeof targetPlan.stepData?.modelCatalogJsonTargetId === 'string'
+        ? (targetPlan.stepData.modelCatalogJsonTargetId as string)
+        : undefined;
+      const catalogPath = catalogTargetId !== undefined ? context.modelCatalogJsonPath : undefined;
       return [{
         action: 'edit-config-file',
         description: `Set ${descriptor.displayName} provider to ${baseUrl}`,
@@ -290,6 +321,11 @@ function compileTargetPlan(
           wireApi: 'responses',
           ...(envKey ? { envKey } : {}),
           ...(model ? { model } : {}),
+          ...(catalogPath !== undefined
+            ? { modelCatalogJson: catalogPath }
+            : catalogTargetId !== undefined && !context.preserveModelCatalogJson && context.ownsModelCatalogJson === true
+              ? { removeModelCatalogJson: true }
+              : {}),
         },
         reversible: true
       }];
