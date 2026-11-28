@@ -88,22 +88,25 @@ export function parseDotEnv(
     // round 19; dotenv v16.4.5 lib/main.js).
     const quote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
     if (quote !== undefined && !hasClosingQuote(value, quote)) {
-      // MULTILINE quoted value: consume continuation lines until the closing
-      // quote (dotenv's multiline mode), joining with newlines.
-      const builder: string[] = [value];
-      let closed = false;
-      while (index + 1 < lines.length && !closed) {
-        index++;
-        const continuation = lines[index];
-        builder.push(continuation);
-        if (hasClosingQuote(continuation, quote)) {
-          closed = true;
+      // MULTILINE only when a closing quote actually EXISTS later in the file
+      // (Codex PR 159 round 20): dotenv treats an UNMATCHED opening quote as
+      // a single-line unquoted value, not as consuming the rest of the file.
+      const closing = lines.findIndex(
+        (l, i) => i > index && hasClosingQuote(l.trim(), quote)
+      );
+      if (closing > index) {
+        // MULTILINE quoted value: consume continuation lines until the closing
+        // quote (dotenv's multiline mode), joining with newlines.
+        const builder: string[] = [value];
+        for (let k = index + 1; k <= closing; k++) {
+          builder.push(lines[k]);
         }
+        const joined = builder.join('\n').trim();
+        value = joined.startsWith(quote) && joined.endsWith(quote) && joined.length >= 2
+          ? joined.slice(1, -1)
+          : joined;
+        index = closing;
       }
-      const joined = builder.join('\n').trim();
-      value = joined.startsWith(quote) && joined.endsWith(quote) && joined.length >= 2
-        ? joined.slice(1, -1)
-        : joined;
     } else if (quote !== undefined && value.endsWith(quote) && value.length >= 2) {
       value = value.slice(1, -1);
     }
@@ -200,19 +203,23 @@ export function buildDotEnvContent(
       // All three dotenv quote forms open multiline spans (round 19).
       const openQuote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
       if (openQuote !== undefined && !hasClosingQuote(value, openQuote)) {
-        // Multiline open: consume continuation lines until the FIRST line
+        // MULTILINE open: consume continuation lines until the FIRST line
         // whose content contains the closing quote. The opening line itself
         // must NOT be re-checked — its raw text contains the opening quote
         // (Codex PR 159 round 18, follow-up to the missed-continuation fix).
-        let j = i + 1;
-        while (j < rawLines.length && !hasClosingQuote(rawLines[j].trim(), openQuote)) {
-          j++;
+        // An UNMATCHED opening quote forms NO span (round 20): dotenv treats
+        // it as a single-line unquoted value, so following managed lines
+        // must stay reconcilable.
+        const closingLine = rawLines.findIndex(
+          (l, j) => j > i && hasClosingQuote(l.trim(), openQuote)
+        );
+        if (closingLine > i) {
+          const end = closingLine;
+          spanEnd.set(i, end);
+          i = end + 1;
+          continue;
         }
-        // No closing quote anywhere: the value runs to end of file (dotenv
-        // multiline mode).
-        const end = Math.min(j, rawLines.length - 1);
-        spanEnd.set(i, end);
-        i = end + 1;
+        i++;
         continue;
       }
       i++;
@@ -325,21 +332,16 @@ function serializeDotEnvValue(value: string): string {
     return value;
   }
   // SINGLE-quoted dotenv values are LITERAL: no \n/\r expansion, no escape
-  // processing (dotenv v16.4.5 lib/main.js). Any value without an embedded
-  // single quote therefore round-trips byte-identically through dotenv.parse
-  // in single quotes — including literal backslash-n sequences that a
-  // double-quoted form would wrongly expand into newlines (Codex PR 159
-  // round 19). Only values containing a single quote need the double-quoted
-  // escape form.
-  if (!value.includes("'")) {
-    return `'${value}'`;
-  }
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\r|\n/g, '\\n');
-  return `"${escaped}"`;
+  // processing — dotenv only strips the first and last quote (v16.4.5
+  // lib/main.js). That holds even with EMBEDDED single quotes (an embedded
+  // ' does not end the form: the value still starts and ends with one, so
+  // slice(1,-1) reconstructs the exact bytes), which makes single-quoting
+  // the round-trip-exact representation for EVERY unsafe value — including
+  // literal backslash-n sequences that a double-quoted form would wrongly
+  // expand into newlines (Codex PR 159 rounds 19-20). The double-quoted
+  // escape form cannot represent a literal backslash-n at all, so it is
+  // never used.
+  return `'${value}'`;
 }
 
 /**

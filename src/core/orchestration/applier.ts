@@ -400,6 +400,13 @@ export class PlanApplier {
       if (!backupPath) {
         throw new Error(`Failed to create backup for ${step.targetPath}`);
       }
+      // createBackup preserves the source mode: a dotenv-var target carries
+      // (or will carry) a credential and is written 0600 below, so a legacy
+      // 0644 env file would leave a world-readable backup containing the OLD
+      // credential — narrow it too (Codex PR 159 round 20).
+      if (step.data?.driver === 'dotenv-var') {
+        await fs.chmod(backupPath, 0o600);
+      }
       appliedStep.backupPath = backupPath;
       this.logger.info(`Created backup at ${backupPath}`);
     }

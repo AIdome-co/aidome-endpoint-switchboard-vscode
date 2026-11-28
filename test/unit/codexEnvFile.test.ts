@@ -64,17 +64,32 @@ describe('buildDotEnvContent', () => {
     expect(parseDotEnv(String.raw`D="exp\nanded"` + '\n')).toEqual({ D: 'exp\nanded' });
   });
 
-  it('round-trips a literal backslash-n credential through serialize+parse (round 19)', () => {
+  it('round-trips a literal backslash-n credential through serialize+parse (rounds 19-20)', () => {
     // A credential containing the literal two characters \ + n must survive:
     // single-quoted form is literal in dotenv (no \n expansion).
     const credential = 'abc\\ndef';
     const out = buildDotEnvContent(undefined, { GEMINI_API_KEY: credential });
     expect(parseDotEnv(out).GEMINI_API_KEY).toBe(credential);
+    // Even with an embedded single quote the literal form round-trips.
+    const tricky = "ab'c\\ndef";
+    const outT = buildDotEnvContent(undefined, { GEMINI_API_KEY: tricky });
+    expect(parseDotEnv(outT).GEMINI_API_KEY).toBe(tricky);
     // And a backtick/single-quote multiline interior is not an assignment.
     const existing = "NOTE=`first\nGEMINI_API_KEY=inside\nlast`\n";
     const out2 = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
     expect(parseDotEnv(out2).NOTE).toBe('first\nGEMINI_API_KEY=inside\nlast');
     expect(parseDotEnv(out2).GEMINI_API_KEY).toBe('real');
+  });
+
+  it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
+    // dotenv treats an unmatched quote as an unquoted single-line value, so
+    // the following stale managed key must still be reconcilable.
+    const existing = 'NOTE="unmatched\nGEMINI_API_KEY=stale\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, {}, { removeKeys: ['GEMINI_API_KEY'] });
+    const parsed = parseDotEnv(out);
+    expect(parsed.GEMINI_API_KEY).toBeUndefined();
+    expect(parsed.KEEP).toBe('yes');
+    expect(out).not.toContain('GEMINI_API_KEY');
   });
 
   it('updates managed variables and preserves unrelated ones', () => {

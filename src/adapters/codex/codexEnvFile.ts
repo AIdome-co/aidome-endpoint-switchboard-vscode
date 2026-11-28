@@ -38,9 +38,10 @@ export function parseDotEnv(content: string | undefined): Record<string, string>
  */
 export function buildDotEnvContent(
   existingContent: string | undefined,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  options: import('../../core/providerConfig/envFileDriver').EnvFileDriverOptions = {}
 ): string {
-  return buildDotEnvContentGeneric(existingContent, vars, { fileLabel: CODEX_ENV_LABEL });
+  return buildDotEnvContentGeneric(existingContent, vars, { fileLabel: CODEX_ENV_LABEL, ...options });
 }
 
 /**
