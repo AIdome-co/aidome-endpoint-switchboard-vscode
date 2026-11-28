@@ -400,6 +400,13 @@ export class PlanApplier {
       if (!backupPath) {
         throw new Error(`Failed to create backup for ${step.targetPath}`);
       }
+      // createBackup preserves the source mode: a dotenv-var target carries
+      // (or will carry) a credential and is written 0600 below, so a legacy
+      // 0644 env file would leave a world-readable backup containing the OLD
+      // credential — narrow it too (Codex PR 159 round 20).
+      if (step.data?.driver === 'dotenv-var') {
+        await fs.chmod(backupPath, 0o600);
+      }
       appliedStep.backupPath = backupPath;
       this.logger.info(`Created backup at ${backupPath}`);
     }
@@ -407,7 +414,16 @@ export class PlanApplier {
     // Write new content
     const content = await this.resolveConfigFileContent(step, fileExists, appliedStep);
 
-    const success = await safeWriteFile(step.targetPath, content);
+    // A dotenv-var target may carry a credential in a later plan step
+    // (e.g. GEMINI_API_KEY written into the same env file by a
+    // write-env-file step, which PRESERVES the existing file's mode).
+    // Creating the file here with default permissions would leave the
+    // credential in a 0644 file forever, so create dotenv-var targets
+    // private (0600). writeFileAtomic keeps an existing target's mode.
+    const isDotEnvTarget = step.data?.driver === 'dotenv-var';
+    const success = isDotEnvTarget
+      ? await safeWriteFile(step.targetPath, content, 1, { mode: 0o600 })
+      : await safeWriteFile(step.targetPath, content);
     if (!success) {
       throw new Error(`Failed to write to ${step.targetPath}`);
     }

@@ -365,24 +365,21 @@ describe('Codex golden — ~/.codex/.env via PlanApplier.applyWriteEnvFile', () 
     expect(written).toContain('# trailing comment');
   });
 
-  it('fails closed on a malformed existing .env: throws, original file untouched (item 11)', async () => {
+  it('applies cleanly over dotenv-tolerated junk lines and preserves them (item 11, dotenv semantics)', async () => {
     await fs.writeFile(configPath, EXISTING_TOML, 'utf-8');
-    const malformed = 'GOOD_KEY=ok\nthis-line-has-no-separator\nANOTHER_KEY=fine\n';
-    await fs.writeFile(envPath, malformed, 'utf-8');
+    const tolerated = 'GOOD_KEY=ok\nthis-line-has-no-separator\nANOTHER_KEY=fine\n';
+    await fs.writeFile(envPath, tolerated, 'utf-8');
 
     const profile = makeProfile();
     const plan = await adapter.buildPlan(profile);
     const result = await applier.applyPlan(plan, PROFILE_NAME);
 
-    // The .env write step fails; the assistant is not reported as configured.
-    expect(result.success).toBe(false);
-    expect(result.failedSteps.length).toBeGreaterThan(0);
-    const envFailure = result.failedSteps.find(step => step.action === 'write-env-file');
-    expect(envFailure).toBeDefined();
-    expect(envFailure?.error).toContain('malformed');
-
-    // Original file byte-identical.
-    expect(await fs.readFile(envPath, 'utf-8')).toBe(malformed);
+    // dotenv.parse (upstream settings.ts:645-650) skips lines without a
+    // separator, so the junk line is preserved, not a failure.
+    expect(result.success).toBe(true);
+    const content = await fs.readFile(envPath, 'utf-8');
+    expect(content).toContain('this-line-has-no-separator');
+    expect(content).toContain(`OPENAI_API_KEY=`);
   });
 
   it('creates a backup holding the ORIGINAL content before modifying (item 12)', async () => {

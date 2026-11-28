@@ -21,7 +21,8 @@ export type ConfigFileStepData =
   | JsonObjectStepData
   | JsoncProviderMapStepData
   | YamlModelArrayStepData
-  | TomlTableStepData;
+  | TomlTableStepData
+  | DotEnvVarStepData;
 
 export interface PlanStepDataCommon {
   descriptorKey?: string;
@@ -71,6 +72,11 @@ export interface TomlTableStepData extends PlanStepDataCommon {
   wireApi: 'responses';
   envKey?: string;
   model?: string;
+}
+
+export interface DotEnvVarStepData extends PlanStepDataCommon {
+  driver: 'dotenv-var';
+  envVarName: string;
 }
 
 export interface SetVscodeSettingStepData {
@@ -205,6 +211,12 @@ export function validateConfigFileStepData(data: unknown): PlanStepDataValidatio
     case 'yaml-model-array': {
       if (data.format !== 'yaml' && data.format !== 'jsonc') {
         return { ok: false, error: 'yaml-model-array driver requires format yaml or jsonc' };
+      }
+      return { ok: true };
+    }
+    case 'dotenv-var': {
+      if (typeof data.envVarName !== 'string' || data.envVarName.trim().length === 0) {
+        return { ok: false, error: 'dotenv-var driver requires a non-empty envVarName' };
       }
       return { ok: true };
     }

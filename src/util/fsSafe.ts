@@ -67,9 +67,37 @@ export async function safeReadFile(filePath: string): Promise<string | undefined
  * @param retries Number of retries on lock errors (default: 1)
  * @returns Promise resolving to true if successful
  */
-export async function writeFileAtomic(filePath: string, content: string, retries: number = 1): Promise<boolean> {
+export async function writeFileAtomic(
+  filePath: string,
+  content: string,
+  retries: number = 1,
+  options: { mode?: number; narrow?: boolean } = {}
+): Promise<boolean> {
   const tmpPath = `${filePath}.tmp.${Date.now()}`;
-  
+  // File permissions must survive the temp-file + rename dance: a renamed
+  // temp file carries the NEW file's mode, silently widening a 0600
+  // credential file. Preserve the existing target's mode when it exists;
+  // otherwise apply the caller's requested mode (e.g. 0600 for a new
+  // credential file) — but never WIDEN an existing file.
+  let mode: number | undefined = options.mode;
+  try {
+    const existing = await fs.stat(filePath);
+    const existingMode = existing.mode & 0o777;
+    // File permissions must survive the temp-file + rename dance: a renamed
+    // temp file carries the NEW file's mode, silently changing the target's
+    // permissions. Default: preserve the existing target's mode — never
+    // WIDEN an existing file. With `narrow`, a credential-bearing write
+    // also NARROWS a wider existing mode down to the requested one
+    // (e.g. a legacy 0644 credential file becomes 0600): preserving a
+    // world-readable mode would leave the freshly written secret readable
+    // by other local users (Codex PR 159 round 8).
+    mode = options.narrow && mode !== undefined
+      ? (existingMode & mode)
+      : existingMode;
+  } catch {
+    // Target does not exist yet — keep the caller's requested mode.
+  }
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       // Resolve symlinks before writing
@@ -79,12 +107,15 @@ export async function writeFileAtomic(filePath: string, content: string, retries
       } catch {
         // File doesn't exist yet, use original path
       }
-      
+
       // Ensure directory exists
       await fs.mkdir(path.dirname(realPath), { recursive: true });
-      
-      // Write to temporary file
-      await fs.writeFile(tmpPath, content, 'utf-8');
+
+      // Write to temporary file (with the resolved mode when known)
+      await fs.writeFile(tmpPath, content, mode !== undefined ? { mode } : 'utf-8');
+      if (mode !== undefined) {
+        await fs.chmod(tmpPath, mode);
+      }
       
       // Rename to target (atomic on most systems)
       await fs.rename(tmpPath, realPath);
@@ -132,8 +163,13 @@ export async function writeFileAtomic(filePath: string, content: string, retries
  * @param retries Number of retries on lock errors (default: 1)
  * @returns Promise resolving to true if successful
  */
-export async function safeWriteFile(filePath: string, content: string, retries: number = 1): Promise<boolean> {
-  return writeFileAtomic(filePath, content, retries);
+export async function safeWriteFile(
+  filePath: string,
+  content: string,
+  retries: number = 1,
+  options: { mode?: number } = {}
+): Promise<boolean> {
+  return writeFileAtomic(filePath, content, retries, options);
 }
 
 /**

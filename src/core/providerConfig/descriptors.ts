@@ -307,19 +307,19 @@ const DESCRIPTORS: ProviderConfigDescriptor[] = [
     dialects: [{ dialect: 'google.gemini.generate_content', preferred: true }],
     targets: [{ id: 'gemini-gateway-env', format: 'environment', driver: 'environment-binding', environmentVariables: ['GOOGLE_GEMINI_BASE_URL', 'GEMINI_API_KEY'], priority: 1, requiresGuidance: true }],
     fields: [
-      { field: 'baseUrl', path: 'GOOGLE_GEMINI_BASE_URL', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], support: 'guided' },
-      { field: 'apiKey', path: 'GEMINI_API_KEY', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], secret: true, support: 'guided' }
+      { field: 'baseUrl', path: 'GOOGLE_GEMINI_BASE_URL', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], support: 'automatic' },
+      { field: 'apiKey', path: 'GEMINI_API_KEY', valueKind: 'env-binding', requiredFor: ['google.gemini.generate_content'], secret: true, support: 'automatic' }
     ],
     driver: 'environment-binding',
-    support: 'guided',
-    tier: 'C',
-    secretPolicy: 'secret-storage-only',
+    support: 'automatic',
+    tier: 'A',
+    secretPolicy: 'target-persisted-at-apply',
     reload: 'restart-process',
-    discovery: { cliCommands: ['gemini'], environmentOverrides: ['GOOGLE_GEMINI_BASE_URL'], notes: ['Switchboard cannot change a running CLI parent environment.'] },
-    verification: { requiredFields: ['GOOGLE_GEMINI_BASE_URL'], exactUrlMatch: true, selectedProviderRequired: false, protocolRequired: true, notes: ['Automatic support requires a Switchboard-owned launcher.'] },
-    drift: { sourceSymbols: ['AuthType.GATEWAY', 'GOOGLE_GEMINI_BASE_URL', 'createContentGeneratorConfig'], failClosedOnMissingEvidence: true, notes: ['Keep process ownership explicit.'] },
+    discovery: { cliCommands: ['gemini'], environmentOverrides: ['GOOGLE_GEMINI_BASE_URL'], notes: ['Switchboard writes the override to the CLI dotenv file; the running parent process environment is never mutated.'] },
+    verification: { requiredFields: ['GOOGLE_GEMINI_BASE_URL'], exactUrlMatch: true, selectedProviderRequired: false, protocolRequired: true, notes: ['The env file value is verified on disk; active use still depends on launch-directory project .gemini/.env shadowing and restart.'] },
+    drift: { sourceSymbols: ['AuthType.GATEWAY', 'GOOGLE_GEMINI_BASE_URL', 'createContentGeneratorConfig'], failClosedOnMissingEvidence: true, notes: ['Keep the dotenv target pinned to the CLI env-file loader.'] },
     versionEvidence: evidence('https://github.com/google-gemini/gemini-cli.git', '0bd1d439751478771c45d3d0895a6a9760554bf4', 'high', ['packages/core/src/core/contentGenerator.ts', 'packages/cli/src/config/auth.ts', 'docs/reference/configuration.md']),
-    limitations: ['Environment guidance cannot prove persistent CLI configuration.']
+    limitations: ['GOOGLE_VERTEX_BASE_URL (Vertex authentication) remains guided; file-based values are shadowed by project .gemini/.env / .env files.']
   },
   {
     providerKey: 'codegpt',
