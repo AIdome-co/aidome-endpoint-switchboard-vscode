@@ -154,8 +154,9 @@ const GATEWAY_COMPATIBLE_AUTH_TYPES = new Set(['gemini-api-key', 'gateway']);
 /**
  * System-wide settings path (upstream packages/cli/src/config/settings.ts
  * getSystemSettingsPath): $GEMINI_CLI_SYSTEM_SETTINGS_PATH when set, else a
- * platform-specific location. System settings participate in Gemini's merged
- * settings, so they can pin security.auth.selectedType too.
+ * platform-specific location. System settings are the HIGHEST-precedence
+ * scope in Gemini's merge (they act as overrides), so they can pin
+ * security.auth.selectedType over every other scope.
  */
 function getSystemSettingsPath(): string {
   const override = process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
@@ -172,10 +173,29 @@ function getSystemSettingsPath(): string {
   }
 }
 
+/**
+ * System-defaults path (upstream packages/cli/src/config/settings.ts
+ * getSystemDefaultsPath): $GEMINI_CLI_SYSTEM_DEFAULTS_PATH when set, else a
+ * system-defaults.json next to the system settings file. System defaults are
+ * the LOWEST-precedence merged scope (below user settings).
+ */
+function getSystemDefaultsPath(): string {
+  const override = process.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'];
+  if (override) {
+    return path.resolve(override);
+  }
+  return path.join(path.dirname(getSystemSettingsPath()), 'system-defaults.json');
+}
+
 type AuthScopeRead =
   | { kind: 'absent' }
   | { kind: 'undetermined' }
-  | { kind: 'read'; selectedType?: string; enforcedType?: string };
+  | {
+    kind: 'read';
+    selectedType?: string;
+    enforcedType?: string;
+    folderTrustEnabled?: boolean;
+  };
 
 /**
  * Reads one settings.json scope. An EXISTING file that cannot be read or
@@ -192,7 +212,12 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
     }
     return { kind: 'absent' };
   }
-  let parsed: { security?: { auth?: { selectedType?: unknown; enforcedType?: unknown } } };
+  let parsed: {
+    security?: {
+      auth?: { selectedType?: unknown; enforcedType?: unknown };
+      folderTrust?: { enabled?: unknown };
+    };
+  };
   try {
     parsed = JSON.parse(content);
   } catch {
@@ -202,7 +227,10 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
   return {
     kind: 'read',
     selectedType: typeof auth?.selectedType === 'string' ? auth.selectedType : undefined,
-    enforcedType: typeof auth?.enforcedType === 'string' ? auth.enforcedType : undefined
+    enforcedType: typeof auth?.enforcedType === 'string' ? auth.enforcedType : undefined,
+    folderTrustEnabled: typeof parsed.security?.folderTrust?.enabled === 'boolean'
+      ? parsed.security.folderTrust.enabled
+      : undefined
   };
 }
 
@@ -215,22 +243,25 @@ type EffectiveGeminiAuth = {
 
 /**
  * Resolves the EFFECTIVE security.auth.selectedType/enforcedType across every
- * configuration scope Gemini merges (upstream settings.ts computeMergedSettings:
- * mergeSettings(system, systemDefaults, user, workspace) with LAST ONE WINS, so
- * workspace settings override user settings, which override system settings).
- * The extension host can only observe the workspace roots and the well-known
- * user/system paths — scopes are probed in precedence order and the FIRST scope
- * that defines each field wins; if a higher-precedence scope exists but cannot
- * be read, the result is undetermined and the caller must fall back to guided
- * steps instead of claiming automatic configuration (Codex round 11, PR 159).
+ * configuration scope Gemini merges. Upstream mergeSettings (packages/cli/src/
+ * config/settings.ts) merges with LAST ONE WINS in this order:
+ * schema defaults → systemDefaults → user → workspace → system (overrides),
+ * so SYSTEM settings.json is the HIGHEST-precedence scope, systemDefaults the
+ * LOWEST. The extension host can only observe the workspace roots and the
+ * well-known user/system paths — scopes are probed highest-precedence first
+ * and the FIRST scope that defines each field wins; if a higher-precedence
+ * scope exists but cannot be read, the result is undetermined and the caller
+ * must fall back to guided steps instead of claiming automatic configuration
+ * (Codex round 12, PR 159: precedence order + system-defaults scope).
  */
 async function resolveEffectiveGeminiAuth(
   workspaceDirs: readonly string[]
 ): Promise<EffectiveGeminiAuth> {
   const scopes: string[] = [
+    getSystemSettingsPath(),
     ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
     path.join(resolveGeminiDir(), 'settings.json'),
-    getSystemSettingsPath()
+    getSystemDefaultsPath()
   ];
   const result: EffectiveGeminiAuth = { undetermined: false };
   for (const scopePath of scopes) {
@@ -254,6 +285,152 @@ async function resolveEffectiveGeminiAuth(
     }
   }
   return result;
+}
+
+/**
+ * Resolves security.folderTrust.enabled across the merged scopes with
+ * upstream's actual merge order (LOWEST first, last one wins): system
+ * defaults → user → workspace → system overrides. Defaults to true, which
+ * mirrors upstream's `settings.security?.folderTrust?.enabled ?? true`.
+ */
+async function resolveFolderTrustEnabled(
+  workspaceDirs: readonly string[]
+): Promise<boolean> {
+  const scopesLowestFirst: string[] = [
+    getSystemDefaultsPath(),
+    path.join(resolveGeminiDir(), 'settings.json'),
+    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
+    getSystemSettingsPath()
+  ];
+  let enabled = true;
+  for (const scopePath of scopesLowestFirst) {
+    const scope = await readAuthScope(scopePath);
+    if (scope.kind === 'read' && scope.folderTrustEnabled !== undefined) {
+      enabled = scope.folderTrustEnabled;
+    }
+  }
+  return enabled;
+}
+
+type WorkspaceTrustResolution = {
+  trusted: boolean;
+  /** true when trust could not be DETERMINED (neither proven nor disproven). */
+  unverifiable: boolean;
+};
+
+/**
+ * Normalizes a path for trust-rule comparison (upstream normalizePath):
+ * resolved, forward-slash separators, case-insensitive on case-insensitive
+ * filesystems (win32, darwin).
+ */
+function normalizeTrustPath(value: string): string {
+  const resolved = path.resolve(value);
+  const unified = resolved.replace(/\\/g, '/');
+  return process.platform === 'win32' || process.platform === 'darwin'
+    ? unified.toLowerCase()
+    : unified;
+}
+
+function isTrustSubpath(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+/**
+ * Mirrors LoadedTrustedFolders.isPathTrusted (upstream
+ * packages/core/src/utils/trust.ts): longest matching rule wins;
+ * TRUST_PARENT rules extend trust to the rule path's PARENT directory;
+ * returns undefined when no rule matches.
+ */
+function isPathTrustedByRules(
+  config: Record<string, unknown>,
+  targetDir: string
+): boolean | undefined {
+  const normalizedTarget = normalizeTrustPath(targetDir);
+  let longestRuleLength = -1;
+  let longestTrust: string | undefined;
+  for (const [rawPath, rawLevel] of Object.entries(config)) {
+    if (
+      rawLevel !== 'TRUST_FOLDER'
+      && rawLevel !== 'TRUST_PARENT'
+      && rawLevel !== 'DO_NOT_TRUST'
+    ) {
+      continue;
+    }
+    const effectivePath = rawLevel === 'TRUST_PARENT'
+      ? path.dirname(rawPath)
+      : rawPath;
+    const normalizedRule = normalizeTrustPath(effectivePath);
+    if (isTrustSubpath(normalizedRule, normalizedTarget) && rawPath.length > longestRuleLength) {
+      longestRuleLength = rawPath.length;
+      longestTrust = rawLevel;
+    }
+  }
+  if (longestTrust === 'DO_NOT_TRUST') {
+    return false;
+  }
+  return longestTrust === 'TRUST_FOLDER' || longestTrust === 'TRUST_PARENT'
+    ? true
+    : undefined;
+}
+
+/**
+ * Resolves whether Gemini CLI would consider the candidate launch context
+ * TRUSTED, mirroring upstream checkPathTrust (packages/core/src/utils/trust.ts)
+ * as observable from the extension host:
+ * 1. GEMINI_RESTRICTED_MODE=true / GEMINI_CLI_TRUST_WORKSPACE=false → untrusted.
+ * 2. GEMINI_CLI_TRUST_WORKSPACE=true → trusted.
+ * 3. security.folderTrust.enabled=false → trust feature disabled → trusted.
+ * 4. The IDE trust channel (ideContextStore) is NOT observable from the
+ *    extension host, so trust can only be proven via the trustedFolders.json
+ *    rules file — a missing/unparsable file or an unmatched directory leaves
+ *    trust UNVERIFIABLE. Upstream treats undetermined trust as UNTRUSTED at
+ *    the env-file call site (`trustResult.isTrusted ?? false`, settings.ts),
+ *    and untrusted findEnvFile skips EVERY .gemini/.env — including the
+ *    user-level file this adapter writes — so an unverifiable context must
+ *    not claim automatic configuration (Codex round 12, PR 159).
+ */
+async function resolveWorkspaceTrust(
+  workspaceDirs: readonly string[]
+): Promise<WorkspaceTrustResolution> {
+  if (
+    process.env['GEMINI_RESTRICTED_MODE'] === 'true'
+    || process.env['GEMINI_CLI_TRUST_WORKSPACE'] === 'false'
+  ) {
+    return { trusted: false, unverifiable: false };
+  }
+  if (process.env['GEMINI_CLI_TRUST_WORKSPACE'] === 'true') {
+    return { trusted: true, unverifiable: false };
+  }
+  if (!(await resolveFolderTrustEnabled(workspaceDirs))) {
+    return { trusted: true, unverifiable: false };
+  }
+  const trustedFoldersPath = process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH']
+    ?? path.join(resolveGeminiDir(), 'trustedFolders.json');
+  const content = await readFileSafe(trustedFoldersPath);
+  if (content === undefined) {
+    return { trusted: false, unverifiable: true };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return { trusted: false, unverifiable: true };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { trusted: false, unverifiable: true };
+  }
+  if (workspaceDirs.length === 0) {
+    // Upstream resolves trust for the CLI process's working directory, which
+    // the extension host cannot observe when no workspace is open.
+    return { trusted: false, unverifiable: true };
+  }
+  for (const dir of workspaceDirs) {
+    const trusted = isPathTrustedByRules(parsed as Record<string, unknown>, dir);
+    if (trusted !== true) {
+      return { trusted: false, unverifiable: trusted === undefined };
+    }
+  }
+  return { trusted: true, unverifiable: false };
 }
 
 /**
@@ -496,11 +673,13 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // oauth-personal, vertex-ai, compute-default-credentials (Code Assist
     // branch, base URL never read), or an unknown value — must be reported
     // as guided-required instead of configured (Codex round 11, PR 159).
-    // The check covers EVERY merged scope (workspace > user > system) and
+    // The check covers EVERY merged scope in upstream's real precedence order
+    // (system overrides > workspace > user > system defaults) and
     // also security.auth.enforcedType, which upstream rejects a run for when
     // it differs from the effective type.
+    const projectCandidateDirs = await this.getProjectCandidateDirs();
     const effectiveAuth = await resolveEffectiveGeminiAuth(
-      await this.getProjectCandidateDirs()
+      projectCandidateDirs
     );
     const pinnedIncompatible =
       effectiveAuth.undetermined ||
@@ -520,11 +699,11 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         data: {
           configurationStatus: 'manual-configuration-required',
           message: effectiveAuth.undetermined
-            ? `A Gemini CLI settings scope that participates in the effective configuration (workspace, user, or system settings.json) could not be read, so the pinned authentication mode (security.auth.selectedType/enforcedType) cannot be ruled out. Gemini chooses its auth mode before reading environment variables, so Switchboard cannot verify that the gateway endpoint and API key it writes would be used.`
+            ? `A Gemini CLI settings scope that participates in the effective configuration (system overrides, workspace, user, or system-defaults settings.json) could not be read, so the pinned authentication mode (security.auth.selectedType/enforcedType) cannot be ruled out. Gemini chooses its auth mode before reading environment variables, so Switchboard cannot verify that the gateway endpoint and API key it writes would be used.`
             : `The existing Gemini CLI installation selects "${pinnedMode}" authentication (security.auth in ${settingsPath}). Gemini chooses this mode before reading environment variables, so the gateway endpoint and API key Switchboard writes would be bypassed.`,
           steps: [
             effectiveAuth.undetermined
-              ? `Make the unreadable settings file (${settingsPath}) readable or remove it, and ensure no merged scope (workspace, user, or system settings.json) pins security.auth.selectedType/enforcedType to a mode other than "gemini-api-key".`
+              ? `Make the unreadable settings file (${settingsPath}) readable or remove it, and ensure no merged scope (system overrides, workspace, user, or system-defaults settings.json) pins security.auth.selectedType/enforcedType to a mode other than "gemini-api-key".`
               : `Switch the auth mode to Gemini API-key authentication (for example: gemini, then choose "Gemini API Key" in the auth dialog, or set security.auth.selectedType to "gemini-api-key" in ${settingsPath}).`,
             `Then reapply so Switchboard writes GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} and the profile credential to ${resolveGeminiEnvFilePath()}.`,
             'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.',
@@ -538,6 +717,44 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
         } satisfies GuidedStepsData,
         reversible: false
       });
+    }
+
+    // Inherited compute-ADC selectors (Codex round 12, PR 159): when NO auth
+    // type is selected, Gemini's startup persists compute-default-credentials
+    // purely from the environment (packages/cli/src/gemini.tsx: CLOUD_SHELL
+    // or GEMINI_CLI_USE_COMPUTE_ADC === 'true' → security.auth.selectedType =
+    // COMPUTE_ADC), and getAuthTypeFromEnv (packages/core/src/core/
+    // contentGenerator.ts) selects COMPUTE_ADC from the same variables. The
+    // Code Assist branch never reads GOOGLE_GEMINI_BASE_URL, so the written
+    // gateway file would be bypassed — classify these sessions as
+    // guided-required too. A COMPATIBLE pinned selectedType suppresses the
+    // upstream env branch, so it keeps the automatic plan.
+    if (!effectiveAuth.undetermined && effectiveAuth.selectedType === undefined) {
+      const inheritedAdcSelectors = ['CLOUD_SHELL', 'GEMINI_CLI_USE_COMPUTE_ADC']
+        .filter(name => process.env[name] === 'true');
+      if (inheritedAdcSelectors.length > 0) {
+        return addStep(plan, {
+          action: 'show-guided-steps',
+          description: 'Inherited compute-ADC selectors bypass the gateway',
+          assistantKey: 'gemini-cli',
+          data: {
+            configurationStatus: 'manual-configuration-required',
+            message: `The environment that launched this session sets ${inheritedAdcSelectors.join(', ')} to "true" while no auth type is selected. Gemini CLI startup then selects compute-default-credentials (Code Assist) authentication and persists it, and those requests never read GOOGLE_GEMINI_BASE_URL — the gateway endpoint Switchboard writes would be bypassed.`,
+            steps: [
+              `Unset ${inheritedAdcSelectors.join(' ')} in the shell profile or launcher that starts VS Code, or pin security.auth.selectedType to "gemini-api-key" in the Gemini settings.`,
+              `Switchboard will then write the gateway endpoint (${profile.baseUrl}) to ${resolveGeminiEnvFilePath()} where Gemini actually reads it.`,
+              'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.',
+              'Re-run the wizard afterwards to confirm the configuration.'
+            ],
+            baseUrl: profile.baseUrl,
+            envVarName: 'GOOGLE_GEMINI_BASE_URL',
+            limitation: 'inherited-compute-adc-selector',
+            inheritedAdcSelectors,
+            tier: DESCRIPTOR?.tier ?? 'A'
+          } satisfies GuidedStepsData,
+          reversible: false
+        });
+      }
     }
 
     // Inherited environment overrides (Codex round 9, PR 159): Gemini's
@@ -583,7 +800,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // write below would never be read while the applier reported success —
     // so report guided steps instead of a false Tier A configuration.
     const shadowingEnvFile = await findProjectEnvShadowing(
-      await this.getProjectCandidateDirs()
+      projectCandidateDirs
     );
     if (shadowingEnvFile) {
       return addStep(plan, {
@@ -604,6 +821,43 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           envVarName: 'GOOGLE_GEMINI_BASE_URL',
           limitation: 'project-env-file-shadows-user-env-file',
           shadowingEnvFile,
+          tier: DESCRIPTOR?.tier ?? 'A'
+        } satisfies GuidedStepsData,
+        reversible: false
+      });
+    }
+
+    // Workspace trust gating (Codex round 12, PR 159): upstream findEnvFile
+    // consults .gemini/.env candidates only when the launch context is
+    // TRUSTED (packages/cli/src/config/settings.ts: findEnvFile's isTrusted
+    // parameter, resolved via isWorkspaceTrusted → checkPathTrust). An
+    // untrusted context skips EVERY .gemini/.env — including the user-level
+    // file this adapter writes — and falls back to an ordinary .env, so the
+    // written endpoint and credential would never be loaded. The extension
+    // host cannot observe the IDE trust channel, so trust must be provable
+    // via the env override, the folder-trust setting, or the trustedFolders
+    // rules file; otherwise report guided steps instead of a false Tier A
+    // configuration.
+    const workspaceTrust = await resolveWorkspaceTrust(projectCandidateDirs);
+    if (!workspaceTrust.trusted) {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Gemini CLI workspace trust could not be verified for the launch context',
+        assistantKey: 'gemini-cli',
+        data: {
+          configurationStatus: 'manual-configuration-required',
+          message: workspaceTrust.unverifiable
+            ? `Gemini CLI loads .gemini/.env files only from a trusted launch context, and Switchboard cannot verify that this context is trusted (the IDE trust decision Gemini makes at startup is not observable here). In an untrusted context Gemini skips every .gemini/.env — including the user-level file Switchboard writes — so the gateway endpoint and credential would not be loaded.`
+            : `The launch context is explicitly untrusted for Gemini CLI (restricted mode or GEMINI_CLI_TRUST_WORKSPACE=false, or a DO_NOT_TRUST rule covers it). Gemini skips every .gemini/.env — including the user-level file Switchboard writes — so the gateway endpoint and credential would not be loaded.`,
+          steps: [
+            'Trust the launch folder for Gemini CLI (answer "Trust" in Gemini\'s folder-trust dialog), or set GEMINI_CLI_TRUST_WORKSPACE=true in the environment that launches Gemini, or add a TRUST_FOLDER rule for the folder in ~/.gemini/trustedFolders.json.',
+            'Alternatively set security.folderTrust.enabled to false in the Gemini settings if folder trust is not wanted.',
+            `Then reapply so Switchboard writes GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} and the profile credential to ${resolveGeminiEnvFilePath()}.`,
+            'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.'
+          ],
+          baseUrl: profile.baseUrl,
+          envVarName: 'GOOGLE_GEMINI_BASE_URL',
+          limitation: 'gemini-workspace-trust-unverifiable',
           tier: DESCRIPTOR?.tier ?? 'A'
         } satisfies GuidedStepsData,
         reversible: false

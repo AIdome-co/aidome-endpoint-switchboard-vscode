@@ -38,6 +38,10 @@ describe('GeminiCliAdapter', () => {
   let mockProfile: EndpointProfile;
   let originalGeminiBaseUrl: string | undefined;
   let originalVertexBaseUrl: string | undefined;
+  let originalTrustWorkspace: string | undefined;
+  let originalCloudShell: string | undefined;
+  let originalComputeAdc: string | undefined;
+  let originalRestrictedMode: string | undefined;
 
   beforeEach(() => {
     adapter = new GeminiCliAdapter();
@@ -62,6 +66,18 @@ describe('GeminiCliAdapter', () => {
     // otherwise exist-but-be-unreadable under the stub above and flip plans
     // to guided. Default to "no settings files anywhere".
     vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+    // Trust is hermetic by default: the workspace-trust guard (Codex round 12)
+    // would otherwise probe the REAL ~/.gemini/trustedFolders.json. Prove
+    // trust via the env channel (the mirror of upstream checkPathTrust step 2)
+    // so the automatic plan stays testable; trust-specific tests override.
+    originalTrustWorkspace = process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+    originalCloudShell = process.env['CLOUD_SHELL'];
+    originalComputeAdc = process.env['GEMINI_CLI_USE_COMPUTE_ADC'];
+    originalRestrictedMode = process.env['GEMINI_RESTRICTED_MODE'];
+    process.env['GEMINI_CLI_TRUST_WORKSPACE'] = 'true';
+    delete process.env['CLOUD_SHELL'];
+    delete process.env['GEMINI_CLI_USE_COMPUTE_ADC'];
+    delete process.env['GEMINI_RESTRICTED_MODE'];
   });
 
   afterEach(() => {
@@ -69,6 +85,14 @@ describe('GeminiCliAdapter', () => {
     else process.env['GOOGLE_GEMINI_BASE_URL'] = originalGeminiBaseUrl;
     if (originalVertexBaseUrl === undefined) delete process.env['GOOGLE_VERTEX_BASE_URL'];
     else process.env['GOOGLE_VERTEX_BASE_URL'] = originalVertexBaseUrl;
+    if (originalTrustWorkspace === undefined) delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+    else process.env['GEMINI_CLI_TRUST_WORKSPACE'] = originalTrustWorkspace;
+    if (originalCloudShell === undefined) delete process.env['CLOUD_SHELL'];
+    else process.env['CLOUD_SHELL'] = originalCloudShell;
+    if (originalComputeAdc === undefined) delete process.env['GEMINI_CLI_USE_COMPUTE_ADC'];
+    else process.env['GEMINI_CLI_USE_COMPUTE_ADC'] = originalComputeAdc;
+    if (originalRestrictedMode === undefined) delete process.env['GEMINI_RESTRICTED_MODE'];
+    else process.env['GEMINI_RESTRICTED_MODE'] = originalRestrictedMode;
   });
 
   describe('detect', () => {
@@ -532,6 +556,251 @@ describe('GeminiCliAdapter', () => {
 
       expect(result).toBe(nodePath.join(root, 'sub', '.env'));
     });
+
+  describe('settings precedence order (Codex round 12, PR 159)', () => {
+    it('an incompatible SYSTEM override beats a compatible user pin (system overrides are highest)', async () => {
+      const systemSettings = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-sys-')), 'settings.json');
+      process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = systemSettings;
+      try {
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === systemSettings) {
+            return JSON.stringify({ security: { auth: { selectedType: 'vertex-ai' } } });
+          }
+          if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+            return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+          }
+          return undefined;
+        });
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+        const plan = await adapter.buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+        expect(String(plan.steps[0].data.message)).toContain(systemSettings);
+      } finally {
+        delete process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
+      }
+    });
+
+    it('a compatible USER selection overrides an incompatible system-defaults pin', async () => {
+      const systemDefaults = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-sd-')), 'system-defaults.json');
+      process.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] = systemDefaults;
+      try {
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === systemDefaults) {
+            return JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+          }
+          if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+            return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+          }
+          return undefined;
+        });
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+        const plan = await adapter.buildPlan(mockProfile);
+
+        expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      } finally {
+        delete process.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'];
+      }
+    });
+
+    it('reports guided steps when ONLY an incompatible system-defaults pin exists', async () => {
+      const systemDefaults = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-sd-')), 'system-defaults.json');
+      process.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] = systemDefaults;
+      try {
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === systemDefaults) {
+            return JSON.stringify({ security: { auth: { selectedType: 'vertex-ai' } } });
+          }
+          return undefined;
+        });
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+        const plan = await adapter.buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+        expect(String(plan.steps[0].data.message)).toContain(systemDefaults);
+      } finally {
+        delete process.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'];
+      }
+    });
+  });
+
+  describe('inherited compute-ADC selectors (Codex round 12, PR 159)', () => {
+    it('reports guided steps when CLOUD_SHELL=true is inherited and no auth type is selected', async () => {
+      process.env['CLOUD_SHELL'] = 'true';
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].action).toBe('show-guided-steps');
+      expect(plan.steps[0].data.limitation).toBe('inherited-compute-adc-selector');
+      expect(String(plan.steps[0].data.message)).toContain('CLOUD_SHELL');
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(false);
+    });
+
+    it('reports guided steps when GEMINI_CLI_USE_COMPUTE_ADC=true is inherited and no auth type is selected', async () => {
+      process.env['GEMINI_CLI_USE_COMPUTE_ADC'] = 'true';
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps[0].data.limitation).toBe('inherited-compute-adc-selector');
+    });
+
+    it('keeps the automatic plan when a compatible auth type is pinned (upstream env branch does not fire)', async () => {
+      process.env['CLOUD_SHELL'] = 'true';
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(true);
+    });
+
+    it('does not treat a non-"true" selector value as an inherited compute-ADC override', async () => {
+      process.env['CLOUD_SHELL'] = 'false';
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+    });
+  });
+
+  describe('workspace trust gating (Codex round 12, PR 159)', () => {
+    it('reports guided steps when GEMINI_CLI_TRUST_WORKSPACE=false makes the context explicitly untrusted', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      process.env['GEMINI_CLI_TRUST_WORKSPACE'] = 'false';
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('gemini-workspace-trust-unverifiable');
+      expect(String(plan.steps[0].data.message)).toContain('explicitly untrusted');
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(false);
+    });
+
+    it('reports guided steps when GEMINI_RESTRICTED_MODE=true', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      process.env['GEMINI_RESTRICTED_MODE'] = 'true';
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps[0].data.limitation).toBe('gemini-workspace-trust-unverifiable');
+    });
+
+    it('keeps the automatic plan when security.folderTrust.enabled=false disables the trust feature', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { folderTrust: { enabled: false } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(true);
+    });
+
+    it('reports guided steps when trust cannot be proven (no trustedFolders rule for the workspace)', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      const project = await makeProjectDir({});
+      const trustedFolders = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-trust-')), 'trustedFolders.json');
+      await fs.writeFile(trustedFolders, JSON.stringify({ '/some/other/folder': 'TRUST_FOLDER' }));
+      process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] = trustedFolders;
+      try {
+        // Fully hermetic: existence reports NO files anywhere (the real
+        // filesystem may contain unrelated .env/settings files under /tmp or
+        // the OS home), while reads serve ONLY the trustedFolders rules file.
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === trustedFolders) {
+            return fs.readFile(filePath, 'utf-8').catch(() => undefined);
+          }
+          return undefined;
+        });
+        const scoped = adapter as unknown as {
+          getProjectCandidateDirs: () => Promise<string[]>;
+        };
+        vi.spyOn(scoped, 'getProjectCandidateDirs').mockResolvedValue([project]);
+
+        const plan = await scoped.buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('gemini-workspace-trust-unverifiable');
+        expect(String(plan.steps[0].data.message)).toContain('cannot verify');
+      } finally {
+        delete process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'];
+      }
+    });
+
+    it('keeps the automatic plan when a TRUST_FOLDER rule covers the workspace', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      const project = await makeProjectDir({});
+      const trustedFolders = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-trust-')), 'trustedFolders.json');
+      await fs.writeFile(trustedFolders, JSON.stringify({ [project]: 'TRUST_FOLDER' }));
+      process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] = trustedFolders;
+      try {
+        // Fully hermetic: existence reports NO files anywhere (the real
+        // filesystem may contain unrelated .env/settings files under /tmp or
+        // the OS home), while reads serve ONLY the trustedFolders rules file.
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === trustedFolders) {
+            return fs.readFile(filePath, 'utf-8').catch(() => undefined);
+          }
+          return undefined;
+        });
+        const scoped = adapter as unknown as {
+          getProjectCandidateDirs: () => Promise<string[]>;
+        };
+        vi.spyOn(scoped, 'getProjectCandidateDirs').mockResolvedValue([project]);
+        const plan = await scoped.buildPlan(mockProfile);
+
+        expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      } finally {
+        delete process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'];
+      }
+    });
+
+    it('reports guided steps when a DO_NOT_TRUST rule covers the workspace', async () => {
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+      const project = await makeProjectDir({});
+      const trustedFolders = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-trust-')), 'trustedFolders.json');
+      await fs.writeFile(trustedFolders, JSON.stringify({ [project]: 'DO_NOT_TRUST' }));
+      process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] = trustedFolders;
+      try {
+        // Fully hermetic: existence reports NO files anywhere (the real
+        // filesystem may contain unrelated .env/settings files under /tmp or
+        // the OS home), while reads serve ONLY the trustedFolders rules file.
+        vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+        vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+          if (filePath === trustedFolders) {
+            return fs.readFile(filePath, 'utf-8').catch(() => undefined);
+          }
+          return undefined;
+        });
+        const scoped = adapter as unknown as {
+          getProjectCandidateDirs: () => Promise<string[]>;
+        };
+        vi.spyOn(scoped, 'getProjectCandidateDirs').mockResolvedValue([project]);
+        const plan = await scoped.buildPlan(mockProfile);
+
+        expect(plan.steps[0].data.limitation).toBe('gemini-workspace-trust-unverifiable');
+        expect(String(plan.steps[0].data.message)).toContain('explicitly untrusted');
+      } finally {
+        delete process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'];
+      }
+    });
+  });
   });
 
   describe('getGuidedSetupStatus', () => {
