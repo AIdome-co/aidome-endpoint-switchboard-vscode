@@ -267,11 +267,54 @@ export class CodexAdapter extends BaseExtensionAdapter {
       profileBaseUrl: this.expectedBaseUrl
     });
 
+    if (result.success) {
+      // The bound catalog file is authoritative for the picker and the
+      // selected model — when it is deleted, truncated, or corrupted, Codex
+      // cannot load its catalog at startup even though the TOML looks right.
+      const catalogCheck = await this.verifyBoundCatalog(document.parsed);
+      if (!catalogCheck.ok) {
+        return {
+          success: false,
+          message: catalogCheck.message,
+          details: { configPath, ...result.details }
+        };
+      }
+    }
+
     return {
       success: result.success,
       message: result.message,
       details: { configPath, ...result.details }
     };
+  }
+
+  /** Checks the model_catalog_json binding: file exists, parses, non-empty, contains the selected model. */
+  private async verifyBoundCatalog(parsed: unknown): Promise<{ ok: true } | { ok: false; message: string }> {
+    const providers = (parsed as { model_providers?: { aidome?: { model_catalog_json?: unknown } } }).model_providers?.aidome;
+    const boundPath = typeof providers?.model_catalog_json === 'string' ? providers.model_catalog_json : undefined;
+    if (!boundPath) {
+      return { ok: true };
+    }
+    const catalogContent = await readFileSafe(boundPath);
+    if (!catalogContent) {
+      return { ok: false, message: `The bound Codex model catalog file is missing: ${boundPath}` };
+    }
+    let models: unknown;
+    try {
+      models = (JSON.parse(catalogContent) as { models?: unknown }).models;
+    } catch (error) {
+      return { ok: false, message: `The bound Codex model catalog is not valid JSON (${boundPath}): ${String(error)}` };
+    }
+    if (!Array.isArray(models) || models.length === 0) {
+      return { ok: false, message: `The bound Codex model catalog is empty (${boundPath})` };
+    }
+    // The selected top-level model must exist in the bound catalog.
+    const selectedModel = (parsed as { model?: unknown }).model;
+    const slugs = new Set(models.map((entry) => (typeof entry === 'object' && entry !== null ? (entry as { slug?: unknown }).slug : undefined)));
+    if (typeof selectedModel === 'string' && selectedModel && !slugs.has(selectedModel)) {
+      return { ok: false, message: `The selected model "${selectedModel}" is not in the bound Codex model catalog (${boundPath})` };
+    }
+    return { ok: true };
   }
 
   getDisplayName(): string {

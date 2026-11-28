@@ -11,11 +11,10 @@
  * fields carry upstream-safe defaults modeled on `model_info_from_slug`
  * (models-manager/src/model_info.rs). `supports_parallel_tool_calls` is
  * required (no serde default) on older supported releases such as
- * rust-v0.148.0-alpha.9, so it is always emitted for cross-version
- * compatibility.
- *
- * Bundled OpenAI `gpt-*` models are never emitted: they are not served by the
- * AIdome gateway, and selecting one would fail.
+ * rust-v0.148.0-alpha.9, so it is always emitted - as FALSE, because model
+ * discovery cannot establish parallel-tool-call support and the upstream
+ * unknown-model fallback on 0.148 also uses false; strict Responses gateways
+ * that cannot execute parallel calls must not receive parallel requests.
  */
 
 import type { DiscoveredModel } from '../../core/providerConfig/modelDiscovery';
@@ -50,9 +49,9 @@ export interface CodexModelCatalogEntry {
 
 /**
  * Builds the `{"models": [...]}` catalog document from discovered gateway
- * models. Deterministic: same input models → byte-identical output. Slugs are
- * unique and non-empty (upstream rejects duplicates/empties); bundled
- * `gpt-*` OpenAI models are excluded.
+ * Deterministic: same input models → byte-identical output. Slugs are
+ * unique and non-empty (upstream rejects duplicates/empties). Every model the
+ * gateway advertises is honored, including gpt-* ids.
  */
 export function buildCodexModelCatalog(models: DiscoveredModel[]): {
   models: CodexModelCatalogEntry[];
@@ -62,9 +61,10 @@ export function buildCodexModelCatalog(models: DiscoveredModel[]): {
 
   for (const model of models) {
     const slug = typeof model.id === 'string' ? model.id.trim() : '';
-    // Bundled OpenAI gpt-* names are not served by the gateway; selecting
-    // one would fail. Drop them (and anything unusable as a slug).
-    if (slug.length === 0 || seenSlugs.has(slug) || slug.startsWith('gpt-')) {
+    // Honor what the gateway advertises: any usable model id it serves —
+    // including gpt-* ids — belongs in the catalog. Only drop unusable or
+    // duplicate slugs.
+    if (slug.length === 0 || seenSlugs.has(slug)) {
       continue;
     }
     seenSlugs.add(slug);

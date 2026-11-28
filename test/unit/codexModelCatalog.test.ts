@@ -86,7 +86,7 @@ describe('buildCodexModelCatalog', () => {
     expect(entries[0].display_name).toBe('m1');
   });
 
-  it('excludes bundled OpenAI gpt-* models and dedupes/ignores empty slugs', () => {
+  it('honors gateway-advertised gpt-* models and dedupes/ignores empty slugs', () => {
     const { models: entries } = buildCodexModelCatalog([
       { id: 'gpt-5.6-sol', name: 'gpt-5.6-sol' },
       { id: 'gateway-a', name: 'A' },
@@ -94,7 +94,9 @@ describe('buildCodexModelCatalog', () => {
       { id: '   ', name: 'blank' }
     ] as DiscoveredModel[]);
 
-    expect(entries.map(entry => entry.slug)).toEqual(['gateway-a']);
+    // gpt-* ids the gateway explicitly advertises are kept — only unusable
+    // and duplicate slugs are dropped.
+    expect(entries.map(entry => entry.slug)).toEqual(['gpt-5.6-sol', 'gateway-a']);
     expect(new Set(entries.map(entry => entry.slug)).size).toBe(entries.length);
   });
 
@@ -275,7 +277,7 @@ describe('CodexAdapter model catalog plan behavior', () => {
     // the driver level in the toml driver suite below.
   });
 
-  it('writes no catalog and no model binding when discovery returns only bundled gpt-* models', async () => {
+  it('binds a catalog and model when discovery returns only gpt-* models the gateway serves', async () => {
     mockHttpRequest.mockResolvedValue({
       status: 200,
       statusText: 'OK',
@@ -285,13 +287,12 @@ describe('CodexAdapter model catalog plan behavior', () => {
 
     const plan = await adapter.buildPlan(profile);
 
-    // An all-`gpt-*` discovery yields an EMPTY catalog, and an empty catalog
-    // file fails Codex startup — so no catalog file, no binding, no model.
-    expect(plan.steps.find(step => step.data?.configType === 'codex-model-catalog')).toBeUndefined();
+    // The gateway explicitly advertises these ids, so they are real entries:
+    // the catalog is written, bound, and the first managed model selected.
+    expect(plan.steps.find(step => step.data?.configType === 'codex-model-catalog')).toBeDefined();
     const configStep = plan.steps.find(step => step.data?.driver === 'toml-table');
-    expect(configStep?.data.modelCatalogJson).toBeUndefined();
-    expect(configStep?.data.removeModelCatalogJson).toBe(true);
-    expect(configStep?.data.model).toBeUndefined();
+    expect(configStep?.data.modelCatalogJson).toBeDefined();
+    expect(configStep?.data.model).toBe('gpt-5.6-sol');
   });
 
   it('applies both files with backups, binds the catalog, and is byte-stable on re-apply', async () => {
