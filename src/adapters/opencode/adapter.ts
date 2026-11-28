@@ -89,15 +89,27 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
     // Gateway URLs already end with `/v1`; normalization is idempotent so the
     // version suffix is never doubled.
     const baseUrl = normalizeOpenAiBaseUrl(profile.baseUrl);
+    // Legacy profiles predate authRef and store their SecretStorage entry
+    // under profile.name. Check for that legacy secret BEFORE deciding an
+    // absent authRef means "intentionally credential-free", so a legacy
+    // authenticated profile keeps its credential and is not misreported as
+    // unauthenticated (Codex round 4 on PR 148).
+    let effectiveAuthRef = profile.authRef;
+    if (!effectiveAuthRef && this.dependencies.profileSecrets) {
+      const legacySecret = await this.dependencies.profileSecrets.getSecret(profile.name);
+      if (legacySecret !== undefined && legacySecret.trim().length > 0) {
+        effectiveAuthRef = profile.name;
+      }
+    }
     // Remember the assigned profile's URL so verification requires an exact
     // match (fail closed when unknown — a config pointing at a different URL
     // must NOT verify for this profile).
     this.expectedBaseUrl = baseUrl;
     // Remember whether the assigned profile intentionally carries no
-    // credential (authRef undefined = "Authentication: No" in the profile
-    // flow): verification then accepts a missing apiKey instead of
-    // reporting a valid unauthenticated endpoint as broken.
-    this.expectedAuthRef = profile.authRef ?? null;
+    // credential (no authRef and no legacy secret = "Authentication: No" in
+    // the profile flow): verification then accepts a missing apiKey instead
+    // of reporting a valid unauthenticated endpoint as broken.
+    this.expectedAuthRef = effectiveAuthRef ?? null;
     // The managed provider's models map is wholly owned by the Switchboard:
     // on every apply it is replaced with the CURRENT profile's full discovery
     // result (authoritative reconcile). An empty discovery probe writes no
@@ -120,7 +132,7 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
     //   patch would leave the previous profile's token in the config);
     // - empty discovery must clear a Switchboard-owned model selection.
     const removalPaths: string[][] = [
-      ...(profile.authRef ? [] : [['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey']]),
+      ...(effectiveAuthRef ? [] : [['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey']]),
       ...(clearManagedModel ? [['model']] : [])
     ];
 
@@ -143,7 +155,7 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
         providerId: OPENCODE_PROVIDER_ID,
         profileId: profile.id,
         profileName: profile.name,
-        authRef: profile.authRef,
+        authRef: effectiveAuthRef,
         baseUrl,
         format: configPath.endsWith('.jsonc') ? 'jsonc' : 'json',
         secretPolicy: 'target-persisted-at-apply',
@@ -161,11 +173,11 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
           ...(models.length > 0
             ? [{ path: ['model'], value: `${OPENCODE_PROVIDER_ID}/${models[0].id}` }]
             : []),
-          ...(profile.authRef
+          ...(effectiveAuthRef
             ? [{ path: ['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey'], source: 'secret', removeWhenMissing: true }]
             : []),
         ],
-        ...(profile.authRef
+        ...(effectiveAuthRef
           ? {
               clearAuthWhenMissing: true,
               missingSecretMessage: `OpenCode API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
@@ -180,7 +192,7 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       message: 'OpenCode profile-switch notes',
       steps: [
         `OpenCode reads provider.${OPENCODE_PROVIDER_ID} from ${configPath}.`,
-        ...(profile.authRef
+        ...(effectiveAuthRef
           ? [
               'When this profile is activated, Switchboard writes the profile\'s saved gateway token into provider.aidome.options.apiKey in that config file.',
               'If no saved secret exists for this profile, Switchboard clears the API key and OpenCode auth will fail until you save a token for the profile.'
@@ -220,10 +232,14 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       return cached;
     }
 
-    const token = profile.authRef && this.dependencies.profileSecrets
-      ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+    // Legacy profiles (no authRef) keep their SecretStorage entry under
+    // profile.name — use it so discovery is authenticated for them too.
+    const token = this.dependencies.profileSecrets
+      ? (profile.authRef
+        ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
+        : await this.dependencies.profileSecrets.getSecret(profile.name))
       : undefined;
-    return discoverOpenAiModels(profile.baseUrl, token);
+    return discoverOpenAiModels(profile.baseUrl, token ?? undefined);
   }
 
   /**
