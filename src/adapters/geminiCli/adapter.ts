@@ -509,8 +509,6 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       || (effectiveAuth.enforcedType !== undefined
         && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(effectiveAuth.enforcedType));
     if (pinnedIncompatible) {
-      // eslint-disable-next-line no-console
-      console.log('DBG', JSON.stringify(effectiveAuth));
       const pinnedMode = effectiveAuth.selectedType
         ?? effectiveAuth.enforcedType
         ?? 'unreadable';
