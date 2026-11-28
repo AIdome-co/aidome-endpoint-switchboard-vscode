@@ -127,24 +127,19 @@ export function parseDotEnv(
 }
 
 /**
- * True when the text contains an UNESCAPED quote character (Codex PR 159
- * round 22): dotenv's quoted alternatives consume `\"`-style escaped quotes
- * as CONTENT, so a quote preceded by an odd number of backslashes is not a
- * terminator. A quote-ONLY line (terminator as the first character) has no
- * preceding backslashes and still counts; callers testing an OPENING value
- * pass the value WITHOUT its first character so the opening quote itself
- * never matches.
+ * True when the text contains a quote that dotenv's quoted alternative would
+ * treat as the CLOSING quote (Codex PR 159 round 23, verified against the
+ * real dotenv v16.4.5 regex `\s*"(?:\\"|[^"])*"`): a quote IMMEDIATELY
+ * preceded by a backslash is always consumed as an escape pair — content —
+ * regardless of how many backslashes precede it. So the terminator test is
+ * exactly "quote whose previous character is not a backslash". A quote-ONLY
+ * line still counts (no preceding character); callers testing an OPENING
+ * value pass the value WITHOUT its first character so the opening quote
+ * itself never matches.
  */
 function hasClosingQuote(text: string, quote: string): boolean {
   for (let i = 0; i < text.length; i++) {
-    if (text[i] !== quote) {
-      continue;
-    }
-    let backslashes = 0;
-    for (let k = i - 1; k >= 0 && text[k] === '\\'; k--) {
-      backslashes++;
-    }
-    if (backslashes % 2 === 0) {
+    if (text[i] === quote && text[i - 1] !== '\\') {
       return true;
     }
   }

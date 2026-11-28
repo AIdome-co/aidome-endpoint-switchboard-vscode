@@ -114,6 +114,17 @@ describe('buildDotEnvContent', () => {
     expect(out).toContain('GEMINI_API_KEY=inside');
   });
 
+  it('consumes a quote after ANY backslash run as content (round 23, verified vs dotenv v16.4.5)', () => {
+    // dotenv's quoted alternative is (?:\\"|[^"])* — the escape pair matches
+    // from the BACKSLASH, so a quote immediately preceded by a backslash is
+    // content even after two consecutive backslashes (no parity rule).
+    const existing = 'NOTE="a\\\\\\"b\nGEMINI_API_KEY=inside\nlast"\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toBe('a\\\\\\"b\nGEMINI_API_KEY=inside\nlast');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.
