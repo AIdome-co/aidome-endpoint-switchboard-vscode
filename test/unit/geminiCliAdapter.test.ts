@@ -7,6 +7,7 @@ import { GeminiCliAdapter } from '../../src/adapters/geminiCli/adapter';
 import { EndpointProfile } from '../../src/core/profiles/profileTypes';
 import * as detectCLIs from '../../src/core/detection/detectCLIs';
 import * as fsSafe from '../../src/util/fsSafe';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
 
@@ -254,6 +255,104 @@ describe('GeminiCliAdapter', () => {
     });
   });
 
+  describe('project env-file shadowing (Codex PR 159 round 8)', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = '';
+    });
+
+    afterEach(async () => {
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function makeProjectDir(files: Record<string, string>): Promise<string> {
+      tempDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-shadow-'));
+      for (const [relative, content] of Object.entries(files)) {
+        const target = nodePath.join(tempDir, relative);
+        await fs.mkdir(nodePath.dirname(target), { recursive: true });
+        await fs.writeFile(target, content);
+      }
+      return tempDir;
+    }
+
+    function adapterWithProject(dirs: string[]): GeminiCliAdapter {
+      const scoped = adapter as unknown as {
+        getProjectCandidateDirs: () => Promise<string[]>;
+      };
+      vi.spyOn(scoped, 'getProjectCandidateDirs').mockResolvedValue(dirs);
+      // The suite-wide beforeEach stubs readFileSafe to "no files"; restore
+      // real filesystem reads so the shadowing helper can see project files.
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(
+        (filePath: string) => fs.readFile(filePath, 'utf-8').catch(() => undefined)
+      );
+      return adapter;
+    }
+
+    it('reports guided steps instead of automatic writes when a project .gemini/.env shadows the user-level file', async () => {
+      const project = await makeProjectDir({ '.gemini/.env': 'OTHER=1\n' });
+
+      const plan = await adapterWithProject([project]).buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      const guided = plan.steps[0];
+      expect(guided.action).toBe('show-guided-steps');
+      expect(guided.data.configurationStatus).toBe('manual-configuration-required');
+      expect(guided.data.limitation).toBe('project-env-file-shadows-user-env-file');
+      expect(String(guided.data.message)).toContain(nodePath.join(project, '.gemini', '.env'));
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(false);
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(false);
+    });
+
+    it('reports guided steps when a project .env shadows the user-level file', async () => {
+      const project = await makeProjectDir({ '.env': 'OTHER=1\n' });
+
+      const plan = await adapterWithProject([project]).buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('project-env-file-shadows-user-env-file');
+    });
+
+    it('keeps the automatic write plan when no project env file exists', async () => {
+      const project = await makeProjectDir({});
+      adapterWithProject([project]);
+      // Reads must report NO files anywhere: the real filesystem may contain
+      // unrelated .env files in ancestor directories (e.g. /tmp, /).
+      vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(true);
+    });
+
+    it('does not treat the write target itself or the home-level .env as a shadow', async () => {
+      const { findProjectEnvShadowing } = await import('../../src/adapters/geminiCli/adapter');
+      const { resolveGeminiEnvFilePath } = await import('../../src/adapters/geminiCli/adapter');
+      const target = resolveGeminiEnvFilePath();
+      const targetDir = nodePath.dirname(target);
+      const targetFile = target;
+      const homeEnv = nodePath.join(os.homedir(), '.env');
+      const read = vi.fn(async (p: string) => (p === targetFile || p === homeEnv ? 'K=1\n' : undefined));
+
+      const result = await findProjectEnvShadowing([targetDir, os.tmpdir()], read);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('findProjectEnvShadowing walks ancestor directories like upstream findEnvFile', async () => {
+      const { findProjectEnvShadowing } = await import('../../src/adapters/geminiCli/adapter');
+      const root = await makeProjectDir({ 'sub/.env': 'A=1\n' });
+      const read = vi.fn(async (p: string) => (p === nodePath.join(root, 'sub', '.env') ? 'A=1\n' : undefined));
+
+      const result = await findProjectEnvShadowing([nodePath.join(root, 'sub', 'deep')], read);
+
+      expect(result).toBe(nodePath.join(root, 'sub', '.env'));
+    });
+  });
+
   describe('getGuidedSetupStatus', () => {
     it('is actionable for the declared Gemini dialect and dialect-agnostic callers', () => {
       expect(adapter.getGuidedSetupStatus()).toBe('actionable');
@@ -484,6 +583,9 @@ describe('GeminiCliAdapter', () => {
         }
         return undefined;
       });
+      // Hermetic on hosts that really do have ~/.gemini/.env: existence —
+      // not just content — decides the findEnvFile fallback, so stub it.
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(async (filePath: string) => filePath === homeEnvPath);
 
       const result = await adapter.verify();
 

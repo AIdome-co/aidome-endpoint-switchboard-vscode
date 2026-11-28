@@ -228,14 +228,16 @@ describe.skipIf(process.platform === 'win32')('dotenv-var creation permissions i
     expect((await fs.stat(envPath)).mode & 0o777).toBe(0o600);
   });
 
-  it('does not narrow an existing env file that was already writable by the user', async () => {
+  it('narrows an existing 0644 env file to 0600 when the credential is written', async () => {
     await fs.writeFile(envPath, 'OTHER=keep\n', { mode: 0o644 });
     await fs.chmod(envPath, 0o644);
     mockGetSecret.mockResolvedValue('TOKEN_NEW');
 
     await applier.applyPlan(twoStepPlan(), profile.name);
 
-    expect((await fs.stat(envPath)).mode & 0o777).toBe(0o644);
+    // Codex PR 159 round 8: a credential-bearing write must NARROW a legacy
+    // 0644 file to owner-only, never leave the secret world-readable.
+    expect((await fs.stat(envPath)).mode & 0o777).toBe(0o600);
     const env = await fs.readFile(envPath, 'utf-8');
     expect(env).toContain('OTHER=keep');
     expect(env).toContain('GEMINI_API_KEY=TOKEN_NEW');

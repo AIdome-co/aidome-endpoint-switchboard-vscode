@@ -69,6 +69,64 @@ export function resolveGeminiDir(): string {
 }
 
 /**
+ * Detects a project-level env file that SHADOWS the user-level env file the
+ * adapter writes (Codex PR 159 round 8).
+ *
+ * Gemini CLI's `findEnvFile` (upstream packages/cli/src/config/settings.ts)
+ * loads the FIRST existing env file walking from the CLI's launch directory
+ * toward the home directory — `<dir>/.gemini/.env`, then `<dir>/.env` — and
+ * dotenv files are NOT merged. A project `.gemini/.env` or `.env` therefore
+ * makes the CLI ignore `~/.gemini/.env` entirely: neither the base URL nor
+ * the credential written there would ever load, while the applier would
+ * still report the assistant as configured.
+ *
+ * Walk order mirrors upstream (`.gemini/.env` before `.env` per directory,
+ * toward the home directory). The write target itself (`~/.gemini/.env`,
+ * honoring $GEMINI_CLI_HOME) is never a shadow, and the home-level `.env`
+ * is not one either: upstream checks `~/.gemini/.env` BEFORE `~/.env` at
+ * the same directory, so the target outranks it once created.
+ *
+ * @param startDirs Candidate launch directories (e.g. VS Code workspace
+ *   folders). Empty input yields no shadowing.
+ * @param readFile injected for tests; defaults to readFileSafe.
+ * @returns The first shadowing env-file path, or undefined.
+ */
+export async function findProjectEnvShadowing(
+  startDirs: readonly string[],
+  readFile: (filePath: string) => Promise<string | undefined> = readFileSafe
+): Promise<string | undefined> {
+  const target = resolveGeminiEnvFilePath();
+  const targetDir = path.dirname(target);
+  const homeDir = os.homedir();
+
+  for (const start of startDirs) {
+    let current = path.resolve(start);
+    while (true) {
+      const geminiEnv = path.join(current, '.gemini', '.env');
+      if (geminiEnv !== target && await readFile(geminiEnv) !== undefined) {
+        return geminiEnv;
+      }
+      const envPath = path.join(current, '.env');
+      if (current !== homeDir && current !== targetDir && await readFile(envPath) !== undefined) {
+        return envPath;
+      }
+      if (current === homeDir || current === targetDir) {
+        // At the home level the write target outranks every same-level or
+        // higher file (upstream checks ~/.gemini/.env first), so nothing
+        // above it can shadow.
+        break;
+      }
+      const parentDir = path.dirname(current);
+      if (parentDir === current || !parentDir) {
+        break;
+      }
+      current = parentDir;
+    }
+  }
+  return undefined;
+}
+
+/**
  * GOOGLE_GEMINI_BASE_URL applies only under Gemini API-key authentication
  * and GOOGLE_VERTEX_BASE_URL only under Vertex authentication (upstream
  * configuration reference). Without evidence that the matching auth mode
@@ -100,21 +158,22 @@ async function discoverConfiguredBaseUrlVariables(): Promise<DiscoveredBaseUrlVa
   for (const name of SUPPORTED_BASE_URL_VARIABLES) {
     // Gemini's loader imports a file value only when the key is ABSENT
     // from the process environment (Object.hasOwn semantics): an
-    // explicitly empty inherited variable BLOCKS the file value, so it
-    // must be treated as an invalid override, not as absence.
-    if (!Object.prototype.hasOwnProperty.call(process.env, name)) {
-      continue;
-    }
-    const value = process.env[name];
-    considered.add(name);
-    if (value && isValidGeminiBaseUrl(value)) {
-      if (isAuthenticatedForVariable(name)) {
-        result.configured.push(name);
+    // explicitly empty inherited variable BLOCKS the file value, so an
+    // inherited variable is evaluated from the environment while an
+    // absent one falls through to the env-file discovery below.
+    if (Object.prototype.hasOwnProperty.call(process.env, name)) {
+      considered.add(name);
+      const value = process.env[name];
+      if (value && isValidGeminiBaseUrl(value)) {
+        if (isAuthenticatedForVariable(name)) {
+          result.configured.push(name);
+        } else {
+          result.fileBased.push(name);
+        }
       } else {
-        result.fileBased.push(name);
+        result.invalid.push(name);
       }
-    } else {
-      result.invalid.push(name);
+      continue;
     }
   }
 
@@ -215,6 +274,23 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     }
   }
 
+  /**
+   * Candidate CLI launch directories whose project-level `.gemini/.env` /
+   * `.env` could shadow the user-level env file (Codex PR 159 round 8).
+   * VS Code workspace folders are the best available proxy for where the
+   * user launches Gemini CLI; resolved lazily so unit tests (and non-VS Code
+   * hosts) degrade to "no candidates" instead of failing.
+   */
+  protected async getProjectCandidateDirs(): Promise<string[]> {
+    try {
+      const vscode = await import('vscode');
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      return folders.map(folder => folder.uri.fsPath).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   async buildPlan(profile: EndpointProfile): Promise<Plan> {
     if (!validateUrl(profile.baseUrl)) {
       throw new Error('Gemini CLI endpoint URL is invalid or uses an unsupported scheme');
@@ -275,6 +351,39 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
           baseUrl: profile.baseUrl,
           envVarName: 'GOOGLE_GEMINI_BASE_URL or GOOGLE_VERTEX_BASE_URL',
           limitation: 'gemini-cli-requires-https-base-url',
+          tier: DESCRIPTOR?.tier ?? 'A'
+        } satisfies GuidedStepsData,
+        reversible: false
+      });
+    }
+
+    // Project env-file shadowing (Codex PR 159 round 8): Gemini CLI loads
+    // the FIRST env file found walking from its launch directory (upstream
+    // findEnvFile) and does not merge dotenv files. When a project-level
+    // `.gemini/.env` or `.env` shadows the user-level file, the automatic
+    // write below would never be read while the applier reported success —
+    // so report guided steps instead of a false Tier A configuration.
+    const shadowingEnvFile = await findProjectEnvShadowing(
+      await this.getProjectCandidateDirs()
+    );
+    if (shadowingEnvFile) {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'A project env file shadows the Gemini CLI user-level env file',
+        assistantKey: 'gemini-cli',
+        data: {
+          configurationStatus: 'manual-configuration-required',
+          message: `Gemini CLI loads ${shadowingEnvFile} instead of the user-level env file (project env files win and are not merged), so Switchboard's automatic write would have no effect.`,
+          steps: [
+            `Gemini CLI resolves its env file from its launch directory: ${shadowingEnvFile} is found before ${resolveGeminiEnvFilePath()} and dotenv files are not merged.`,
+            `Either add GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} (and GEMINI_API_KEY when the profile has a saved secret) directly to ${shadowingEnvFile}, or remove/rename that file so the user-level env file becomes active.`,
+            'Restart Gemini CLI (or start a new one) after editing so it reloads the env file.',
+            'Re-run the wizard afterwards to confirm the configuration.'
+          ],
+          baseUrl: profile.baseUrl,
+          envVarName: 'GOOGLE_GEMINI_BASE_URL',
+          limitation: 'project-env-file-shadows-user-env-file',
+          shadowingEnvFile,
           tier: DESCRIPTOR?.tier ?? 'A'
         } satisfies GuidedStepsData,
         reversible: false

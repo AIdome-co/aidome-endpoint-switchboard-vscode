@@ -19,8 +19,8 @@
  * - Unrelated lines are preserved BYTE-IDENTICALLY (no reserialization,
  *   no reordering, no quote normalization) — the writer only touches the
  *   managed lines.
- * - Credential files are private: the write keeps an existing file's
- *   permissions and creates a missing one with 0600.
+ * - Credential files are private: the write narrows an existing file's
+ *   permissions to 0600 (never widens) and creates a missing one with 0600.
  */
 
 import { createBackup, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
@@ -181,8 +181,12 @@ export function buildDotEnvContent(
 
 /**
  * Patches a dotenv file with the managed variables.
- * Backup-before-modify, atomic write, unrelated lines preserved
- * byte-identically, file permissions preserved (0600 for a new file).
+ * - Backup-before-modify, atomic write, unrelated lines preserved
+ * byte-identically. Credential files are PRIVATE: the write NARROWS an
+ * existing file's permissions down to 0600 (never widens; a legacy 0644
+ * credential file becomes 0600 so the freshly written secret is not
+ * readable by other local users — Codex PR 159 round 8) and creates a
+ * missing file with 0600.
  *
  * @returns The backup path, or undefined when the file did not exist.
  */
@@ -204,7 +208,11 @@ export async function patchEnvFile(
   }
 
   const updated = buildDotEnvContent(existingContent, vars, options);
-  const success = await writeFileAtomic(envFilePath, updated, 1, { mode: 0o600 });
+  // `narrow` makes the credential write enforce owner-only permissions even
+  // on a pre-existing file with a wider mode (0644): writeFileAtomic's
+  // default preserves the existing mode, which would leave the new secret
+  // world-readable (Codex PR 159 round 8).
+  const success = await writeFileAtomic(envFilePath, updated, 1, { mode: 0o600, narrow: true });
   if (!success) {
     throw new Error(`Failed to write ${options.fileLabel ?? 'env file'} to ${envFilePath}`);
   }

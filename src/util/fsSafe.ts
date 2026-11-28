@@ -71,7 +71,7 @@ export async function writeFileAtomic(
   filePath: string,
   content: string,
   retries: number = 1,
-  options: { mode?: number } = {}
+  options: { mode?: number; narrow?: boolean } = {}
 ): Promise<boolean> {
   const tmpPath = `${filePath}.tmp.${Date.now()}`;
   // File permissions must survive the temp-file + rename dance: a renamed
@@ -82,7 +82,18 @@ export async function writeFileAtomic(
   let mode: number | undefined = options.mode;
   try {
     const existing = await fs.stat(filePath);
-    mode = existing.mode & 0o777;
+    const existingMode = existing.mode & 0o777;
+    // File permissions must survive the temp-file + rename dance: a renamed
+    // temp file carries the NEW file's mode, silently changing the target's
+    // permissions. Default: preserve the existing target's mode — never
+    // WIDEN an existing file. With `narrow`, a credential-bearing write
+    // also NARROWS a wider existing mode down to the requested one
+    // (e.g. a legacy 0644 credential file becomes 0600): preserving a
+    // world-readable mode would leave the freshly written secret readable
+    // by other local users (Codex PR 159 round 8).
+    mode = options.narrow && mode !== undefined
+      ? (existingMode & mode)
+      : existingMode;
   } catch {
     // Target does not exist yet — keep the caller's requested mode.
   }

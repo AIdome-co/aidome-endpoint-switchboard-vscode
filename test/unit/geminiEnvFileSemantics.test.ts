@@ -7,7 +7,8 @@
  * - Unrelated lines are preserved BYTE-IDENTICALLY — no reserialization.
  * - Duplicate managed-key occurrences reconcile to the LAST (effective)
  *   assignment; clear-not-replay removes every occurrence.
- * - Credential file permissions: existing mode preserved, new files 0600.
+ * - Credential file permissions: narrowed to 0600 (existing wider modes
+ *   are narrowed, narrower ones never widened), new files 0600.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -124,14 +125,31 @@ describe('patchEnvFile credential-file permissions', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('does not narrow an existing non-0600 file (unrelated writer semantics unchanged)', async () => {
+  it.skipIf(process.platform === 'win32')('narrows an existing 0644 credential file to 0600 (secret not left world-readable)', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-env-'));
     try {
       const envPath = await createWithMode('.env', 'KEEP=1\n', 0o644);
 
       await patchEnvFile(envPath, { NEW: '2' });
 
-      expect(await fileMode(envPath)).toBe('644');
+      // Credential-env writes narrow a wider existing mode down to 0600
+      // (Codex PR 159 round 8): preserving 0644 would leave the secret
+      // readable by other local users.
+      expect(await fileMode(envPath)).toBe('600');
+      expect(await fs.readFile(envPath, 'utf-8')).toContain('KEEP=1');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('never widens an already-narrower file (0400 stays 0400)', async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-env-'));
+    try {
+      const envPath = await createWithMode('.env', 'KEEP=1\n', 0o400);
+
+      await patchEnvFile(envPath, { NEW: '2' });
+
+      expect(await fileMode(envPath)).toBe('400');
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
