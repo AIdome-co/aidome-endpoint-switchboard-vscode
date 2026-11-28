@@ -312,6 +312,52 @@ describe('GeminiCliAdapter', () => {
       expect(plan.steps.some(s2 => s2.action === 'edit-config-file')).toBe(false);
     });
 
+    it('reports guided steps when the pinned auth mode is compute-default-credentials (Code Assist bypasses the base URL)', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'compute-default-credentials' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+      expect(String(plan.steps[0].data.message)).toContain('compute-default-credentials');
+    });
+
+    it('reports guided steps for an unknown pinned auth mode (allowlist, not blocklist)', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'some-future-mode' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+    });
+
+    it('keeps the automatic plan when the pinned auth mode is gateway-compatible', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      expect(plan.steps.some(s => s.action === 'write-env-file')).toBe(true);
+    });
+
     it('reports guided steps instead of automatic writes when a project .gemini/.env shadows the user-level file', async () => {
       const project = await makeProjectDir({ '.gemini/.env': 'OTHER=1\n' });
 

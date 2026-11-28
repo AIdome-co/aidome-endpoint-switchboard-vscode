@@ -137,6 +137,21 @@ export async function findProjectEnvShadowing(
 }
 
 /**
+ * Auth modes under which the gateway variables are actually consulted
+ * (upstream packages/core/src/core/contentGenerator.ts): 'gemini-api-key'
+ * (USE_GEMINI) sends requests to GOOGLE_GEMINI_BASE_URL with the API key,
+ * and 'gateway' is the mode the CLI itself selects when
+ * GOOGLE_GEMINI_BASE_URL is already set. Every other mode bypasses those
+ * variables — 'oauth-personal' and 'vertex-ai' route to Google backends,
+ * and 'compute-default-credentials' (COMPUTE_ADC, e.g. Cloud Shell or
+ * GEMINI_CLI_USE_COMPUTE_ADC) goes through the Code Assist branch, which
+ * never reads the base URL. Only known-compatible modes are allowed:
+ * an unknown pinned value is treated as incompatible rather than assumed
+ * compatible (Codex round 11, PR 159).
+ */
+const GATEWAY_COMPATIBLE_AUTH_TYPES = new Set(['gemini-api-key', 'gateway']);
+
+/**
  * Reads security.auth.selectedType from the Gemini CLI settings.json
  * (upstream validateNonInterActiveAuth chooses this mode before environment
  * discovery). Returns undefined when absent, unreadable or malformed — an
@@ -388,14 +403,16 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     }
 
     // Selected auth mode (Codex round 10, PR 159): Gemini's non-interactive
-    // flow chooses security.auth.selectedType BEFORE environment discovery,
-    // and its content generator bypasses the Gemini gateway variables under
-    // OAuth or routes to the Vertex backend under vertex-ai. Writing
-    // GEMINI_API_KEY cannot switch the mode, so an existing installation
-    // pinned to oauth-personal or vertex-ai must be reported as
-    // guided-required instead of configured.
+    // flow chooses security.auth.selectedType BEFORE environment discovery
+    // (validateNonInteractiveAuth: effectiveAuthType = configuredAuthType ||
+    // getAuthTypeFromEnv()), so a pinned mode wins even when
+    // GOOGLE_GEMINI_BASE_URL is set. Only modes known to consult the gateway
+    // variables are allowed (GATEWAY_COMPATIBLE_AUTH_TYPES); anything else —
+    // oauth-personal, vertex-ai, compute-default-credentials (Code Assist
+    // branch, base URL never read), or an unknown value — must be reported
+    // as guided-required instead of configured (Codex round 11, PR 159).
     const selectedAuthType = await readSelectedGeminiAuthType();
-    if (selectedAuthType === 'oauth-personal' || selectedAuthType === 'vertex-ai') {
+    if (selectedAuthType !== undefined && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(selectedAuthType)) {
       return addStep(plan, {
         action: 'show-guided-steps',
         description: 'The existing Gemini CLI installation is pinned to an incompatible auth mode',
