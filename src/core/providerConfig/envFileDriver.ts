@@ -24,6 +24,7 @@
  */
 
 import { createBackup, readFileSafe, writeFileAtomic } from '../../util/fsSafe';
+import * as fs from 'node:fs';
 
 /** Options for the generic env-file driver. */
 export interface EnvFileDriverOptions {
@@ -225,6 +226,11 @@ export async function patchEnvFile(
     if (!backupPath) {
       throw new Error(`Failed to create backup of ${envFilePath}`);
     }
+    // The backup contains the OLD credential: createBackup preserves the
+    // source mode, so a legacy 0644 file would leave a world-readable secret
+    // copy even though the patched file itself is narrowed to 0600 — narrow
+    // the backup to owner-only as well (Codex PR 159 round 16).
+    await fs.promises.chmod(backupPath, 0o600);
   }
 
   const updated = buildDotEnvContent(existingContent, vars, options);

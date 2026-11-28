@@ -2,6 +2,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fsSafe from '../../src/util/fsSafe';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
 import {
   parseDotEnv,
   buildDotEnvContent,
@@ -52,11 +55,16 @@ describe('patchCodexEnvFile (backup-before-modify, atomic write)', () => {
 
   it('backs up an existing file before writing and preserves unrelated vars', async () => {
     vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue('KEEP=me\nOPENAI_API_KEY=old\n');
-    vi.spyOn(fsSafe, 'createBackup').mockResolvedValue('/backup/path');
+    // A REAL temp file: the driver narrows the credential-bearing backup to
+    // 0600 with a real chmod (Codex PR 159 round 16).
+    const backupTarget = nodePath.join(os.tmpdir(), `codex-env-backup-${Date.now()}`);
+    await fs.promises.writeFile(backupTarget, 'stale');
+    vi.spyOn(fsSafe, 'createBackup').mockResolvedValue(backupTarget);
 
     const backup = await patchCodexEnvFile('/tmp/codex/.env', { OPENAI_API_KEY: 'new-secret' });
 
-    expect(backup).toBe('/backup/path');
+    expect(backup).toBe(backupTarget);
+    expect((await fs.promises.stat(backupTarget)).mode & 0o777).toBe(0o600);
     expect(fsSafe.createBackup).toHaveBeenCalledWith('/tmp/codex/.env');
     const written = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
     expect(written).toContain('OPENAI_API_KEY=new-secret');

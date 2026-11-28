@@ -480,32 +480,40 @@ function isPathTrustedByRules(
 }
 
 /**
- * Resolves advanced.ignoreLocalEnv across upstream's merged settings
- * (systemDefaults < user < workspace < system overrides, LAST ONE WINS —
- * at env-file time loadSettings has already resolved workspace settings).
- * Returns false when no scope enables it or a scope cannot be read: the
- * shadowing guard must stay active unless ignoreLocalEnv is PROVEN true.
+ * Resolves advanced.ignoreLocalEnv for ONE candidate launch context. Upstream
+ * mergeSettings order (systemDefaults < user < workspace < system overrides,
+ * LAST ONE WINS — the workspace scope is the root's OWN settings.json, since
+ * loadSettings resolves exactly one workspace file per launch context, Codex
+ * PR 159 round 16). Returns false when no scope enables it or a scope cannot
+ * be read: the shadowing guard must stay active unless ignoreLocalEnv is
+ * PROVEN true for that root.
  */
 async function resolveIgnoreLocalEnv(
   workspaceDirs: readonly string[]
-): Promise<boolean> {
-  const scopesLowestFirst = [
-    getSystemDefaultsPath(),
-    path.join(resolveGeminiDir(), 'settings.json'),
-    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
-    getSystemSettingsPath()
-  ];
-  let ignoreLocalEnv = false;
-  for (const scopePath of scopesLowestFirst) {
-    const scope = await readAuthScope(scopePath);
-    if (scope.kind === 'undetermined') {
-      return false;
+): Promise<boolean[]> {
+  const valueForRoot = async (dir: string | undefined): Promise<boolean> => {
+    const scopesLowestFirst = [
+      getSystemDefaultsPath(),
+      path.join(resolveGeminiDir(), 'settings.json'),
+      ...(dir ? [path.join(dir, '.gemini', 'settings.json')] : []),
+      getSystemSettingsPath()
+    ];
+    let ignoreLocalEnv = false;
+    for (const scopePath of scopesLowestFirst) {
+      const scope = await readAuthScope(scopePath);
+      if (scope.kind === 'undetermined') {
+        return false;
+      }
+      if (scope.kind === 'read' && scope.ignoreLocalEnv !== undefined) {
+        ignoreLocalEnv = scope.ignoreLocalEnv === true;
+      }
     }
-    if (scope.kind === 'read' && scope.ignoreLocalEnv !== undefined) {
-      ignoreLocalEnv = scope.ignoreLocalEnv === true;
-    }
+    return ignoreLocalEnv;
+  };
+  if (workspaceDirs.length === 0) {
+    return [await valueForRoot(undefined)];
   }
-  return ignoreLocalEnv;
+  return Promise.all(workspaceDirs.map(dir => valueForRoot(dir)));
 }
 
 /**
@@ -993,11 +1001,23 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // ordinary .env files are not shadows under that setting; project
     // .gemini/.env files remain shadows. An unreadable scope keeps the
     // guard (cannot prove ignoreLocalEnv=true).
-    const shadowingEnvFile = await findProjectEnvShadowing(
-      projectCandidateDirs,
-      fileExists,
-      { ignoreLocalEnv: await resolveIgnoreLocalEnv(projectCandidateDirs) }
-    );
+    // Shadowing is evaluated PER ROOT (Codex PR 159 round 16): each root's
+    // ignoreLocalEnv comes from its OWN launch context, so a root that
+    // enables the setting skips generic .env files there while another root
+    // with the setting disabled still guards.
+    const ignoreLocalEnvPerRoot = await resolveIgnoreLocalEnv(projectCandidateDirs);
+    const rootsToCheck = projectCandidateDirs.length === 0 ? [undefined] : projectCandidateDirs;
+    let shadowingEnvFile: string | undefined;
+    for (let i = 0; i < rootsToCheck.length; i++) {
+      shadowingEnvFile = await findProjectEnvShadowing(
+        rootsToCheck[i] ? [rootsToCheck[i] as string] : [],
+        fileExists,
+        { ignoreLocalEnv: ignoreLocalEnvPerRoot[i] ?? false }
+      );
+      if (shadowingEnvFile) {
+        break;
+      }
+    }
     if (shadowingEnvFile) {
       return addStep(plan, {
         action: 'show-guided-steps',
