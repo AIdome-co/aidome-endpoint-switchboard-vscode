@@ -55,8 +55,11 @@ export interface OpenCodeConfigBuildOptions {
  *  3. ~/.config/opencode/opencode.json[c] (standard location; upstream
  *     resolves the global config dir as $XDG_CONFIG_HOME/opencode, with
  *     OPENCODE_CONFIG_DIR overriding it — packages/util/src/global.ts:7,79)
- *  4. snap-confined candidates: $SNAP_USER_COMMON/opencode.json, then the
- *     newest numeric ~/snap/opencode/<revision>/opencode.json
+ * 4. snap-confined candidates: $SNAP_USER_COMMON/opencode.json, then
+ *     ~/snap/opencode/current/opencode.json (the snap-managed symlink to the
+ *     ACTIVE revision — authoritative after `snap revert`, where the greatest
+ *     numeric revision is an inactive retained one), then the newest numeric
+ *     ~/snap/opencode/<revision>/opencode.json as fallback
  *
  * Within a directory, an existing `.jsonc` file is preferred over `.json`:
  * upstream loads both and merges documents lowest-to-highest priority in
@@ -105,11 +108,15 @@ export function getOpenCodeConfigPath(): string {
   }
 
   // Snap runs opencode with a confined HOME (for example ~/snap/opencode/299).
-  // The extension host does not inherit that HOME, so prefer the current
-  // numeric snap revision when it has a config file.
+  // The extension host does not inherit that HOME, so prefer the snap's
+  // `current` revision symlink (it points at the ACTIVE revision even after
+  // `snap revert`, when the greatest numeric revision is an inactive retained
+  // one — snapcraft.io/docs/reference/administration/data-locations), then
+  // fall back to the newest numeric revision.
   const snapRoot = path.join(os.homedir(), 'snap', 'opencode');
   const snapCandidates: string[] = [
-    ...(snapCommonConfig ? [snapCommonConfig] : [])
+    ...(snapCommonConfig ? [snapCommonConfig] : []),
+    path.join(snapRoot, 'current', 'opencode.json')
   ];
   try {
     const revisions = fs.readdirSync(snapRoot)

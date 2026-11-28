@@ -127,6 +127,55 @@ describe('opencodeConfigPatcher', () => {
 
       expect(getOpenCodeConfigPath()).toBe(path.join(dir, 'missing-subdir', 'opencode.json'));
     });
+
+    it('prefers the snap current-revision symlink over newer inactive numeric revisions', () => {
+      // After `snap revert`, the greatest numeric revision is an inactive
+      // retained one; ~/snap/opencode/current points at the ACTIVE revision.
+      const home = makeTempDir();
+      const binDir = makeTempDir();
+      const snapRoot = path.join(home, 'snap', 'opencode');
+      const activeRevision = path.join(snapRoot, '299');
+      const inactiveRevision = path.join(snapRoot, '300');
+      fs.mkdirSync(activeRevision, { recursive: true });
+      fs.mkdirSync(inactiveRevision, { recursive: true });
+      fs.writeFileSync(path.join(activeRevision, 'opencode.json'), '{}');
+      fs.writeFileSync(path.join(inactiveRevision, 'opencode.json'), '{}');
+      fs.symlinkSync(activeRevision, path.join(snapRoot, 'current'), 'dir');
+
+      // Make the detected opencode executable look like the snap wrapper so
+      // the snap candidates are ordered ahead of the standard path.
+      const fakeSnapTarget = path.join(binDir, 'fake', 'snap', 'dist', 'opencode-real');
+      fs.mkdirSync(path.dirname(fakeSnapTarget), { recursive: true });
+      fs.writeFileSync(fakeSnapTarget, '');
+      fs.symlinkSync(fakeSnapTarget, path.join(binDir, 'opencode'));
+      const savedPath = process.env.PATH;
+      const savedHome = process.env.HOME;
+      const savedUserProfile = process.env.USERPROFILE;
+      process.env.PATH = binDir;
+      // os.homedir() resolves from HOME on POSIX and USERPROFILE on Windows.
+      process.env.HOME = home;
+      process.env.USERPROFILE = home;
+
+      try {
+        expect(getOpenCodeConfigPath()).toBe(path.join(snapRoot, 'current', 'opencode.json'));
+      } finally {
+        if (savedPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = savedPath;
+        }
+        if (savedHome === undefined) {
+          delete process.env.HOME;
+        } else {
+          process.env.HOME = savedHome;
+        }
+        if (savedUserProfile === undefined) {
+          delete process.env.USERPROFILE;
+        } else {
+          process.env.USERPROFILE = savedUserProfile;
+        }
+      }
+    });
   });
 
   describe('buildOpenCodeConfigContent', () => {
