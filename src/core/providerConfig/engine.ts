@@ -49,6 +49,13 @@ export interface ProviderConfigEngineContext {
    * discovery still removes the stale binding.
    */
   preserveModelCatalogJson?: boolean;
+  /**
+   * When true, the existing config's model_catalog_json binding points at the
+   * Switchboard-generated catalog file, so Switchboard owns it and may remove
+   * it on a confirmed-empty discovery or a profile switch. A user's own
+   * hand-maintained catalog binding is never touched.
+   */
+  ownsModelCatalogJson?: boolean;
   /** Overrides evaluated per operation value source when the adapter owns resolution (hook). */
   valueOverrides?: Partial<Record<DescriptorValueSource['type'], unknown>>;
 }
@@ -316,7 +323,7 @@ function compileTargetPlan(
           ...(model ? { model } : {}),
           ...(catalogPath !== undefined
             ? { modelCatalogJson: catalogPath }
-            : catalogTargetId !== undefined && !context.preserveModelCatalogJson
+            : catalogTargetId !== undefined && !context.preserveModelCatalogJson && context.ownsModelCatalogJson === true
               ? { removeModelCatalogJson: true }
               : {}),
         },

@@ -88,7 +88,10 @@ export class CodexAdapter extends BaseExtensionAdapter {
       // slug while Codex falls back to its bundled catalog.
       ...(discoveryFailed && (await this.configMatchesEndpoint(configPath, profile))
         ? { preserveModelCatalogJson: true }
-        : {})
+        : {}),
+      // Only a binding that points at the Switchboard-generated catalog file
+      // may be removed: a user-configured model_catalog_json is not ours.
+      ownsModelCatalogJson: await this.bindingIsOwnedBySwitchboard(configPath)
     });
     this.expectedBaseUrl = profile.baseUrl;
 
@@ -172,6 +175,27 @@ export class CodexAdapter extends BaseExtensionAdapter {
     });
 
     return plan;
+  }
+
+  /** True when the existing binding points at the Switchboard-generated catalog file (or no config exists and none was bound). */
+  private async bindingIsOwnedBySwitchboard(configPath: string): Promise<boolean> {
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      // No config: nothing is bound, so "removal" is a no-op either way and
+      // treating it as owned keeps the driver's stale-model cleanup coupled
+      // only to bindings we actually wrote.
+      return true;
+    }
+    let binding: unknown;
+    try {
+      binding = (parseToml(content) as { model_providers?: { aidome?: { model_catalog_json?: unknown } } }).model_providers?.aidome?.model_catalog_json;
+    } catch {
+      return false;
+    }
+    if (typeof binding !== 'string' || binding.length === 0) {
+      return true;
+    }
+    return path.resolve(binding) === path.resolve(getCodexModelsCatalogPath());
   }
 
   /**

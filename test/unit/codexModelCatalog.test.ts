@@ -1,6 +1,6 @@
 /**
  * Codex model catalog coverage: the adapter must automatically write a Codex
- * model catalog (~/.codex/models.json, CODEX_HOME aware) derived from
+ * model catalog (~/.codex/aidome-models.json, CODEX_HOME aware) derived from
  * discovered gateway models as part of the standard assign plan, bind
  * top-level `model_catalog_json` in config.toml, remove a stale key when no
  * catalog is produced, and keep backup/rollback semantics for both files.
@@ -123,13 +123,13 @@ describe('Codex model catalog path resolution', () => {
   it('honors CODEX_HOME for the catalog path', () => {
     delete process.env.CODEX_CONFIG_PATH;
     process.env.CODEX_HOME = path.join('/tmp', 'codex-home');
-    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'models.json'));
+    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'aidome-models.json'));
     expect(getCodexConfigPath()).toBe(path.join('/tmp', 'codex-home', 'config.toml'));
   });
 
   it('stays coherent with an explicit CODEX_CONFIG_PATH', () => {
     process.env.CODEX_CONFIG_PATH = path.join('/tmp', 'codex-home', 'deep', 'config.toml');
-    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'deep', 'models.json'));
+    expect(getCodexModelsCatalogPath()).toBe(path.join('/tmp', 'codex-home', 'deep', 'aidome-models.json'));
   });
 });
 
@@ -377,7 +377,7 @@ describe('CodexAdapter model catalog plan behavior', () => {
 
     const config = await fs.readFile(configPath, 'utf8');
     expect(config).not.toContain('model_catalog_json');
-    expect(await fs.access(path.join(tempDir, 'models.json')).then(() => true, () => false)).toBe(false);
+    expect(await fs.access(path.join(tempDir, 'aidome-models.json')).then(() => true, () => false)).toBe(false);
   });
 });
 
