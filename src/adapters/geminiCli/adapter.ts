@@ -7,6 +7,7 @@ import { Plan, createPlan, addStep, GuidedStepsData } from '../../core/orchestra
 import { VerificationResult } from '../AssistantAdapter';
 import { BaseExtensionAdapter } from '../BaseExtensionAdapter';
 import { detectCli } from '../../core/detection/detectCLIs';
+import stripJsonComments from 'strip-json-comments';
 import { getProviderConfigDescriptor } from '../../core/providerConfig/descriptors';
 import { validateUrl } from '../../core/profiles/profileValidator';
 import { fileExists, readFileSafe } from '../../util/fsSafe';
@@ -219,7 +220,10 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
     };
   };
   try {
-    parsed = JSON.parse(content);
+    // Gemini parses settings scopes as JSONC (stripJsonComments before
+    // JSON.parse, upstream settings.ts:1660), so a commented settings.json
+    // is VALID and readable — not undetermined.
+    parsed = JSON.parse(stripJsonComments(content));
   } catch {
     return { kind: 'undetermined' };
   }
@@ -242,49 +246,108 @@ type EffectiveGeminiAuth = {
 };
 
 /**
- * Resolves the EFFECTIVE security.auth.selectedType/enforcedType across every
- * configuration scope Gemini merges. Upstream mergeSettings (packages/cli/src/
- * config/settings.ts) merges with LAST ONE WINS in this order:
- * schema defaults → systemDefaults → user → workspace → system (overrides),
- * so SYSTEM settings.json is the HIGHEST-precedence scope, systemDefaults the
- * LOWEST. The extension host can only observe the workspace roots and the
- * well-known user/system paths — scopes are probed highest-precedence first
- * and the FIRST scope that defines each field wins; if a higher-precedence
- * scope exists but cannot be read, the result is undetermined and the caller
- * must fall back to guided steps instead of claiming automatic configuration
- * (Codex round 12, PR 159: precedence order + system-defaults scope).
+ * Per-launch-context resolution of security.auth.selectedType/enforcedType.
+ * Upstream loadSettings loads exactly ONE workspace settings file from the
+ * directory passed to it (settings.ts), so each candidate workspace root has
+ * its OWN effective auth — a multi-root workspace is evaluated independently
+ * per root (Codex round 13, PR 159: workspace roots are precedence layers
+ * only for their OWN loadSettings call, not for each other).
+ */
+type EffectiveGeminiRoot = {
+  dir?: string;
+  undetermined: boolean;
+  selectedType?: string;
+  enforcedType?: string;
+  sourcePath?: string;
+};
+
+/**
+ * Resolves the effective security.auth.selectedType/enforcedType for EVERY
+ * candidate launch context. Upstream mergeSettings (packages/cli/src/config/
+ * settings.ts) merges with LAST ONE WINS: schema defaults, systemDefaults,
+ * user, workspace, system (overrides), so SYSTEM settings.json is the
+ * HIGHEST-precedence scope and systemDefaults the LOWEST. Scopes are probed
+ * highest-precedence first and the FIRST scope that defines each field wins;
+ * if a higher-precedence scope exists but cannot be read, that root's result
+ * is undetermined and the caller must fall back to guided steps instead of
+ * claiming automatic configuration (Codex round 12, PR 159).
  */
 async function resolveEffectiveGeminiAuth(
   workspaceDirs: readonly string[]
-): Promise<EffectiveGeminiAuth> {
-  const scopes: string[] = [
-    getSystemSettingsPath(),
-    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
+): Promise<{ undetermined: boolean; roots: EffectiveGeminiRoot[] }> {
+  const globalScopes = [
     path.join(resolveGeminiDir(), 'settings.json'),
     getSystemDefaultsPath()
   ];
-  const result: EffectiveGeminiAuth = { undetermined: false };
-  for (const scopePath of scopes) {
-    const scope = await readAuthScope(scopePath);
-    if (scope.kind === 'undetermined') {
-      result.undetermined = true;
-      break;
-    }
-    if (scope.kind === 'absent') {
-      continue;
-    }
-    if (scope.selectedType !== undefined && result.selectedType === undefined) {
-      result.selectedType = scope.selectedType;
-      result.sourcePath = scopePath;
-    }
-    if (scope.enforcedType !== undefined && result.enforcedType === undefined) {
-      result.enforcedType = scope.enforcedType;
-      if (result.sourcePath === undefined) {
-        result.sourcePath = scopePath;
+  const rootFor = async (dir: string | undefined): Promise<EffectiveGeminiRoot> => {
+    const scopes: string[] = [
+      getSystemSettingsPath(),
+      ...(dir ? [path.join(dir, '.gemini', 'settings.json')] : []),
+      ...globalScopes
+    ];
+    const root: EffectiveGeminiRoot = { dir, undetermined: false };
+    for (const scopePath of scopes) {
+      const scope = await readAuthScope(scopePath);
+      if (scope.kind === 'undetermined') {
+        root.undetermined = true;
+        break;
+      }
+      if (scope.kind === 'absent') {
+        continue;
+      }
+      if (scope.selectedType !== undefined && root.selectedType === undefined) {
+        root.selectedType = scope.selectedType;
+        root.sourcePath = scopePath;
+      }
+      if (scope.enforcedType !== undefined && root.enforcedType === undefined) {
+        root.enforcedType = scope.enforcedType;
+        if (root.sourcePath === undefined) {
+          root.sourcePath = scopePath;
+        }
       }
     }
+    return root;
+  };
+  const roots: EffectiveGeminiRoot[] = [];
+  if (workspaceDirs.length === 0) {
+    roots.push(await rootFor(undefined));
+  } else {
+    for (const dir of workspaceDirs) {
+      roots.push(await rootFor(dir));
+    }
   }
-  return result;
+  return { undetermined: roots.some(r => r.undetermined), roots };
+}
+
+/**
+ * A root's effective auth after the automatic write: an explicitly selected
+ * type wins (configuredAuthType beats env discovery upstream), otherwise the
+ * post-write environment discovery selects 'gateway' (getAuthTypeFromEnv
+ * checks GOOGLE_GEMINI_BASE_URL before the API-key branch).
+ */
+function postWriteAuthType(root: EffectiveGeminiRoot): string {
+  return root.selectedType ?? 'gateway';
+}
+
+function isRootAuthCompatible(root: EffectiveGeminiRoot): boolean {
+  if (root.undetermined) {
+    return false;
+  }
+  if (
+    root.selectedType !== undefined
+    && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(root.selectedType)
+  ) {
+    return false;
+  }
+  // Upstream validateNonInteractiveAuth rejects any run whose effective type
+  // differs from security.auth.enforcedType — the enforced value must equal
+  // the selected or post-write effective type, not merely be allowlisted
+  // (Codex round 13, PR 159: enforced 'gemini-api-key' with an env-discovered
+  // 'gateway' effective type still exits with an authentication error).
+  if (root.enforcedType !== undefined && root.enforcedType !== postWriteAuthType(root)) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -294,17 +357,31 @@ async function resolveEffectiveGeminiAuth(
  * mirrors upstream's `settings.security?.folderTrust?.enabled ?? true`.
  */
 async function resolveFolderTrustEnabled(
-  workspaceDirs: readonly string[]
-): Promise<boolean> {
+  workspaceDirs: readonly string[],
+  options: { includeWorkspace?: boolean } = {}
+): Promise<boolean | undefined> {
+  // Upstream performs its INITIAL trust check over schema defaults, system
+  // defaults, user settings, and system settings ONLY — workspace settings
+  // are not resolved until trust has already been established (settings
+  // loader order). An untrusted workspace that flips
+  // security.folderTrust.enabled=false must therefore not disable the trust
+  // requirement (Codex round 13, PR 159).
   const scopesLowestFirst: string[] = [
     getSystemDefaultsPath(),
     path.join(resolveGeminiDir(), 'settings.json'),
-    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
+    ...(options.includeWorkspace === true
+      ? workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json'))
+      : []),
     getSystemSettingsPath()
   ];
-  let enabled = true;
+  let enabled: boolean | undefined = true;
   for (const scopePath of scopesLowestFirst) {
     const scope = await readAuthScope(scopePath);
+    if (scope.kind === 'undetermined') {
+      // A pre-trust scope that cannot be read leaves the initial trust
+      // merge undetermined — never assume either way.
+      return undefined;
+    }
     if (scope.kind === 'read' && scope.folderTrustEnabled !== undefined) {
       enabled = scope.folderTrustEnabled;
     }
@@ -401,7 +478,13 @@ async function resolveWorkspaceTrust(
   if (process.env['GEMINI_CLI_TRUST_WORKSPACE'] === 'true') {
     return { trusted: true, unverifiable: false };
   }
-  if (!(await resolveFolderTrustEnabled(workspaceDirs))) {
+  const folderTrustEnabled = await resolveFolderTrustEnabled(workspaceDirs);
+  if (folderTrustEnabled === undefined) {
+    // A pre-trust scope exists but cannot be read: upstream's initial trust
+    // merge cannot be resolved, so trust is unverifiable.
+    return { trusted: false, unverifiable: true };
+  }
+  if (!folderTrustEnabled) {
     return { trusted: true, unverifiable: false };
   }
   const trustedFoldersPath = process.env['GEMINI_CLI_TRUSTED_FOLDERS_PATH']
@@ -681,17 +764,14 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     const effectiveAuth = await resolveEffectiveGeminiAuth(
       projectCandidateDirs
     );
-    const pinnedIncompatible =
-      effectiveAuth.undetermined ||
-      (effectiveAuth.selectedType !== undefined
-        && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(effectiveAuth.selectedType))
-      || (effectiveAuth.enforcedType !== undefined
-        && !GATEWAY_COMPATIBLE_AUTH_TYPES.has(effectiveAuth.enforcedType));
-    if (pinnedIncompatible) {
-      const pinnedMode = effectiveAuth.selectedType
-        ?? effectiveAuth.enforcedType
-        ?? 'unreadable';
-      const settingsPath = effectiveAuth.sourcePath ?? getSystemSettingsPath();
+    const incompatibleRoot = effectiveAuth.roots.find(root => !isRootAuthCompatible(root));
+    if (effectiveAuth.undetermined || incompatibleRoot) {
+      const pinnedMode = incompatibleRoot
+        ? (incompatibleRoot.selectedType
+          ?? incompatibleRoot.enforcedType
+          ?? 'unreadable')
+        : 'unreadable';
+      const settingsPath = incompatibleRoot?.sourcePath ?? getSystemSettingsPath();
       return addStep(plan, {
         action: 'show-guided-steps',
         description: 'The existing Gemini CLI installation is pinned to an incompatible auth mode',
@@ -729,7 +809,10 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // gateway file would be bypassed — classify these sessions as
     // guided-required too. A COMPATIBLE pinned selectedType suppresses the
     // upstream env branch, so it keeps the automatic plan.
-    if (!effectiveAuth.undetermined && effectiveAuth.selectedType === undefined) {
+    const hasUnselectedRoot = effectiveAuth.roots.some(
+      root => root.undetermined || root.selectedType === undefined
+    );
+    if (hasUnselectedRoot) {
       const inheritedAdcSelectors = ['CLOUD_SHELL', 'GEMINI_CLI_USE_COMPUTE_ADC']
         .filter(name => process.env[name] === 'true');
       if (inheritedAdcSelectors.length > 0) {
@@ -750,6 +833,42 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
             envVarName: 'GOOGLE_GEMINI_BASE_URL',
             limitation: 'inherited-compute-adc-selector',
             inheritedAdcSelectors,
+            tier: DESCRIPTOR?.tier ?? 'A'
+          } satisfies GuidedStepsData,
+          reversible: false
+        });
+      }
+    }
+
+    // Inherited Google auth-mode selectors (Codex round 13, PR 159):
+    // getAuthTypeFromEnv (packages/core/src/core/contentGenerator.ts) checks
+    // GOOGLE_GENAI_USE_GCA=true and GOOGLE_GENAI_USE_VERTEXAI=true BEFORE
+    // GOOGLE_GEMINI_BASE_URL, so with no selectedType these inherited values
+    // select OAuth or Vertex authentication and bypass the written gateway
+    // file entirely — guided-required, like the compute-ADC selectors.
+    if (hasUnselectedRoot) {
+      const inheritedAuthSelectors = [
+        'GOOGLE_GENAI_USE_GCA',
+        'GOOGLE_GENAI_USE_VERTEXAI'
+      ].filter(name => process.env[name] === 'true');
+      if (inheritedAuthSelectors.length > 0) {
+        return addStep(plan, {
+          action: 'show-guided-steps',
+          description: 'Inherited Google auth-mode selectors bypass the gateway',
+          assistantKey: 'gemini-cli',
+          data: {
+            configurationStatus: 'manual-configuration-required',
+            message: `The environment that launched this session sets ${inheritedAuthSelectors.join(', ')} to "true" while no auth type is selected. Gemini's environment authentication discovery checks these selectors before GOOGLE_GEMINI_BASE_URL and then selects OAuth or Vertex authentication, so the gateway endpoint Switchboard writes would be bypassed.`,
+            steps: [
+              `Unset ${inheritedAuthSelectors.join(' ')} in the shell profile or launcher that starts VS Code, or pin security.auth.selectedType to "gemini-api-key" in the Gemini settings.`,
+              `Switchboard will then write the gateway endpoint (${profile.baseUrl}) to ${resolveGeminiEnvFilePath()} where Gemini actually reads it.`,
+              'Restart Gemini CLI (or start a new one) after the change so it reloads its configuration.',
+              'Re-run the wizard afterwards to confirm the configuration.'
+            ],
+            baseUrl: profile.baseUrl,
+            envVarName: 'GOOGLE_GEMINI_BASE_URL',
+            limitation: 'inherited-google-auth-selector',
+            inheritedAuthSelectors,
             tier: DESCRIPTOR?.tier ?? 'A'
           } satisfies GuidedStepsData,
           reversible: false

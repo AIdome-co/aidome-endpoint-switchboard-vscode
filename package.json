@@ -252,6 +252,7 @@
   "dependencies": {
     "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.9.0",
+    "strip-json-comments": "^5.0.3",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

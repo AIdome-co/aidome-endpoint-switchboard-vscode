@@ -450,6 +450,103 @@ describe('GeminiCliAdapter', () => {
       expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
     });
 
+    it('requires enforcedType to match the post-write gateway type (enforced gemini-api-key with no selection)', async () => {
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { enforcedType: 'gemini-api-key' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+    });
+
+    it('evaluates each multi-root workspace auth configuration independently', async () => {
+      const rootA = await makeProjectDir({});
+      const rootB = await makeProjectDir({});
+      const multiRootAdapter = adapterWithProject([rootA, rootB]);
+      // Spies must be applied AFTER adapterWithProject (c5b7988 ordering).
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(rootA, '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } });
+        }
+        if (filePath === nodePath.join(rootB, '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await multiRootAdapter.buildPlan(mockProfile);
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
+    });
+
+    it('reports guided steps when inherited GOOGLE_GENAI auth selectors choose a non-gateway mode', async () => {
+      process.env['GOOGLE_GENAI_USE_GCA'] = 'true';
+      try {
+        const plan = await adapter.buildPlan(mockProfile);
+
+        expect(plan.steps).toHaveLength(1);
+        expect(plan.steps[0].data.limitation).toBe('inherited-google-auth-selector');
+      } finally {
+        delete process.env['GOOGLE_GENAI_USE_GCA'];
+      }
+    });
+
+    it('accepts a commented (JSONC) settings.json as readable instead of undetermined', async () => {
+      const commented = [
+        '{',
+        '  // enterprise baseline',
+        '  "security": {',
+        '    "auth": { "selectedType": "gemini-api-key" }',
+        '  }',
+        '}'
+      ].join('\n');
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {
+          return commented;
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+
+      const plan = await adapter.buildPlan(mockProfile);
+
+      // A compatible selectedType in a commented file must NOT force guided
+      // steps: the automatic plan proceeds.
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+      expect(plan.steps.every(s => s.data.limitation !== 'selected-auth-type-incompatible-with-gateway')).toBe(true);
+    });
+
+    it('ignores workspace folderTrust=false in the INITIAL trust decision', async () => {
+      const project = await makeProjectDir({});
+      const trustAdapter = adapterWithProject([project]);
+      // Spies AFTER adapterWithProject: workspace settings.json says trust is
+      // disabled, but upstream resolves workspace settings only AFTER trust
+      // is established — the pre-trust merge must exclude it.
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(project, '.gemini', 'settings.json')) {
+          return JSON.stringify({ security: { folderTrust: { enabled: false } } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
+      delete process.env['GEMINI_CLI_TRUST_WORKSPACE'];
+
+      const plan = await trustAdapter.buildPlan(mockProfile);
+
+      // With the workspace scope excluded from the pre-trust merge, trust is
+      // UNVERIFIABLE (no trustedFolders.json) → guided-required, NOT the
+      // automatic plan the old workspace-inclusive merge produced.
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('gemini-workspace-trust-unverifiable');
+    });
+
     it('checks the system settings scope (GEMINI_CLI_SYSTEM_SETTINGS_PATH) for a pinned mode', async () => {
       const systemSettings = nodePath.join(await fs.mkdtemp(nodePath.join(os.tmpdir(), 'gemini-sys-')), 'settings.json');
       process.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = systemSettings;
