@@ -80,7 +80,7 @@ function findClosingLineIndex(
   fromIndex: number,
   quote: string
 ): number {
-  let lastFallbackLine = -1;
+  let fallbackLine = -1;
   for (let i = fromIndex + 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     for (let j = 0; j < trimmed.length; j++) {
@@ -88,21 +88,28 @@ function findClosingLineIndex(
         if (trimmed[j - 1] !== '\\') {
           return i;
         }
-        lastFallbackLine = i;
+        fallbackLine = i;
       }
     }
   }
-  if (lastFallbackLine === -1) {
+  if (fallbackLine === -1) {
     return -1;
   }
-  // Backtracking fallback: the closing quote must be followed by nothing but
-  // whitespace and/or a comment — otherwise the quoted alternative cannot
-  // match and dotenv treats the value as a single-line unquoted string.
-  const trimmed = lines[lastFallbackLine].trim();
-  const quotePos = trimmed.lastIndexOf(quote);
-  return /^\s*(?:#.*)?$/.test(trimmed.slice(quotePos + 1))
-    ? lastFallbackLine
-    : -1;
+  // Backtracking fallback on the last candidate line: dotenv backtracks the
+  // escape-pair matches from the END backward, so scan the line's
+  // backslash-prefixed quotes from the last to the first and accept the
+  // first whose suffix matches the closing grammar `\s*(?:#.*)?$` (rounds
+  // 25-26). A quote inside the trailing comment can still be the terminator
+  // when an earlier quote leaves only the comment after it.
+  const trimmed = lines[fallbackLine].trim();
+  for (let j = trimmed.length - 1; j >= 0; j--) {
+    if (trimmed[j] === quote && trimmed[j - 1] === '\\') {
+      if (/^\s*(?:#.*)?$/.test(trimmed.slice(j + 1))) {
+        return fallbackLine;
+      }
+    }
+  }
+  return -1;
 }
 
 /** Parses a .env file into key/value records. */
@@ -159,9 +166,19 @@ export function parseDotEnv(
           builder.push(lines[k]);
         }
         const joined = builder.join('\n').trim();
-        value = joined.startsWith(quote) && joined.endsWith(quote) && joined.length >= 2
-          ? joined.slice(1, -1)
-          : joined;
+        // dotenv strips the opening quote and the TERMINATOR quote. The
+        // terminator is found scanning backward for the last quote whose
+        // suffix matches the closing grammar — the same backward rule as
+        // findClosingLineIndex (rounds 21-26), so trailing comment/junk
+        // after the real terminator does not block the strip.
+        let stripped = joined.startsWith(quote) ? joined.slice(1) : joined;
+        for (let j = stripped.length - 1; j >= 0; j--) {
+          if (stripped[j] === quote && /^\s*(?:#.*)?$/.test(stripped.slice(j + 1))) {
+            stripped = stripped.slice(0, j) + stripped.slice(j + 1);
+            break;
+          }
+        }
+        value = stripped;
         index = closing;
       }
     } else if (quote !== undefined && value.endsWith(quote) && value.length >= 2) {

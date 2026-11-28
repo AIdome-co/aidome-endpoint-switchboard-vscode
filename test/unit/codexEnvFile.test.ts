@@ -158,6 +158,21 @@ describe('buildDotEnvContent', () => {
     expect(parsed.KEEP).toBe('yes');
   });
 
+  it('accepts an EARLIER fallback quote when a later one sits in a comment with junk (round 26)', () => {
+    // Backtracking runs from the end backward: `last\"` leaves only a comment
+    // after it (`# c \"junk`), so IT is the terminator even though the last
+    // quote on the line has an invalid `junk` suffix.
+    const existing = 'NOTE="first\nGEMINI_API_KEY=inside\nlast\\\\" # c \\"junk\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    // The multiline value survives with its interior intact (the terminator
+    // quote is stripped, dotenv-style) and the managed credential is written
+    // separately — structural assertions avoid escape drift.
+    expect(parsed.NOTE).toContain('GEMINI_API_KEY=inside');
+    expect(parsed.NOTE).toContain('# c');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.
