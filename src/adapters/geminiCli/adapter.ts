@@ -205,7 +205,7 @@ type AuthScopeRead =
     selectedType?: string;
     enforcedType?: string;
     folderTrustEnabled?: boolean;
-    ignoreLocalEnv: boolean;
+    ignoreLocalEnv?: boolean;
   };
 
 /**
@@ -252,7 +252,12 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
     folderTrustEnabled: typeof parsed.security?.folderTrust?.enabled === 'boolean'
       ? parsed.security.folderTrust.enabled
       : undefined,
-    ignoreLocalEnv: parsed.advanced?.ignoreLocalEnv === true
+    // undefined when the field is ABSENT: an omission must not override a
+    // lower scope's explicit setting (upstream merged settings retain the
+    // lower scope's value — Codex PR 159 round 18).
+    ignoreLocalEnv: typeof parsed.advanced?.ignoreLocalEnv === 'boolean'
+      ? parsed.advanced.ignoreLocalEnv
+      : undefined
   };
 }
 
@@ -504,6 +509,8 @@ async function resolveIgnoreLocalEnv(
       if (scope.kind === 'undetermined') {
         return false;
       }
+      // Only an EXPLICIT setting overrides; an omitted field keeps the lower
+      // scope's value (upstream merged-settings semantics, round 18).
       if (scope.kind === 'read' && scope.ignoreLocalEnv !== undefined) {
         ignoreLocalEnv = scope.ignoreLocalEnv === true;
       }

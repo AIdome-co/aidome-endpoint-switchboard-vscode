@@ -166,10 +166,55 @@ export function buildDotEnvContent(
     rawLines.pop();
   }
 
-  // First pass: collect, per managed key, the indices of ALL its assignment
-  // lines (both `KEY=` and `export KEY=` forms).
+  // First pass: collect, per managed key, the indices of ALL its LOGICAL
+  // assignment starts. Continuation lines of a MULTILINE quoted value are
+  // NOT independent assignments (Codex PR 159 round 18): a `GEMINI_API_KEY=`
+  // inside an unrelated quoted multiline value must never be treated as a
+  // managed line, and updating a multiline managed value must replace the
+  // WHOLE span.
+  const spanEnd = new Map<number, number>();
+  {
+    let i = 0;
+    while (i < rawLines.length) {
+      const line = rawLines[i].trim();
+      const valueStart = line.indexOf('=') === -1
+        ? line.indexOf(':')
+        : line.indexOf(':') !== -1
+          ? Math.min(line.indexOf('='), line.indexOf(':'))
+          : line.indexOf('=');
+      let value = valueStart > 0 ? line.slice(valueStart + 1).trim() : '';
+      if (value.startsWith('"') && !hasClosingQuote(value, '"')) {
+        // Multiline open: consume continuation lines until the FIRST line
+        // whose content contains the closing quote. The opening line itself
+        // must NOT be re-checked — its raw text contains the opening quote
+        // (Codex PR 159 round 18, follow-up to the missed-continuation fix).
+        let j = i + 1;
+        while (j < rawLines.length && !hasClosingQuote(rawLines[j].trim(), '"')) {
+          j++;
+        }
+        // No closing quote anywhere: the value runs to end of file (dotenv
+        // multiline mode).
+        const end = Math.min(j, rawLines.length - 1);
+        spanEnd.set(i, end);
+        i = end + 1;
+        continue;
+      }
+      i++;
+    }
+  }
   const occurrences = new Map<string, number[]>();
   rawLines.forEach((rawLine, index) => {
+    // Continuation lines of a multiline span are not assignment starts.
+    let isContinuation = false;
+    for (const [start, end] of spanEnd) {
+      if (index > start && index <= end) {
+        isContinuation = true;
+        break;
+      }
+    }
+    if (isContinuation) {
+      return;
+    }
     const key = assignmentKeyOf(rawLine);
     if (key !== null && managedKeys.has(key)) {
       const list = occurrences.get(key);
@@ -181,23 +226,59 @@ export function buildDotEnvContent(
     }
   });
 
-  // Second pass: replace the LAST occurrence of an updated key with the new
-  // value, remove every other occurrence (updates and removals alike).
+  // Second pass: replace the LAST logical occurrence of an updated key with
+  // the new value (a single line — serializeDotEnvValue escapes newlines),
+  // remove every other occurrence (updates and removals alike). Unrelated
+  // spans are preserved byte-identically.
+  const spanOf = new Map<number, number>(); // line index -> span start (ALL spans)
+  for (const [start, end] of spanEnd) {
+    for (let k = start; k <= end; k++) {
+      spanOf.set(k, start);
+    }
+  }
   const outputLines: string[] = [];
   rawLines.forEach((rawLine, index) => {
+    const spanStart = spanOf.get(index);
+    if (spanStart !== undefined) {
+      const spanKey = assignmentKeyOf(rawLines[spanStart]);
+      const managedSpan = spanKey !== null && managedKeys.has(spanKey);
+      if (!managedSpan) {
+        // Unrelated multiline span: preserve byte-identically, emit raw only
+        // on the START line so continuations are not re-emitted.
+        if (index === spanStart) {
+          for (let k = spanStart; k <= (spanEnd.get(spanStart) as number); k++) {
+            outputLines.push(rawLines[k]);
+          }
+        }
+        return;
+      }
+      if (index !== spanStart) {
+        return; // continuation of a managed multiline span: replaced
+      }
+      const key = spanKey as string;
+      if (removeKeys.has(key)) {
+        return;
+      }
+      const list = occurrences.get(key);
+      if (list && list[list.length - 1] === index) {
+        outputLines.push(`${key}=${serializeDotEnvValue(vars[key])}`);
+      }
+      return;
+    }
+    // Ordinary assignment or unrelated line.
     const key = assignmentKeyOf(rawLine);
-    if (key === null || !managedKeys.has(key)) {
-      // Unrelated line — preserved byte-identically.
-      outputLines.push(rawLine);
+    if (key !== null && managedKeys.has(key)) {
+      if (removeKeys.has(key)) {
+        return;
+      }
+      const list = occurrences.get(key);
+      if (list && list[list.length - 1] === index) {
+        outputLines.push(`${key}=${serializeDotEnvValue(vars[key])}`);
+      }
       return;
     }
-    if (removeKeys.has(key)) {
-      return;
-    }
-    const list = occurrences.get(key);
-    if (list && list[list.length - 1] === index) {
-      outputLines.push(`${key}=${serializeDotEnvValue(vars[key])}`);
-    }
+    // Unrelated line — preserved byte-identically.
+    outputLines.push(rawLine);
   });
 
   // Append managed keys the file did not contain (deterministic order).

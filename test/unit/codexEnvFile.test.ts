@@ -37,6 +37,25 @@ describe('parseDotEnv', () => {
 });
 
 describe('buildDotEnvContent', () => {
+  it('treats a quoted KEY= inside an unrelated multiline value as NON-assignment (round 18)', () => {
+    const existing = 'NOTE="first line\nGEMINI_API_KEY=inside\nlast"\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toBe('first line\nGEMINI_API_KEY=inside\nlast');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+    // The unrelated multiline value's interior is byte-identical.
+    expect(out).toContain('GEMINI_API_KEY=inside');
+  });
+
+  it('replaces a MULTILINE managed value with a single escaped line (round 18)', () => {
+    const existing = 'GEMINI_API_KEY="old\nmultiline"\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'new-secret' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.GEMINI_API_KEY).toBe('new-secret');
+    expect(parsed.KEEP).toBe('yes');
+    expect(out).not.toContain('old');
+  });
+
   it('updates managed variables and preserves unrelated ones', () => {
     const out = buildDotEnvContent('KEEP_ME=yes\nOPENAI_API_KEY=old\n# note\n', { OPENAI_API_KEY: 'new' });
     const parsed = parseDotEnv(out);
