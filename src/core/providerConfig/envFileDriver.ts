@@ -45,10 +45,55 @@ function stripExportPrefix(key: string): string {
   return key.replace(/^export\s+/, '');
 }
 
-/** Parses a .env file into key/value records. */
 /** The quote characters dotenv accepts around values. */
 const DOTENV_QUOTES = `"'` + '`';
 
+/** Matches dotenv v16.4.5's assignment grammar: `[\w.-]+` key, then `=` or
+ * `:` followed by whitespace (`:\s+?` — a colon WITHOUT a following space is
+ * NOT a separator), Codex PR 159 round 24. Returns the key and the separator
+ * index within the trimmed line, or null when the line is not an assignment. */
+const DOTENV_ASSIGNMENT = /^(?:export\s+)?([\w.-]+)\s*(=|:\s)/;
+function findAssignment(line: string): { key: string; separator: number } | null {
+  const trimmed = line.trim();
+  const match = DOTENV_ASSIGNMENT.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const separator = match[2] === ':'
+    ? match.index + match[0].length - 2 // point at the ':' (last char is the space)
+    : match.index + match[0].length - 1; // point at the '='
+  return { key: match[1], separator };
+}
+
+/** Finds the line index that CLOSES a multiline quoted value opened before
+ * `fromIndex` (Codex PR 159 rounds 21-24). A line closes the span when it
+ * contains a quote NOT immediately preceded by a backslash (dotenv v16.4.5
+ * regex `(?:\\"|[^"])*"` consumes a quote after a backslash as an escape
+ * pair from the backslash position). If NO later plain quote exists, the
+ * regex backtracks: the LAST backslash-prefixed quote becomes the
+ * terminator (its preceding backslash is re-matched by `[^"]`). Returns -1
+ * when the value never terminates (unmatched opening quote). */
+function findClosingLineIndex(
+  lines: readonly string[],
+  fromIndex: number,
+  quote: string
+): number {
+  let lastAnyQuoteLine = -1;
+  for (let i = fromIndex + 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    for (let j = 0; j < trimmed.length; j++) {
+      if (trimmed[j] === quote) {
+        lastAnyQuoteLine = i;
+        if (trimmed[j - 1] !== '\\') {
+          return i;
+        }
+      }
+    }
+  }
+  return lastAnyQuoteLine;
+}
+
+/** Parses a .env file into key/value records. */
 export function parseDotEnv(
   content: string | undefined,
   options: EnvFileDriverOptions = {}
@@ -70,17 +115,14 @@ export function parseDotEnv(
     if (line.length === 0 || line.startsWith('#')) {
       continue;
     }
-    // Earliest separator wins (dotenv's KEY[:=] pattern). A separator inside
-    // a quoted value comes after the assignment, so this is safe.
-    const eq = line.indexOf('=');
-    const colon = line.indexOf(':');
-    const separator = eq === -1 ? colon : colon === -1 ? eq : Math.min(eq, colon);
-    if (separator <= 0) {
-      // dotenv.parse skips lines without a separator — mirror that instead
-      // of failing: such a line cannot carry a managed key anyway.
+    // dotenv v16.4.5 assignment grammar (round 24): key `[\w.-]+`, separator
+    // `=` or `:`+whitespace. Lines failing the grammar are skipped, exactly
+    // like dotenv.parse.
+    const assignment = findAssignment(line);
+    if (!assignment) {
       continue;
     }
-    const key = stripExportPrefix(line.slice(0, separator).trim());
+    const { key, separator } = assignment;
     let value = line.slice(separator + 1).trim();
     // dotenv accepts THREE quote forms — double, single, and backtick — and
     // single-quoted values are LITERAL (no \n expansion). Multiline applies
@@ -93,9 +135,10 @@ export function parseDotEnv(
       // MULTILINE only when a closing quote actually EXISTS later in the file
       // (Codex PR 159 round 20): dotenv treats an UNMATCHED opening quote as
       // a single-line unquoted value, not as consuming the rest of the file.
-      const closing = lines.findIndex(
-        (l, i) => i > index && hasClosingQuote(l.trim(), quote)
-      );
+      // findClosingLineIndex applies the round-23 escape rule AND the
+      // round-24 backtracking fallback (last backslash-prefixed quote when
+      // no plain quote follows).
+      const closing = findClosingLineIndex(lines, index, quote);
       if (closing > index) {
         // MULTILINE quoted value: consume continuation lines until the closing
         // quote (dotenv's multiline mode), joining with newlines.
@@ -148,20 +191,9 @@ function hasClosingQuote(text: string, quote: string): boolean {
 
 /** Matches an assignment line and returns its unexported key, or null. */
 function assignmentKeyOf(rawLine: string): string | null {
-  const trimmed = rawLine.trim();
-  if (trimmed.length === 0 || trimmed.startsWith('#')) {
-    return null;
-  }
-  // dotenv accepts both `KEY=value` and `KEY: value` — a managed key defined
-  // with a colon separator must still be replaced in place, not appended
-  // twice (dotenv.parse is last-wins, but in-place is truthful).
-  const eq = trimmed.indexOf('=');
-  const colon = trimmed.indexOf(':');
-  const separator = eq === -1 ? colon : colon === -1 ? eq : Math.min(eq, colon);
-  if (separator <= 0) {
-    return null;
-  }
-  return stripExportPrefix(trimmed.slice(0, separator).trim());
+  // dotenv v16.4.5 grammar (round 24): key `[\w.-]+`, `=` or `:`+whitespace.
+  const assignment = findAssignment(rawLine);
+  return assignment ? assignment.key : null;
 }
 
 /**
@@ -210,30 +242,23 @@ export function buildDotEnvContent(
     let i = 0;
     while (i < rawLines.length) {
       const line = rawLines[i].trim();
-      const valueStart = line.indexOf('=') === -1
-        ? line.indexOf(':')
-        : line.indexOf(':') !== -1
-          ? Math.min(line.indexOf('='), line.indexOf(':'))
-          : line.indexOf('=');
-      let value = valueStart > 0 ? line.slice(valueStart + 1).trim() : '';
+      // Only a line matching dotenv's assignment GRAMMAR (round 24) can open
+      // a span: `junk:"first` (colon without following whitespace) is a
+      // tolerated junk line, not a multiline assignment.
+      const assignment = findAssignment(line);
+      const value = assignment ? line.slice(assignment.separator + 1).trim() : '';
       // All three dotenv quote forms open multiline spans (round 19).
       const openQuote = value.length > 0 && DOTENV_QUOTES.includes(value[0]) ? value[0] : undefined;
       // The opening quote itself must not count as a terminator (round 21).
       if (openQuote !== undefined && !hasClosingQuote(value.slice(1), openQuote)) {
-        // MULTILINE open: consume continuation lines until the FIRST line
-        // whose content contains the closing quote. The opening line itself
-        // must NOT be re-checked — its raw text contains the opening quote
-        // (Codex PR 159 round 18, follow-up to the missed-continuation fix).
-        // An UNMATCHED opening quote forms NO span (round 20): dotenv treats
-        // it as a single-line unquoted value, so following managed lines
-        // must stay reconcilable.
-        const closingLine = rawLines.findIndex(
-          (l, j) => j > i && hasClosingQuote(l.trim(), openQuote)
-        );
+        // MULTILINE open: close at the first line with a plain quote; when
+        // none exists, the regex backtracks to the LAST backslash-prefixed
+        // quote (rounds 21-24). An UNMATCHED opening quote forms NO span
+        // (round 20): dotenv treats it as a single-line unquoted value.
+        const closingLine = findClosingLineIndex(rawLines, i, openQuote);
         if (closingLine > i) {
-          const end = closingLine;
-          spanEnd.set(i, end);
-          i = end + 1;
+          spanEnd.set(i, closingLine);
+          i = closingLine + 1;
           continue;
         }
         i++;

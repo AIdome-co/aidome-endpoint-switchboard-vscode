@@ -125,6 +125,28 @@ describe('buildDotEnvContent', () => {
     expect(parsed.GEMINI_API_KEY).toBe('real');
   });
 
+  it('reconciles past a grammar-invalid junk line that only looks like a span opener (round 24)', () => {
+    // `junk:"first` fails dotenv's assignment grammar (`:\s+?` requires
+    // whitespace after the colon), so it is a junk line — the stale key
+    // after it must still be cleared on a credential-less profile switch.
+    const existing = 'junk:"first\nGEMINI_API_KEY=stale\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, {}, { removeKeys: ['GEMINI_API_KEY'] });
+    const parsed = parseDotEnv(out);
+    expect(parsed.GEMINI_API_KEY).toBeUndefined();
+    expect(parsed.KEEP).toBe('yes');
+    expect(out).not.toContain('GEMINI_API_KEY');
+  });
+
+  it('lets the FINAL backslash-prefixed quote terminate via regex backtracking (round 24)', () => {
+    // No later plain quote exists: the greedy escape-pair match backtracks,
+    // the quote closes the value, and BOTH backslashes stay as content.
+    const existing = 'NOTE="first\nGEMINI_API_KEY=inside\nlast\\\\"\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toBe('first\nGEMINI_API_KEY=inside\nlast\\\\');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.
