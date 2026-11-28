@@ -173,6 +173,20 @@ describe('buildDotEnvContent', () => {
     expect(parsed.GEMINI_API_KEY).toBe('real');
   });
 
+  it('scans fallback candidates across ALL lines, not just the last (round 27)', () => {
+    // An earlier line can close via backtracking (`last\\" # comment`) while
+    // a later line holds an INVALID candidate (`foo\\"junk`). The span must
+    // close on the earlier line, preserving the interior, and the later
+    // assignment stays independent.
+    const existing = 'NOTE="first\nGEMINI_API_KEY=inside\nlast\\\\" # comment\nNEXT=foo\\\\"junk\nKEEP=yes\n';
+    const out = buildDotEnvContent(existing, { GEMINI_API_KEY: 'real' });
+    const parsed = parseDotEnv(out);
+    expect(parsed.NOTE).toContain('GEMINI_API_KEY=inside');
+    expect(parsed.NEXT).toBe(String.raw`foo\\"junk`);
+    expect(parsed.KEEP).toBe('yes');
+    expect(parsed.GEMINI_API_KEY).toBe('real');
+  });
+
   it('treats an UNMATCHED opening quote as a single-line value, not a file-consuming span (round 20)', () => {
     // dotenv treats an unmatched quote as an unquoted single-line value, so
     // the following stale managed key must still be reconcilable.

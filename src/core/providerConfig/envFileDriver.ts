@@ -80,33 +80,30 @@ function findClosingLineIndex(
   fromIndex: number,
   quote: string
 ): number {
-  let fallbackLine = -1;
+  // Backslash-prefixed quote candidates, in file order (rounds 25-27).
+  const fallbackCandidates: Array<{ line: number; pos: number; text: string }> = [];
   for (let i = fromIndex + 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     for (let j = 0; j < trimmed.length; j++) {
       if (trimmed[j] === quote) {
         if (trimmed[j - 1] !== '\\') {
+          // Plain quote: the greedy match closes here without backtracking.
           return i;
         }
-        fallbackLine = i;
+        fallbackCandidates.push({ line: i, pos: j, text: trimmed });
       }
     }
   }
-  if (fallbackLine === -1) {
+  if (fallbackCandidates.length === 0) {
     return -1;
   }
-  // Backtracking fallback on the last candidate line: dotenv backtracks the
-  // escape-pair matches from the END backward, so scan the line's
-  // backslash-prefixed quotes from the last to the first and accept the
-  // first whose suffix matches the closing grammar `\s*(?:#.*)?$` (rounds
-  // 25-26). A quote inside the trailing comment can still be the terminator
-  // when an earlier quote leaves only the comment after it.
-  const trimmed = lines[fallbackLine].trim();
-  for (let j = trimmed.length - 1; j >= 0; j--) {
-    if (trimmed[j] === quote && trimmed[j - 1] === '\\') {
-      if (/^\s*(?:#.*)?$/.test(trimmed.slice(j + 1))) {
-        return fallbackLine;
-      }
+  // Backtracking un-pairs escape-pair matches from the END backward, so scan
+  // candidates from the last to the first and accept the first whose own
+  // suffix matches the closing grammar `\s*(?:#.*)?$` (rounds 25-27).
+  for (let k = fallbackCandidates.length - 1; k >= 0; k--) {
+    const c = fallbackCandidates[k];
+    if (/^\s*(?:#.*)?$/.test(c.text.slice(c.pos + 1))) {
+      return c.line;
     }
   }
   return -1;
