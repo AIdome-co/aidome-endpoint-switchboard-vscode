@@ -104,33 +104,31 @@ export function getOpenCodeConfigPath(): string {
       ?? path.join(standardDir, 'opencode.json');
   }
 
-  const candidates: string[] = [
-    path.join(standardDir, 'opencode.json'),
-    ...(snapCommonConfig ? [snapCommonConfig] : [])
-  ];
-
   // Snap runs opencode with a confined HOME (for example ~/snap/opencode/299).
   // The extension host does not inherit that HOME, so prefer the current
   // numeric snap revision when it has a config file.
   const snapRoot = path.join(os.homedir(), 'snap', 'opencode');
+  const snapCandidates: string[] = [
+    ...(snapCommonConfig ? [snapCommonConfig] : [])
+  ];
   try {
     const revisions = fs.readdirSync(snapRoot)
       .filter(revision => /^\d+$/.test(revision))
       .sort((left, right) => Number(right) - Number(left));
     for (const revision of revisions) {
-      candidates.push(path.join(snapRoot, revision, 'opencode.json'));
+      snapCandidates.push(path.join(snapRoot, revision, 'opencode.json'));
     }
   } catch {
     // A missing snap installation is normal; use the standard opencode path.
   }
-  candidates.push(path.join(snapRoot, 'common', 'opencode.json'));
+  snapCandidates.push(path.join(snapRoot, 'common', 'opencode.json'));
 
   // When the installed opencode executable IS the snap, its confined config
-  // is the one actually read at runtime — prefer snap candidates over the
-  // standard path even when both exist.
-  if (isSnapOpencode()) {
-    candidates.reverse();
-  }
+  // is the one actually read at runtime — the snap candidates move ahead of
+  // the standard path, keeping their newest-revision-first internal order.
+  const candidates: string[] = isSnapOpencode()
+    ? [...snapCandidates, path.join(standardDir, 'opencode.json')]
+    : [path.join(standardDir, 'opencode.json'), ...snapCandidates];
 
   for (const candidate of candidates) {
     const selected = pickExistingConfigVariant([candidate]);

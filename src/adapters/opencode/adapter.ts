@@ -108,6 +108,22 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       managedModels[model.id] = {};
     }
 
+    // With no discovered models the previously selected Switchboard model
+    // (top-level `model` = "aidome/...") would keep receiving requests on the
+    // new base URL while looking configured. Clear it — but only when
+    // Switchboard owns the value; a user's own selection is left alone.
+    const clearManagedModel = models.length === 0 && (await this.hasSwitchboardSelectedModel(configPath));
+
+    // Paths removed from the config document:
+    // - switching to a credential-free profile must remove the stale managed
+    //   apiKey (the driver only patches fields it is given, so omitting the
+    //   patch would leave the previous profile's token in the config);
+    // - empty discovery must clear a Switchboard-owned model selection.
+    const removalPaths: string[][] = [
+      ...(profile.authRef ? [] : [['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey']]),
+      ...(clearManagedModel ? [['model']] : [])
+    ];
+
     let plan = createPlan(profile.id, ['opencode']);
 
     // PlanApplier owns backup-before-write for edit-config-file; the
@@ -154,14 +170,8 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
               clearAuthWhenMissing: true,
               missingSecretMessage: `OpenCode API key was cleared for "${profile.name}" because no saved profile secret was found. Re-enter the gateway token in the Switchboard profile and reapply.`
             }
-          : {
-              // Switching from an authenticated profile to a credential-free
-              // one must REMOVE the managed apiKey: the JSON driver only
-              // patches fields it is given, so omitting the patch would leave
-              // the previous profile's token in the config and it could be
-              // sent to the new endpoint.
-              removePaths: [['provider', OPENCODE_PROVIDER_ID, 'options', 'apiKey']]
-            }),
+          : {}),
+        ...(removalPaths.length > 0 ? { removePaths: removalPaths } : {})
       },
       reversible: true
     });
@@ -214,6 +224,26 @@ export class OpenCodeAdapter extends BaseExtensionAdapter {
       ? await this.dependencies.profileSecrets.getSecret(profile.authRef)
       : undefined;
     return discoverOpenAiModels(profile.baseUrl, token);
+  }
+
+  /**
+   * True when the existing config's top-level `model` was selected by the
+   * Switchboard (starts with the managed provider id) and therefore may be
+   * cleared when discovery returns no models. A user's own selection is not
+   * touched.
+   */
+  private async hasSwitchboardSelectedModel(configPath: string): Promise<boolean> {
+    const content = await readFileSafe(configPath);
+    if (!content) {
+      return false;
+    }
+    let selected: unknown;
+    try {
+      selected = parseOpenCodeConfigForVerification(content).model;
+    } catch {
+      return false;
+    }
+    return typeof selected === 'string' && selected.startsWith(`${OPENCODE_PROVIDER_ID}/`);
   }
 
   protected async verifyConfiguration(): Promise<VerificationResult> {
