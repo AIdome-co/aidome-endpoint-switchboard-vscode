@@ -93,7 +93,7 @@ export function resolveGeminiDir(): string {
  */
 export async function findProjectEnvShadowing(
   startDirs: readonly string[],
-  readFile: (filePath: string) => Promise<string | undefined> = readFileSafe
+  exists: (filePath: string) => Promise<boolean> = fileExists
 ): Promise<string | undefined> {
   const target = resolveGeminiEnvFilePath();
   const targetDir = path.dirname(target);
@@ -103,11 +103,14 @@ export async function findProjectEnvShadowing(
     let current = path.resolve(start);
     while (true) {
       const geminiEnv = path.join(current, '.gemini', '.env');
-      if (geminiEnv !== target && await readFile(geminiEnv) !== undefined) {
+      // Gemini selects env files by EXISTENCE (existsSync) and does not fall
+      // back after selecting one — an unreadable file still shadows the
+      // user-level file, so test existence, not readability.
+      if (geminiEnv !== target && await exists(geminiEnv)) {
         return geminiEnv;
       }
       const envPath = path.join(current, '.env');
-      if (current !== homeDir && current !== targetDir && await readFile(envPath) !== undefined) {
+      if (current !== homeDir && current !== targetDir && await exists(envPath)) {
         return envPath;
       }
       if (current === homeDir || current === targetDir) {
@@ -357,6 +360,42 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
       });
     }
 
+    // Inherited environment overrides (Codex round 9, PR 159): Gemini's
+    // dotenv loader only imports a file value when the key is ABSENT from
+    // the process environment, so when the extension host was started with
+    // one of the managed variables already set (e.g. shell guidance from a
+    // previous release), the automatic file write would have no effect while
+    // reporting success. Report guided steps that ask for the variable to be
+    // unset instead of claiming Tier A configuration.
+    const inheritedOverrides = [
+      ...SUPPORTED_BASE_URL_VARIABLES,
+      'GEMINI_API_KEY',
+      'GOOGLE_API_KEY'
+    ].filter(name => Object.prototype.hasOwnProperty.call(process.env, name));
+    if (inheritedOverrides.length > 0) {
+      return addStep(plan, {
+        action: 'show-guided-steps',
+        description: 'Inherited environment variables override the Gemini CLI env file',
+        assistantKey: 'gemini-cli',
+        data: {
+          configurationStatus: 'manual-configuration-required',
+          message: `The environment that launched this session already defines ${inheritedOverrides.join(', ')}. Gemini's dotenv loader leaves inherited variables in place and does not import the file value, so Switchboard's automatic write would have no effect.`,
+          steps: [
+            `Unset ${inheritedOverrides.join(' ')} in the shell profile or launcher that starts VS Code (or remove them from the session environment), then reapply.`,
+            `Switchboard will then write the gateway endpoint (${profile.baseUrl}) to ${resolveGeminiEnvFilePath()} where Gemini actually reads it.`,
+            'Restart Gemini CLI (or start a new one) after the change so it reloads its environment.',
+            'Re-run the wizard afterwards to confirm the configuration.'
+          ],
+          baseUrl: profile.baseUrl,
+          envVarName: 'GOOGLE_GEMINI_BASE_URL',
+          limitation: 'inherited-env-overrides-gemini-env-file',
+          inheritedOverrides,
+          tier: DESCRIPTOR?.tier ?? 'A'
+        } satisfies GuidedStepsData,
+        reversible: false
+      });
+    }
+
     // Project env-file shadowing (Codex PR 159 round 8): Gemini CLI loads
     // the FIRST env file found walking from its launch directory (upstream
     // findEnvFile) and does not merge dotenv files. When a project-level
@@ -378,6 +417,7 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
             `Gemini CLI resolves its env file from its launch directory: ${shadowingEnvFile} is found before ${resolveGeminiEnvFilePath()} and dotenv files are not merged.`,
             `Either add GOOGLE_GEMINI_BASE_URL=${profile.baseUrl} (and GEMINI_API_KEY when the profile has a saved secret) directly to ${shadowingEnvFile}, or remove/rename that file so the user-level env file becomes active.`,
             'Restart Gemini CLI (or start a new one) after editing so it reloads the env file.',
+            'If you launch Gemini from a terminal after cd-ing into a workspace subdirectory, a .env or .gemini/.env in THAT directory (or any directory between it and your home) also shadows the user-level env file — Gemini walks up from its launch directory, and project files win.',
             'Re-run the wizard afterwards to confirm the configuration.'
           ],
           baseUrl: profile.baseUrl,

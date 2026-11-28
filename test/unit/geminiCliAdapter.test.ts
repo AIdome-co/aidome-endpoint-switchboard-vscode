@@ -284,9 +284,13 @@ describe('GeminiCliAdapter', () => {
       };
       vi.spyOn(scoped, 'getProjectCandidateDirs').mockResolvedValue(dirs);
       // The suite-wide beforeEach stubs readFileSafe to "no files"; restore
-      // real filesystem reads so the shadowing helper can see project files.
+      // real filesystem reads AND existence so the shadowing helper (which
+      // checks existence, per Gemini's existsSync selection) sees files.
       vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(
         (filePath: string) => fs.readFile(filePath, 'utf-8').catch(() => undefined)
+      );
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(
+        async (filePath: string) => fs.access(filePath).then(() => true, () => false)
       );
       return adapter;
     }
@@ -321,6 +325,7 @@ describe('GeminiCliAdapter', () => {
       // Reads must report NO files anywhere: the real filesystem may contain
       // unrelated .env files in ancestor directories (e.g. /tmp, /).
       vi.spyOn(fsSafe, 'readFileSafe').mockResolvedValue(undefined);
+      vi.spyOn(fsSafe, 'fileExists').mockResolvedValue(false);
 
       const plan = await adapter.buildPlan(mockProfile);
 
