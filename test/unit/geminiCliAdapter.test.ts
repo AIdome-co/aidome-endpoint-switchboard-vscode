@@ -341,13 +341,16 @@ describe('GeminiCliAdapter', () => {
       process.env['GEMINI_CLI_HOME'] = fakeHome;
       try {
         const osHome = os.homedir();
-        // Simulate the OS home holding a .env: the adapterWithProject stub
-        // restores real reads, so point readFileSafe/fileExists at it.
+        // adapterWithProject restores REAL filesystem reads/existence; apply
+        // its spies FIRST, then override existence so ONLY the OS home .env
+        // appears to exist — a hermetic simulation of an OS home .env that is
+        // otherwise absent on CI runners (no real ~/.gemini/.env either).
+        const scoped = adapterWithProject([nodePath.join(osHome, 'project')]);
         vi.spyOn(fsSafe, 'fileExists').mockImplementation(
           async (filePath: string) => filePath === nodePath.join(osHome, '.env')
         );
 
-        const plan = await adapterWithProject([nodePath.join(osHome, 'project')]).buildPlan(mockProfile);
+        const plan = await scoped.buildPlan(mockProfile);
 
         expect(plan.steps).toHaveLength(1);
         expect(plan.steps[0].data.limitation).toBe('project-env-file-shadows-user-env-file');
