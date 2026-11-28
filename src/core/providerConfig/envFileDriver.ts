@@ -160,7 +160,7 @@ export function buildDotEnvContent(
     }
     const list = occurrences.get(key);
     if (list && list[list.length - 1] === index) {
-      outputLines.push(`${key}=${vars[key]}`);
+      outputLines.push(`${key}=${serializeDotEnvValue(vars[key])}`);
     }
   });
 
@@ -169,7 +169,7 @@ export function buildDotEnvContent(
     .filter(key => !occurrences.has(key))
     .sort();
   for (const key of appended) {
-    outputLines.push(`${key}=${vars[key]}`);
+    outputLines.push(`${key}=${serializeDotEnvValue(vars[key])}`);
   }
   if (hadTrailingNewline && outputLines.length > 0) {
     outputLines.push('');
@@ -177,6 +177,26 @@ export function buildDotEnvContent(
 
   const result = outputLines.join('\n');
   return result.endsWith('\n') || result.length === 0 ? result : `${result}\n`;
+}
+
+/**
+ * Serializes a value for a dotenv assignment (Codex PR 159 round 15):
+ * dotenv.parse truncates unquoted values at a `#` inline comment, treats
+ * quotes/newlines specially, and a literal newline creates ADDITIONAL
+ * assignments. Values made only of dotenv-safe characters are emitted
+ * verbatim; anything else is double-quoted with dotenv escape sequences so
+ * the parsed value is byte-identical to the stored credential.
+ */
+function serializeDotEnvValue(value: string): string {
+  if (/^[A-Za-z0-9_./:@+=,-]*$/.test(value)) {
+    return value;
+  }
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r\n/g, '\\n')
+    .replace(/\r|\n/g, '\\n');
+  return `"${escaped}"`;
 }
 
 /**

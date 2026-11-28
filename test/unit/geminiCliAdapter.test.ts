@@ -435,6 +435,47 @@ describe('GeminiCliAdapter', () => {
       expect(plan.steps[0].data.limitation).toBe('selected-auth-type-incompatible-with-gateway');
     });
 
+    it('ignores ordinary project .env files as shadows when advanced.ignoreLocalEnv=true', async () => {
+      const project = await makeProjectDir({});
+      const shadowAdapter = adapterWithProject([project]);
+      // Spies AFTER adapterWithProject: the project .env exists on disk but
+      // the merged settings enable ignoreLocalEnv, so upstream skips generic
+      // .env files while continuing the search — not a shadow.
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(project, '.gemini', 'settings.json')) {
+          return JSON.stringify({ advanced: { ignoreLocalEnv: true } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(
+        async (filePath: string) => filePath === nodePath.join(project, '.env')
+      );
+
+      const plan = await shadowAdapter.buildPlan(mockProfile);
+
+      expect(plan.steps.every(s => s.data.limitation !== 'project-env-file-shadows-user-env-file')).toBe(true);
+      expect(plan.steps.some(s => s.action === 'edit-config-file')).toBe(true);
+    });
+
+    it('still shadows on project .gemini/.env even when advanced.ignoreLocalEnv=true', async () => {
+      const project = await makeProjectDir({});
+      const shadowAdapter = adapterWithProject([project]);
+      vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
+        if (filePath === nodePath.join(project, '.gemini', 'settings.json')) {
+          return JSON.stringify({ advanced: { ignoreLocalEnv: true } });
+        }
+        return undefined;
+      });
+      vi.spyOn(fsSafe, 'fileExists').mockImplementation(
+        async (filePath: string) => filePath === nodePath.join(project, '.gemini', '.env')
+      );
+
+      const plan = await shadowAdapter.buildPlan(mockProfile);
+
+      expect(plan.steps).toHaveLength(1);
+      expect(plan.steps[0].data.limitation).toBe('project-env-file-shadows-user-env-file');
+    });
+
     it('reports guided steps when an incompatible security.auth.enforcedType is pinned', async () => {
       vi.spyOn(fsSafe, 'readFileSafe').mockImplementation(async (filePath: string) => {
         if (filePath === nodePath.join(os.homedir(), '.gemini', 'settings.json')) {

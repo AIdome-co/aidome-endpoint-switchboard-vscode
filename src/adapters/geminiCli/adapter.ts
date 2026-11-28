@@ -95,7 +95,8 @@ export function resolveGeminiDir(): string {
  */
 export async function findProjectEnvShadowing(
   startDirs: readonly string[],
-  exists: (filePath: string) => Promise<boolean> = fileExists
+  exists: (filePath: string) => Promise<boolean> = fileExists,
+  options: { ignoreLocalEnv?: boolean } = {}
 ): Promise<string | undefined> {
   const target = resolveGeminiEnvFilePath();
   const targetDir = path.dirname(target);
@@ -118,8 +119,15 @@ export async function findProjectEnvShadowing(
       if (geminiEnv !== target && await exists(geminiEnv)) {
         return geminiEnv;
       }
+      // advanced.ignoreLocalEnv=true makes upstream findEnvFile skip GENERIC
+      // .env files while CONTINUING the search (settings.ts:630-635) — such
+      // a file is not a shadow. Project .gemini/.env files are still loaded,
+      // so they remain shadows.
       const envPath = path.join(current, '.env');
-      if (current !== homeDir && current !== targetDir && await exists(envPath)) {
+      if (
+        !(options.ignoreLocalEnv === true)
+        && current !== homeDir && current !== targetDir && await exists(envPath)
+      ) {
         return envPath;
       }
       if (current === homeDir || current === targetDir) {
@@ -197,6 +205,7 @@ type AuthScopeRead =
     selectedType?: string;
     enforcedType?: string;
     folderTrustEnabled?: boolean;
+    ignoreLocalEnv: boolean;
   };
 
 /**
@@ -219,6 +228,7 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
       auth?: { selectedType?: unknown; enforcedType?: unknown };
       folderTrust?: { enabled?: unknown };
     };
+    advanced?: { ignoreLocalEnv?: unknown };
   };
   try {
     // Gemini parses settings scopes as JSONC (stripJsonComments before
@@ -241,7 +251,8 @@ async function readAuthScope(filePath: string): Promise<AuthScopeRead> {
     enforcedType: typeof auth?.enforcedType === 'string' ? auth.enforcedType : undefined,
     folderTrustEnabled: typeof parsed.security?.folderTrust?.enabled === 'boolean'
       ? parsed.security.folderTrust.enabled
-      : undefined
+      : undefined,
+    ignoreLocalEnv: parsed.advanced?.ignoreLocalEnv === true
   };
 }
 
@@ -466,6 +477,35 @@ function isPathTrustedByRules(
   return longestTrust === 'TRUST_FOLDER' || longestTrust === 'TRUST_PARENT'
     ? true
     : undefined;
+}
+
+/**
+ * Resolves advanced.ignoreLocalEnv across upstream's merged settings
+ * (systemDefaults < user < workspace < system overrides, LAST ONE WINS —
+ * at env-file time loadSettings has already resolved workspace settings).
+ * Returns false when no scope enables it or a scope cannot be read: the
+ * shadowing guard must stay active unless ignoreLocalEnv is PROVEN true.
+ */
+async function resolveIgnoreLocalEnv(
+  workspaceDirs: readonly string[]
+): Promise<boolean> {
+  const scopesLowestFirst = [
+    getSystemDefaultsPath(),
+    path.join(resolveGeminiDir(), 'settings.json'),
+    ...workspaceDirs.map(dir => path.join(dir, '.gemini', 'settings.json')),
+    getSystemSettingsPath()
+  ];
+  let ignoreLocalEnv = false;
+  for (const scopePath of scopesLowestFirst) {
+    const scope = await readAuthScope(scopePath);
+    if (scope.kind === 'undetermined') {
+      return false;
+    }
+    if (scope.kind === 'read' && scope.ignoreLocalEnv !== undefined) {
+      ignoreLocalEnv = scope.ignoreLocalEnv === true;
+    }
+  }
+  return ignoreLocalEnv;
 }
 
 /**
@@ -948,8 +988,15 @@ export class GeminiCliAdapter extends BaseExtensionAdapter {
     // `.gemini/.env` or `.env` shadows the user-level file, the automatic
     // write below would never be read while the applier reported success —
     // so report guided steps instead of a false Tier A configuration.
+    // advanced.ignoreLocalEnv=true (merged settings, Codex PR 159 round 15)
+    // makes upstream skip GENERIC .env files while continuing the search, so
+    // ordinary .env files are not shadows under that setting; project
+    // .gemini/.env files remain shadows. An unreadable scope keeps the
+    // guard (cannot prove ignoreLocalEnv=true).
     const shadowingEnvFile = await findProjectEnvShadowing(
-      projectCandidateDirs
+      projectCandidateDirs,
+      fileExists,
+      { ignoreLocalEnv: await resolveIgnoreLocalEnv(projectCandidateDirs) }
     );
     if (shadowingEnvFile) {
       return addStep(plan, {
