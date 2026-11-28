@@ -69,7 +69,11 @@ describe('patchCodexEnvFile (backup-before-modify, atomic write)', () => {
     const backup = await patchCodexEnvFile('/tmp/codex/.env', { OPENAI_API_KEY: 'new-secret' });
 
     expect(backup).toBe(backupTarget);
-    expect((await fs.promises.stat(backupTarget)).mode & 0o777).toBe(0o600);
+    // POSIX only: Windows (NTFS) fakes permission bits, so the narrowed
+    // backup cannot be asserted there.
+    if (process.platform !== 'win32') {
+      expect((await fs.promises.stat(backupTarget)).mode & 0o777).toBe(0o600);
+    }
     expect(fsSafe.createBackup).toHaveBeenCalledWith('/tmp/codex/.env');
     const written = (fsSafe.writeFileAtomic as any).mock.calls[0][1];
     expect(written).toContain('OPENAI_API_KEY=new-secret');
